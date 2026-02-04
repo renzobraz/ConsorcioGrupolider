@@ -59,7 +59,15 @@ export const getSupabase = () => {
 
     if (!supabaseInstance) {
       try {
-        supabaseInstance = createClient(url, key);
+        // Inicializa o cliente com configurações de segurança e persistência explícitas
+        // para evitar erros em navegadores com restrições de privacidade.
+        supabaseInstance = createClient(url, key, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: false
+            }
+        });
       } catch (error) {
         console.error("Failed to initialize Supabase client:", error);
         return null;

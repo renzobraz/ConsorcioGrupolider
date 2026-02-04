@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload } from 'lucide-react';
+import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { useConsortium } from '../store/ConsortiumContext';
 
@@ -9,12 +9,52 @@ const Settings = () => {
   const [url, setUrl] = useState('');
   const [key, setKey] = useState('');
   const [saved, setSaved] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     const config = getSupabaseConfig();
     if (config.url) setUrl(config.url);
     if (config.key) setKey(config.key);
   }, []);
+
+  const handleTestConnection = async () => {
+    if (!url || !key) {
+      alert("Preencha a URL e a API Key antes de testar.");
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      // Tenta conectar diretamente na API REST para validar se o computador alcança o servidor
+      // Remove barra final se existir para evitar erro de URL
+      const cleanUrl = url.replace(/\/$/, "");
+      
+      const response = await fetch(`${cleanUrl}/rest/v1/`, {
+        method: 'GET',
+        headers: {
+          'apikey': key,
+          'Authorization': `Bearer ${key}`
+        }
+      });
+
+      if (response.ok || response.status === 200) {
+        alert("✅ SUCESSO!\n\nConexão estabelecida. Este computador consegue acessar o banco de dados.");
+      } else if (response.status === 401 || response.status === 403) {
+        alert("⚠️ FALHA DE AUTENTICAÇÃO\n\nO computador acessou o servidor, mas a 'API Key' foi recusada.\nVerifique se copiou a chave correta (anon/public).");
+      } else {
+        alert(`⚠️ ERRO NO SERVIDOR\n\nCódigo: ${response.status}\nO servidor respondeu, mas com erro.`);
+      }
+
+    } catch (error: any) {
+      if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+         alert("🚫 ERRO DE REDE (BLOQUEIO)\n\nO navegador NÃO conseguiu chegar ao servidor.\n\nCausas Prováveis:\n1. Firewall da empresa bloqueando 'supabase.co'.\n2. Data/Hora do computador errada (Falha SSL).\n3. Sem internet.\n4. Antivírus bloqueando a conexão.");
+      } else {
+         alert(`❌ Erro Desconhecido: ${error.message}`);
+      }
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleSave = () => {
     const cleanedUrl = url.trim();
@@ -258,7 +298,7 @@ CREATE POLICY "Public access for demo" ON credit_usages FOR ALL USING (true);
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-8 pb-10">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Configurações</h1>
         <p className="text-slate-500">Conecte seu aplicativo a um banco de dados PostgreSQL na nuvem ou gerencie backups.</p>
@@ -309,13 +349,24 @@ CREATE POLICY "Public access for demo" ON credit_usages FOR ALL USING (true);
           </div>
         </div>
 
-        <div className="mt-6 flex gap-3">
+        <div className="mt-6 flex flex-wrap gap-3">
           <button 
             onClick={handleSave}
             className="px-6 py-2.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
           >
             <Save size={18} /> Salvar Conexão
           </button>
+          
+          <button 
+            onClick={handleTestConnection}
+            disabled={isTesting || !url || !key}
+            className="px-4 py-2.5 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+            title="Diagnosticar problemas de conexão"
+          >
+             {isTesting ? <Activity size={18} className="animate-spin" /> : <Wifi size={18} />}
+             {isTesting ? "Testando..." : "Testar Conexão"}
+          </button>
+
           {saved && <span className="flex items-center text-emerald-600 text-sm"><CheckCircle size={16} className="mr-1"/> Salvo!</span>}
           
           {(url || key) && (
