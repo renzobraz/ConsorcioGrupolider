@@ -1,0 +1,5 @@
+{
+  "name": "ConsorcioManager Pro",
+  "description": "A comprehensive dashboard for managing consortium quotas, simulating payment plans (Reduced, Normal, Semestral), and tracking financial schedules.",
+  "requestFramePermissions": []
+}

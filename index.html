@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ConsorcioManager Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+      }
+      /* Custom Scrollbar for tables */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; 
+      }
+      
+      @media print {
+        @page {
+          size: landscape;
+          margin: 0.5cm;
+        }
+        body {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          background-color: white !important;
+          font-size: 7pt !important;
+        }
+        /* Hide everything by default on print */
+        .print\:hidden {
+          display: none !important;
+        }
+        /* Ensure main content is visible and fills page */
+        main {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          overflow: visible !important;
+        }
+        /* Reset table overflow for printing */
+        .overflow-x-auto {
+          overflow: visible !important;
+          display: block !important;
+        }
+        table {
+          width: 100% !important;
+          table-layout: auto !important;
+          border-collapse: collapse !important;
+        }
+        /* Fix background colors in some browsers */
+        th {
+          background-color: #1e293b !important;
+          color: white !important;
+          -webkit-print-color-adjust: exact !important;
+        }
+        td, th {
+          border: 1px solid #e2e8f0 !important;
+          padding: 4px !important;
+        }
+        /* Remove sticky for print to avoid overlapping */
+        .sticky {
+          position: static !important;
+          background-color: inherit !important;
+          box-shadow: none !important;
+          border-right: 1px solid #e2e8f0 !important;
+        }
+        tfoot tr {
+            background-color: #0f172a !important;
+            color: white !important;
+        }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.4.1",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
