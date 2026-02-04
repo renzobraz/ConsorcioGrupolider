@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Percent } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader } from 'lucide-react';
 import { ProductType } from '../types';
 import { calculateCurrentCreditValue } from '../services/calculationService';
 
