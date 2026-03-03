@@ -38,6 +38,14 @@ interface ConsortiumContextType {
   deleteCreditUsage: (id: string) => Promise<void>;
   
   refreshData: () => Promise<void>;
+
+  // Global Filters
+  globalFilters: {
+    companyId: string;
+    administratorId: string;
+    status: string;
+  };
+  setGlobalFilters: (filters: { companyId: string; administratorId: string; status: string }) => void;
 }
 
 const ConsortiumContext = createContext<ConsortiumContextType | undefined>(undefined);
@@ -54,6 +62,13 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // Global Filters State
+  const [globalFilters, setGlobalFilters] = useState({
+    companyId: '',
+    administratorId: '',
+    status: ''
+  });
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
@@ -470,7 +485,9 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getCreditUsages,
       addCreditUsage,
       deleteCreditUsage,
-      refreshData
+      refreshData,
+      globalFilters,
+      setGlobalFilters
     }}>
       {children}
     </ConsortiumContext.Provider>

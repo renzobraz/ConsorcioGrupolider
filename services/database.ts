@@ -33,7 +33,13 @@ const toDbQuota = (q: Quota) => ({
   credit_manual_adjustment: q.creditManualAdjustment || 0,
   administrator_id: q.administratorId || null,
   company_id: q.companyId || null,
-  bid_free_correction: q.bidFreeCorrection || 0
+  bid_free_correction: q.bidFreeCorrection || 0,
+  calculation_method: q.calculationMethod || 'LINEAR',
+  index_table: q.indexTable ? JSON.stringify(q.indexTable) : null,
+  acquired_from_third_party: q.acquiredFromThirdParty || false,
+  assumed_installment: q.assumedInstallment || null,
+  pre_paid_fc_percent: q.prePaidFCPercent || null,
+  acquisition_cost: q.acquisitionCost || null
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -60,7 +66,13 @@ const fromDbQuota = (dbQ: any): Quota => ({
   creditManualAdjustment: Number(dbQ.credit_manual_adjustment || 0),
   administratorId: dbQ.administrator_id,
   companyId: dbQ.company_id,
-  bidFreeCorrection: Number(dbQ.bid_free_correction || 0)
+  bidFreeCorrection: Number(dbQ.bid_free_correction || 0),
+  calculationMethod: dbQ.calculation_method || 'LINEAR',
+  indexTable: dbQ.index_table ? (typeof dbQ.index_table === 'string' ? JSON.parse(dbQ.index_table) : dbQ.index_table) : undefined,
+  acquiredFromThirdParty: dbQ.acquired_from_third_party || false,
+  assumedInstallment: dbQ.assumed_installment ? Number(dbQ.assumed_installment) : undefined,
+  prePaidFCPercent: dbQ.pre_paid_fc_percent ? Number(dbQ.pre_paid_fc_percent) : undefined,
+  acquisitionCost: dbQ.acquisition_cost ? Number(dbQ.acquisition_cost) : undefined
 });
 
 export const db = {

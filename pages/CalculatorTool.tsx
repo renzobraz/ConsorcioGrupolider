@@ -105,34 +105,34 @@ const CalculatorTool = () => {
               <div className="space-y-4">
                   <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor da Carta (Original)</label>
-                      <input type="number" value={creditValue} onChange={e => setCreditValue(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                      <input type="number" value={Number.isNaN(creditValue) ? '' : creditValue} onChange={e => setCreditValue(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Taxa Adm Total (%)</label>
-                        <input type="number" step="0.01" value={adminFeeRate} onChange={e => setAdminFeeRate(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                        <input type="number" step="0.01" value={Number.isNaN(adminFeeRate) ? '' : adminFeeRate} onChange={e => setAdminFeeRate(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fundo Reserva Total (%)</label>
-                        <input type="number" step="0.01" value={reserveFundRate} onChange={e => setReserveFundRate(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                        <input type="number" step="0.01" value={Number.isNaN(reserveFundRate) ? '' : reserveFundRate} onChange={e => setReserveFundRate(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                       </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Prazo (Meses)</label>
-                        <input type="number" value={termMonths} onChange={e => setTermMonths(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                        <input type="number" value={Number.isNaN(termMonths) ? '' : termMonths} onChange={e => setTermMonths(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mês Atual</label>
-                        <input type="number" value={currentMonth} onChange={e => setCurrentMonth(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                        <input type="number" value={Number.isNaN(currentMonth) ? '' : currentMonth} onChange={e => setCurrentMonth(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                       </div>
                   </div>
 
                   <div>
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Índice Correção Acumulado (%)</label>
-                      <input type="number" step="0.0001" value={correctionIndexRate} onChange={e => setCorrectionIndexRate(Number(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                      <input type="number" step="0.0001" value={Number.isNaN(correctionIndexRate) ? '' : correctionIndexRate} onChange={e => setCorrectionIndexRate(parseFloat(e.target.value))} className="w-full border border-slate-300 rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
                       <p className="text-[10px] text-slate-400 mt-1">Aplicado se Mês Atual {'>'} 12</p>
                   </div>
 
@@ -143,7 +143,7 @@ const CalculatorTool = () => {
                          <span className="text-xs text-slate-500">Opção A: Calcular Parcela Reduzida</span>
                          <div className="flex items-center gap-2 mt-1">
                              <span className="text-sm text-slate-600">Redução:</span>
-                             <input type="number" value={reductionPercent} onChange={e => setReductionPercent(Number(e.target.value))} className="w-20 border border-slate-300 rounded p-1 text-right" />
+                             <input type="number" value={Number.isNaN(reductionPercent) ? '' : reductionPercent} onChange={e => setReductionPercent(parseFloat(e.target.value))} className="w-20 border border-slate-300 rounded p-1 text-right" />
                              <span className="text-sm text-slate-600">%</span>
                          </div>
                       </div>
@@ -154,8 +154,8 @@ const CalculatorTool = () => {
                             type="number" 
                             step="0.01"
                             placeholder="Digite um valor para simular..." 
-                            value={manualPaidAmount} 
-                            onChange={e => setManualPaidAmount(e.target.value === '' ? '' : Number(e.target.value))} 
+                            value={manualPaidAmount === '' || Number.isNaN(manualPaidAmount) ? '' : manualPaidAmount} 
+                            onChange={e => setManualPaidAmount(e.target.value === '' ? '' : parseFloat(e.target.value))} 
                             className="w-full border border-blue-300 bg-blue-50 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-blue-800 font-bold" 
                          />
                          <p className="text-[10px] text-blue-400 mt-1">Se preenchido, ignora a redução percentual acima.</p>

@@ -1,5 +1,5 @@
 
-import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType } from '../types';
+import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod } from '../types';
 import { addMonths, getNextBusinessDay } from '../utils/formatters';
 
 const createLocalDate = (dateStr: string): Date => {
@@ -9,19 +9,19 @@ const createLocalDate = (dateStr: string): Date => {
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
-export const calculateCDICorrection = (value: number, startDateStr: string | undefined, indices: MonthlyIndex[]): number => {
+export const calculateCDICorrection = (value: number, startDateStr: string | undefined, indices: MonthlyIndex[], cutoffDateStr?: string): number => {
     if (!value || value <= 0 || !startDateStr) return 0;
     const startDate = createLocalDate(startDateStr);
     startDate.setDate(1); 
     startDate.setHours(0,0,0,0);
-    const today = new Date();
-    today.setHours(23,59,59,999);
+    const cutoff = cutoffDateStr ? createLocalDate(cutoffDateStr) : new Date();
+    cutoff.setHours(23,59,59,999);
     const relevantIndices = indices.filter(idx => {
         if (idx.type !== CorrectionIndex.CDI) return false;
         const idxDate = createLocalDate(idx.date);
         idxDate.setDate(1);
         idxDate.setHours(0,0,0,0);
-        return idxDate >= startDate && idxDate <= today;
+        return idxDate >= startDate && idxDate <= cutoff;
     });
     let accumulatedMultiplier = 1;
     relevantIndices.forEach(idx => {
@@ -34,11 +34,16 @@ export const calculateCDICorrection = (value: number, startDateStr: string | und
 export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date): number => {
   if (!quota) return 0;
   let currentCreditValue = Number(quota.creditValue) || 0;
-  const dateStr = quota.adhesionDate || quota.firstDueDate;
+  
+  // REGRA DE CORREÇÃO: Prioridade para Data da 1ª Assembleia -> Data Adesão -> 1º Vencimento
+  const dateStr = quota.firstAssemblyDate || quota.adhesionDate || quota.firstDueDate;
   if (!dateStr) return currentCreditValue;
   
   const startDate = createLocalDate(dateStr);
   startDate.setHours(0,0,0,0);
+  
+  const firstDueDate = createLocalDate(quota.firstDueDate || dateStr);
+  firstDueDate.setHours(0,0,0,0);
   
   let cutoffDate = customCutoff || new Date();
   cutoffDate.setHours(23,59,59,999);
@@ -59,13 +64,23 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
       
       if (anniversaryInstallmentDate > cutoffDate) break;
 
-      const indexDate = addMonths(startDate, (anniversaryCount * 12) - 1);
-      const indexLookupStr = indexDate.toISOString().split('T')[0].substring(0, 8) + '01';
-      
-      const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
-      
-      if (monthlyIndex && monthlyIndex.rate > 0) {
-          currentCreditValue = currentCreditValue * (1 + (monthlyIndex.rate / 100));
+      // REGRA DE CORREÇÃO:
+      // Só aplica se a data de aniversário for ESTRITAMENTE DEPOIS do primeiro vencimento.
+      // Se for antes ou no mesmo mês, o valor da carta inserido já contempla essa correção.
+      if (anniversaryInstallmentDate > firstDueDate) {
+          // REGRA DE DEFASAGEM DE ÍNDICE:
+          // Como o vencimento é no início do mês, o índice do mês anterior (M-1) ainda não foi divulgado.
+          // Usamos então o índice de 2 meses antes (M-2).
+          // Ex: Aniversário em Janeiro. Índice de Dezembro sai dia 12/Jan. Boleto vence dia 05/Jan.
+          // Logo, usa-se o índice de Novembro.
+          const indexDate = addMonths(startDate, (anniversaryCount * 12) - 2);
+          const indexLookupStr = indexDate.toISOString().split('T')[0].substring(0, 8) + '01';
+          
+          const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+          
+          if (monthlyIndex && monthlyIndex.rate > 0) {
+              currentCreditValue = currentCreditValue * (1 + (monthlyIndex.rate / 100));
+          }
       }
       
       anniversaryCount++;
@@ -79,9 +94,12 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
   if (!quota || !quota.firstDueDate) return [];
   
   const firstDueDate = createLocalDate(quota.firstDueDate);
-  const adhesionDateAnchor = createLocalDate(quota.adhesionDate || quota.firstDueDate);
-  adhesionDateAnchor.setDate(1); 
-  adhesionDateAnchor.setHours(0,0,0,0);
+  
+  // REGRA DE CORREÇÃO: Prioridade para Data da 1ª Assembleia -> Data Adesão -> 1º Vencimento
+  // Esta data define quando ocorre o "Aniversário" da cota para aplicar o índice
+  const correctionAnchorDate = createLocalDate(quota.firstAssemblyDate || quota.adhesionDate || quota.firstDueDate);
+  correctionAnchorDate.setDate(1); 
+  correctionAnchorDate.setHours(0,0,0,0);
   
   const termMonths = Number(quota.termMonths) || 1;
   const originalCredit = Number(quota.creditValue) || 1;
@@ -94,6 +112,22 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
   let remainingPctTA = adminFeeRateTotal;
   let remainingPctFR = reserveFundRateTotal;
 
+  // Third-party acquisition logic
+  let startInstallment = 1;
+  if (quota.acquiredFromThirdParty && quota.assumedInstallment && quota.assumedInstallment > 1) {
+      startInstallment = quota.assumedInstallment;
+      // If prePaidFCPercent is provided, we deduct it from the remaining FC
+      if (quota.prePaidFCPercent !== undefined) {
+          remainingPctFC -= quota.prePaidFCPercent;
+      }
+  } else if (quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0) {
+      // For new quotas using index table, start from the first defined installment
+      const minInst = Math.min(...quota.indexTable.map(e => e.startInstallment));
+      if (minInst > 1) {
+          startInstallment = minInst;
+      }
+  }
+
   let bidProcessed = false;
   const today = new Date(); today.setHours(23, 59, 59, 999);
 
@@ -101,7 +135,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
   let deferredTAPct = 0;
   let deferredFRPct = 0;
 
-  for (let i = 1; i <= termMonths; i++) {
+  let lastCorrectionYear = correctionAnchorDate.getFullYear();
+
+  for (let i = startInstallment; i <= termMonths; i++) {
     let currentDate: Date;
     if (i === 1) {
       currentDate = new Date(firstDueDate);
@@ -119,8 +155,13 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
     let correctionFactor = 0;
     let correctionIndexName: string | undefined = undefined;
     
-    if (i > 1 && (i - 1) % 12 === 0) {
-        const indexMonthDate = addMonths(adhesionDateAnchor, i - 2);
+    // NOVA REGRA:
+    // Ocorre quando o mês da parcela atual for igual ao mês da data âncora (1ª assembleia)
+    // E o ano da parcela for maior que o ano da última correção (ou da data âncora)
+    if (i > 1 && finalDueDate.getMonth() === correctionAnchorDate.getMonth() && finalDueDate.getFullYear() > lastCorrectionYear) {
+        // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
+        // Ex: Aniversário em Novembro -> Busca índice de Setembro
+        const indexMonthDate = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth() - 2, 1);
         const indexLookupStr = indexMonthDate.toISOString().split('T')[0];
 
         if (indexMonthDate <= today) {
@@ -133,6 +174,8 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
                 currentCreditValue *= (1 + correctionFactor);
             }
         }
+        
+        lastCorrectionYear = finalDueDate.getFullYear();
     }
 
     // Base de Cálculo Monetária ATUALIZADA para o Percentual do Lance
@@ -195,7 +238,19 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
 
     let monthlyRateFC = 0, monthlyRateTA = 0, monthlyRateFR = 0;
 
-    if (i === termMonths) {
+    if (quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0) {
+        const entry = quota.indexTable.find(e => i >= e.startInstallment && i <= e.endInstallment);
+        if (entry) {
+            monthlyRateFC = entry.rateFC;
+            monthlyRateTA = entry.rateTA;
+            monthlyRateFR = entry.rateFR;
+        } else {
+            // Fallback if index table is missing an entry for this installment
+            monthlyRateFC = 0;
+            monthlyRateTA = 0;
+            monthlyRateFR = 0;
+        }
+    } else if (i === termMonths) {
         monthlyRateFC = remainingPctFC;
         monthlyRateTA = remainingPctTA;
         monthlyRateFR = remainingPctFR;
@@ -235,7 +290,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
         monthlyRateFR = parseFloat((remainingPctFR / monthsLeft).toFixed(4));
     }
 
-    // Cálculo Monetário da Parcela baseado no Crédito Atualizado do mês
+    // Cálculo Monetária da Parcela baseado no Crédito Atualizado do mês
     const installmentFC = parseFloat(((monthlyRateFC / 100) * currentCreditValue).toFixed(2));
     const installmentTA = parseFloat(((monthlyRateTA / 100) * currentCreditValue).toFixed(2));
     const installmentFR = parseFloat(((monthlyRateFR / 100) * currentCreditValue).toFixed(2));

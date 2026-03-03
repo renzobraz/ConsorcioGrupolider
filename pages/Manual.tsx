@@ -109,9 +109,29 @@ const Manual = () => {
          </h2>
          <div className="space-y-4 text-sm text-slate-700 leading-relaxed">
             <p>
-               A correção ocorre a cada 12 meses (mês 13, 25, 37...) baseando-se na <strong>Data de Adesão</strong>.
+               A correção ocorre a cada 12 meses (mês 13, 25, 37...) baseando-se na <strong>Data da 1ª Assembleia</strong>.
             </p>
-            <ul className="list-disc pl-5 space-y-2">
+            <div className="bg-slate-50 p-3 rounded border border-slate-200">
+                <p className="font-bold text-xs uppercase mb-1">Prioridade da Data Base:</p>
+                <ol className="list-decimal pl-5 text-xs text-slate-600">
+                    <li><strong>Data da 1ª Assembleia</strong> (Padrão)</li>
+                    <li>Data de Adesão (Caso a assembleia não esteja preenchida)</li>
+                    <li>Data do 1º Vencimento (Fallback)</li>
+                </ol>
+            </div>
+            
+            <div className="bg-blue-50 p-3 rounded border border-blue-200 mt-2">
+                <p className="font-bold text-xs uppercase mb-1 text-blue-800">Defasagem de Índice (Regra de Vencimento no Início do Mês):</p>
+                <p className="text-xs text-blue-700">
+                   Como a maioria dos vencimentos ocorre no início do mês (ex: dia 05 ou 10), o índice oficial de inflação (IPCA/INCC) do mês imediatamente anterior (M-1) geralmente ainda não foi divulgado.
+                   <br/>
+                   Portanto, o sistema utiliza o índice de <strong>2 meses anteriores ao aniversário</strong> (M-2).
+                   <br/>
+                   Exemplo: Aniversário em <strong>Janeiro</strong> (vencimento 05/01) &rarr; Utiliza-se o índice de <strong>Novembro</strong>.
+                </p>
+            </div>
+
+            <ul className="list-disc pl-5 space-y-2 mt-2">
                <li>
                   <strong>Índices Acumulados:</strong> O sistema utiliza a multiplicação dos índices mensais dos últimos 12 meses (Juros Compostos).
                </li>

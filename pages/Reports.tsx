@@ -10,6 +10,7 @@ interface ReportRow {
   quotaNumber: string;
   creditValue: number;
   isContemplated: boolean;
+  contemplationDate?: string;
   administratorId?: string;
   companyId?: string;
 
@@ -21,7 +22,9 @@ interface ReportRow {
   bidTotal: number;
   percentBidTotal: number;
   bidFree: number;
+  percentBidFree: number;
   bidEmbedded: number;
+  percentBidEmbedded: number;
   
   creditAtContemplation: number; 
   valorRealCarta: number; 
@@ -33,16 +36,14 @@ interface ReportRow {
 }
 
 const Reports = () => {
-  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages } = useConsortium();
+  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<{ id: string, field: 'credit' } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [filterAdmin, setFilterAdmin] = useState('');
-  const [filterCompany, setFilterCompany] = useState('');
-  const [filterStatus, setFilterStatus] = useState(''); 
+  // Filters State removed (using globalFilters)
   const [referenceDate, setReferenceDate] = useState(new Date().toISOString().split('T')[0]);
   const [sortConfig, setSortConfig] = useState<{ key: keyof ReportRow, direction: 'asc' | 'desc' } | null>(null);
 
@@ -105,6 +106,7 @@ const Reports = () => {
             quotaNumber: quota.quotaNumber,
             creditValue: vlrCartaAtual,
             isContemplated: quota.isContemplated,
+            contemplationDate: quota.contemplationDate,
             administratorId: quota.administratorId,
             companyId: quota.companyId,
             saldoAVencer: sumAVencer,
@@ -114,7 +116,9 @@ const Reports = () => {
             bidTotal: quota.bidTotal || 0,
             percentBidTotal: vlrCartaAtual > 0 ? ((quota.bidTotal || 0) / vlrCartaAtual) * 100 : 0,
             bidFree: quota.bidFree || 0,
+            percentBidFree: vlrCartaAtual > 0 ? ((quota.bidFree || 0) / vlrCartaAtual) * 100 : 0,
             bidEmbedded: bidEmbedded,
+            percentBidEmbedded: vlrCartaAtual > 0 ? (bidEmbedded / vlrCartaAtual) * 100 : 0,
             creditAtContemplation: creditAtContemplation,
             valorRealCarta: valorLiquido,
             creditManualAdjustment: quota.creditManualAdjustment || 0,
@@ -145,11 +149,11 @@ const Reports = () => {
   };
 
   const filteredData = reportData.filter(row => {
-    const matchAdmin = !filterAdmin || row.administratorId === filterAdmin;
-    const matchComp = !filterCompany || row.companyId === filterCompany;
+    const matchAdmin = !globalFilters.administratorId || row.administratorId === globalFilters.administratorId;
+    const matchComp = !globalFilters.companyId || row.companyId === globalFilters.companyId;
     let matchStatus = true;
-    if (filterStatus === 'CONTEMPLATED') matchStatus = row.isContemplated;
-    else if (filterStatus === 'ACTIVE') matchStatus = !row.isContemplated;
+    if (globalFilters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
+    else if (globalFilters.status === 'ACTIVE') matchStatus = !row.isContemplated;
     return matchAdmin && matchComp && matchStatus;
   });
 
@@ -160,7 +164,15 @@ const Reports = () => {
         if (sortConfig.key === 'quotaNumber') {
           return sortConfig.direction === 'asc' ? (parseInt(a.quotaNumber) - parseInt(b.quotaNumber)) : (parseInt(b.quotaNumber) - parseInt(a.quotaNumber));
         }
-        return sortConfig.direction === 'asc' ? (a[sortConfig.key] > b[sortConfig.key] ? 1 : -1) : (a[sortConfig.key] < b[sortConfig.key] ? 1 : -1);
+        
+        let valA = a[sortConfig.key];
+        let valB = b[sortConfig.key];
+        
+        if (valA === valB) return 0;
+        if (valA === undefined || valA === null || valA === '') return sortConfig.direction === 'asc' ? 1 : -1;
+        if (valB === undefined || valB === null || valB === '') return sortConfig.direction === 'asc' ? -1 : 1;
+
+        return sortConfig.direction === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
       });
     }
     return items;
@@ -170,6 +182,7 @@ const Reports = () => {
     saldoAVencer: acc.saldoAVencer + row.saldoAVencer,
     saldoVencido: acc.saldoVencido + row.saldoVencido,
     bidTotal: acc.bidTotal + row.bidTotal,
+    bidFree: acc.bidFree + row.bidFree,
     bidEmbedded: acc.bidEmbedded + row.bidEmbedded,
     creditAtContemplation: acc.creditAtContemplation + row.creditAtContemplation,
     valorRealCarta: acc.valorRealCarta + row.valorRealCarta,
@@ -178,7 +191,7 @@ const Reports = () => {
     saldoDisponivel: acc.saldoDisponivel + row.saldoDisponivel,
     creditManualAdjustment: acc.creditManualAdjustment + row.creditManualAdjustment,
     bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection
-  }), { saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0 });
+  }), { saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0 });
 
   const SortHeader = ({ label, sortKey, align = 'right', className = '' }: { label: string, sortKey: keyof ReportRow, align?: 'left'|'right', className?: string }) => (
       <th className={`px-2 py-3 cursor-pointer hover:bg-slate-800 transition-colors group select-none ${className} ${align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => setSortConfig({ key: sortKey, direction: sortConfig?.key === sortKey && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -204,9 +217,9 @@ const Reports = () => {
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden">
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Fechamento</label><input type="date" value={referenceDate} onChange={(e) => setReferenceDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" /></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={filterAdmin} onChange={(e) => setFilterAdmin(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -216,7 +229,7 @@ const Reports = () => {
               { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50' },
               { label: 'Crédito Contemp.', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50' },
               { label: 'Vlr Carta Líq.', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50' },
-              { label: 'Crédito Total', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100' },
+              { label: 'Crédito Corrigido', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100' },
               { label: 'Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50' },
               { label: 'Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-100 border-emerald-200' },
           ].map((t, i) => (
@@ -239,14 +252,18 @@ const Reports = () => {
                   <SortHeader label="Valor a Pagar" sortKey="saldoAVencer" className="bg-red-900/30" />
                   <SortHeader label="Lance Tot." sortKey="bidTotal" className="bg-amber-900/30" />
                   <th className="px-2 py-3 text-right bg-amber-900/20 text-[8px] font-bold">% Lance</th>
+                  <SortHeader label="Lance Livre" sortKey="bidFree" />
+                  <th className="px-2 py-3 text-right text-[8px] font-bold">% Liv</th>
                   <SortHeader label="Crédito" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
                   <SortHeader label="Lance Emb." sortKey="bidEmbedded" />
+                  <th className="px-2 py-3 text-right text-[8px] font-bold">% Emb</th>
                   <SortHeader label="Vlr Líquido" sortKey="valorRealCarta" className="font-bold" />
-                  <SortHeader label="Ajuste" sortKey="creditManualAdjustment" />
+                  <SortHeader label="Aplicação financeira" sortKey="creditManualAdjustment" />
                   <SortHeader label="92% CDI" sortKey="bidFreeCorrection" />
-                  <SortHeader label="Créd. Total" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />
+                  <SortHeader label="Crédito Corrigido" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />
                   <SortHeader label="Utilizado" sortKey="creditoUtilizado" />
                   <SortHeader label="Saldo Disp." sortKey="saldoDisponivel" className="bg-emerald-900 border-l border-emerald-700 font-bold print:bg-emerald-900" />
+                  <SortHeader label="Data Contemplação" sortKey="contemplationDate" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -260,14 +277,18 @@ const Reports = () => {
                     <td className="p-2 text-right font-medium text-red-600 bg-red-50/30 print:bg-transparent">{formatNumber(row.saldoAVencer)}</td>
                     <td className="p-2 text-right font-medium text-amber-600 bg-amber-50/30 print:bg-transparent">{formatNumber(row.bidTotal)}</td>
                     <td className="p-2 text-right text-amber-500 font-bold">{row.percentBidTotal.toFixed(2)}%</td>
+                    <td className="p-2 text-right">{formatNumber(row.bidFree)}</td>
+                    <td className="p-2 text-right text-slate-500">{row.percentBidFree.toFixed(2)}%</td>
                     <td className="p-2 text-right font-bold bg-slate-50/80 print:bg-transparent">{formatNumber(row.creditAtContemplation)}</td>
                     <td className="p-2 text-right text-orange-600">{formatNumber(row.bidEmbedded)}</td>
+                    <td className="p-2 text-right text-orange-500">{row.percentBidEmbedded.toFixed(2)}%</td>
                     <td className="p-2 text-right font-bold text-blue-700 bg-blue-50/30 print:bg-transparent">{formatNumber(row.valorRealCarta)}</td>
                     <td className="p-2 text-right text-blue-600 cursor-pointer print:cursor-default" onClick={() => { setEditingId({id: row.id, field: 'credit'}); setEditValue(row.creditManualAdjustment.toString().replace('.',',')); }}>{formatNumber(row.creditManualAdjustment)}</td>
                     <td className="p-2 text-right text-violet-600">{formatNumber(row.bidFreeCorrection)}</td>
                     <td className="p-2 text-right font-bold bg-slate-50 print:bg-transparent">{formatNumber(row.creditoTotal)}</td>
                     <td className="p-2 text-right text-amber-700">{formatNumber(row.creditoUtilizado)}</td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50 border-l border-emerald-100 print:bg-transparent">{formatNumber(row.saldoDisponivel)}</td>
+                    <td className="p-2 text-right text-slate-500">{row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -279,14 +300,18 @@ const Reports = () => {
                       <td className="p-2 text-right">{formatNumber(totals.saldoAVencer)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidTotal)}</td>
                       <td className="p-2 text-right"></td>
+                      <td className="p-2 text-right">{formatNumber(totals.bidFree)}</td>
+                      <td className="p-2 text-right"></td>
                       <td className="p-2 text-right bg-slate-800 print:bg-transparent">{formatNumber(totals.creditAtContemplation)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidEmbedded)}</td>
+                      <td className="p-2 text-right"></td>
                       <td className="p-2 text-right bg-blue-900/40 print:bg-transparent">{formatNumber(totals.valorRealCarta)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.creditManualAdjustment)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidFreeCorrection)}</td>
                       <td className="p-2 text-right bg-slate-800 print:bg-transparent">{formatNumber(totals.creditoTotal)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.creditoUtilizado)}</td>
                       <td className="p-2 text-right bg-emerald-950 print:bg-transparent">{formatNumber(totals.saldoDisponivel)}</td>
+                      <td className="p-2 text-right"></td>
                   </tr>
               </tfoot>
             </table>

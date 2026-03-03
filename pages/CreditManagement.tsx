@@ -1,19 +1,17 @@
+
 import React, { useState } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
-import { generateSchedule } from '../services/calculationService';
+import { calculateCurrentCreditValue } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
 import { ShoppingBag, Building2, Search, Filter, X, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const CreditManagement = () => {
-  const { quotas, companies, administrators, indices, allCreditUsages } = useConsortium();
+  const { quotas, companies, administrators, indices, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
 
   // Filter States
   const [search, setSearch] = useState('');
-  const [filterAdmin, setFilterAdmin] = useState('');
-  const [filterCompany, setFilterCompany] = useState('');
-  const [filterStatus, setFilterStatus] = useState(''); // '' | 'CONTEMPLATED' | 'ACTIVE'
 
   // Helper to filter a list of quotas based on state
   const filterQuotas = (list: any[]) => {
@@ -24,15 +22,15 @@ const CreditManagement = () => {
             q.quotaNumber.toLowerCase().includes(search.toLowerCase());
 
           // 2. Admin Filter
-          const matchesAdmin = !filterAdmin || q.administratorId === filterAdmin;
+          const matchesAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
 
           // 3. Company Filter (Global filter applied to items inside the group)
-          const matchesCompany = !filterCompany || q.companyId === filterCompany;
+          const matchesCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
 
           // 4. Status Filter
           let matchesStatus = true;
-          if (filterStatus === 'CONTEMPLATED') matchesStatus = q.isContemplated;
-          if (filterStatus === 'ACTIVE') matchesStatus = !q.isContemplated;
+          if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
+          if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
 
           return matchesSearch && matchesAdmin && matchesCompany && matchesStatus;
       });
@@ -51,19 +49,16 @@ const CreditManagement = () => {
       let totalAvailable = 0;
       
       const quotaDetails = companyQuotas.map(quota => {
-          // Calculate Credit Value (Current)
-          const schedule = generateSchedule(quota, indices);
-          const todayStr = new Date().toISOString().split('T')[0];
-          
-          let currentCredit = quota.creditValue;
-          if (schedule.length > 0) {
-              const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= todayStr);
-              if (pastOrPresent.length > 0) {
-                  currentCredit = pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue;
-              } else {
-                  currentCredit = schedule[0].correctedCreditValue || quota.creditValue;
-              }
+          // Lógica de Cálculo do Valor do Crédito Base
+          // Se Contemplada: Valor na Data da Contemplação
+          // Se Ativa: Valor Hoje
+          let targetDate = new Date();
+          if (quota.isContemplated && quota.contemplationDate) {
+              const [y, m, d] = quota.contemplationDate.split('-').map(Number);
+              targetDate = new Date(y, m - 1, d);
           }
+
+          const currentCredit = calculateCurrentCreditValue(quota, indices, targetDate);
 
           // Calculate Usage
           const usageSum = allCreditUsages
@@ -116,17 +111,15 @@ const CreditManagement = () => {
       let totalAvailable = 0;
 
       const details = quotasNoCompany.map(quota => {
-          const schedule = generateSchedule(quota, indices);
-          const todayStr = new Date().toISOString().split('T')[0];
-          let currentCredit = quota.creditValue;
-          if (schedule.length > 0) {
-              const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= todayStr);
-              if (pastOrPresent.length > 0) {
-                  currentCredit = pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue;
-              } else {
-                  currentCredit = schedule[0].correctedCreditValue || quota.creditValue;
-              }
+          // Lógica de Cálculo do Valor do Crédito Base
+          let targetDate = new Date();
+          if (quota.isContemplated && quota.contemplationDate) {
+              const [y, m, d] = quota.contemplationDate.split('-').map(Number);
+              targetDate = new Date(y, m - 1, d);
           }
+
+          const currentCredit = calculateCurrentCreditValue(quota, indices, targetDate);
+
           const usageSum = allCreditUsages
               .filter(u => u.quotaId === quota.id)
               .reduce((acc, curr) => acc + curr.amount, 0);
@@ -160,12 +153,10 @@ const CreditManagement = () => {
 
   const clearFilters = () => {
       setSearch('');
-      setFilterAdmin('');
-      setFilterCompany('');
-      setFilterStatus('');
+      setGlobalFilters({ companyId: '', administratorId: '', status: '' });
   };
 
-  const hasActiveFilters = search || filterAdmin || filterCompany || filterStatus;
+  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-10 print:p-0 print:space-y-4 print:max-w-none">
@@ -205,8 +196,8 @@ const CreditManagement = () => {
                     <Building2 size={12}/> Empresa
                 </label>
                 <select 
-                    value={filterCompany} 
-                    onChange={(e) => setFilterCompany(e.target.value)}
+                    value={globalFilters.companyId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todas as Empresas</option>
@@ -220,8 +211,8 @@ const CreditManagement = () => {
                     <Filter size={12}/> Administradora
                 </label>
                 <select 
-                    value={filterAdmin} 
-                    onChange={(e) => setFilterAdmin(e.target.value)}
+                    value={globalFilters.administratorId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todas as Administradoras</option>
@@ -235,8 +226,8 @@ const CreditManagement = () => {
                     <Filter size={12}/> Status
                 </label>
                 <select 
-                    value={filterStatus} 
-                    onChange={(e) => setFilterStatus(e.target.value)}
+                    value={globalFilters.status} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todos os Status</option>
@@ -333,8 +324,10 @@ const CreditManagement = () => {
                                       <tr key={item.quota.id} className="hover:bg-slate-50">
                                           <td className="px-6 py-4 print:px-2">
                                               <div className="font-medium text-slate-700">{item.quota.group} / {item.quota.quotaNumber}</div>
-                                              {!item.quota.isContemplated && (
+                                              {!item.quota.isContemplated ? (
                                                   <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded print:text-[7px]">Não Contemplada</span>
+                                              ) : (
+                                                  <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded print:text-[7px]">Contemplada</span>
                                               )}
                                           </td>
                                           <td className="px-6 py-4 text-right font-medium text-slate-600 print:px-2">

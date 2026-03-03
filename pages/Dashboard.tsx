@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { generateSchedule } from '../services/calculationService';
+import { generateSchedule, calculateCurrentCreditValue } from '../services/calculationService';
 import { db } from '../services/database';
 import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader, PlayCircle, TrendingUp, Percent, FileText, CalendarClock, X, ArrowRight, Filter, PieChart, Layers, PiggyBank, ShoppingBag, BadgeCheck } from 'lucide-react';
 
@@ -36,12 +36,11 @@ const calculateIRR = (cashFlows: number[], guess = 0.01): number | null => {
 };
 
 const Dashboard = () => {
-  const { quotas, companies, indices } = useConsortium();
+  const { quotas, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
   
   // Filters State
-  const [selectedCompany, setSelectedCompany] = useState('');
+  // selectedQuotaId remains local as it is specific to this view's interaction
   const [selectedQuotaId, setSelectedQuotaId] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState(''); // '' | 'ACTIVE' | 'CONTEMPLATED'
   
   const [loading, setLoading] = useState(true);
   
@@ -93,14 +92,15 @@ const Dashboard = () => {
         const allUsages = await db.getAllCreditUsages();
 
         const filteredQuotas = quotas.filter(q => {
-          const matchCompany = !selectedCompany || q.companyId === selectedCompany;
+          const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
+          const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
           const matchQuota = !selectedQuotaId || q.id === selectedQuotaId;
           
           let matchStatus = true;
-          if (selectedStatus === 'ACTIVE') matchStatus = !q.isContemplated;
-          if (selectedStatus === 'CONTEMPLATED') matchStatus = q.isContemplated;
+          if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
+          if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
 
-          return matchCompany && matchQuota && matchStatus;
+          return matchCompany && matchAdmin && matchQuota && matchStatus;
         });
 
         let accContemplated = 0;
@@ -131,17 +131,13 @@ const Dashboard = () => {
         const nextInstallments: any[] = [];
 
         filteredQuotas.forEach(quota => {
+          // 1. Calcular Valor do Crédito Base (Correção congela na contemplação)
+          // A função calculateCurrentCreditValue já lida internamente com:
+          // Se contemplada -> data corte = contemplação. Se não -> data corte = hoje.
+          const baseCreditValue = calculateCurrentCreditValue(quota, indices);
+          
+          // Gera cronograma apenas para cálculos de Fluxo (Pago vs A Pagar)
           const schedule = generateSchedule(quota, indices);
-          let baseCreditValue = quota.creditValue;
-
-          if (schedule.length > 0) {
-             const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= todayStr);
-             if (pastOrPresent.length > 0) {
-                 baseCreditValue = pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue;
-             } else {
-                 baseCreditValue = schedule[0].correctedCreditValue || quota.creditValue;
-             }
-          }
           
           const embeddedBid = quota.bidEmbedded || 0;
           const netCredit = baseCreditValue - embeddedBid;
@@ -278,7 +274,7 @@ const Dashboard = () => {
     };
 
     calculateDashboard();
-  }, [quotas, selectedCompany, selectedQuotaId, selectedStatus, indices]);
+  }, [quotas, globalFilters, selectedQuotaId, indices]);
 
   // --- SECTIONS CONFIGURATION ---
   const sections = [
@@ -445,17 +441,18 @@ const Dashboard = () => {
           isRaw: true
         },
         {
-          title: "Lance Embutido (Total)",
-          value: totals.bidEmbedded,
-          icon: <Gavel size={24} className="text-orange-600" />,
-          bg: "bg-orange-50",
-          border: "border-orange-100",
-          textColor: "text-slate-700",
-          isCurrency: true
+          title: "CET Mensal (TIR Médio)",
+          value: formatPercent(Math.abs(totals.weightedMonthlyCET * 100)),
+          icon: <TrendingUp size={24} className="text-violet-600" />,
+          bg: "bg-violet-50",
+          border: "border-violet-100",
+          textColor: "text-violet-700",
+          isCurrency: false,
+          isRaw: true
         },
         {
           title: "CET Anual (TIR Médio)",
-          value: formatPercent(totals.weightedAnnualCET * 100),
+          value: formatPercent(Math.abs(totals.weightedAnnualCET * 100)),
           icon: <TrendingUp size={24} className="text-pink-600" />,
           bg: "bg-pink-50",
           border: "border-pink-100",
@@ -480,11 +477,14 @@ const Dashboard = () => {
             <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
               <Building2 size={18} className="text-slate-400 ml-2" />
               <select 
-                value={selectedCompany} 
-                onChange={(e) => setSelectedCompany(e.target.value)}
-                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-48 cursor-pointer"
+                value={globalFilters.companyId} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, companyId: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when company filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-36 cursor-pointer"
               >
-                <option value="">Todas as Empresas</option>
+                <option value="">Empresa (Todas)</option>
                 {companies.map(comp => (
                   <option key={comp.id} value={comp.id}>{comp.name}</option>
                 ))}
@@ -494,11 +494,31 @@ const Dashboard = () => {
             <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
               <Filter size={18} className="text-slate-400 ml-2" />
               <select 
-                value={selectedStatus} 
-                onChange={(e) => setSelectedStatus(e.target.value)}
+                value={globalFilters.administratorId} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when admin filter changes
+                }}
                 className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-40 cursor-pointer"
               >
-                <option value="">Todos os Status</option>
+                <option value="">Admin (Todas)</option>
+                {administrators.map(adm => (
+                  <option key={adm.id} value={adm.id}>{adm.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Filter size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={globalFilters.status} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, status: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when status filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-32 cursor-pointer"
+              >
+                <option value="">Status (Todos)</option>
                 <option value="ACTIVE">Em Andamento</option>
                 <option value="CONTEMPLATED">Contempladas</option>
               </select>
@@ -509,10 +529,19 @@ const Dashboard = () => {
               <select 
                 value={selectedQuotaId} 
                 onChange={(e) => setSelectedQuotaId(e.target.value)}
-                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-56 cursor-pointer"
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-48 cursor-pointer"
               >
                 <option value="">Todas as Cotas</option>
-                {quotas.map(q => (
+                {quotas
+                  .filter(q => {
+                    const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
+                    const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+                    let matchStatus = true;
+                    if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
+                    if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
+                    return matchCompany && matchAdmin && matchStatus;
+                  })
+                  .map(q => (
                   <option key={q.id} value={q.id}>
                     {q.group} / {q.quotaNumber} {q.companyId ? `(${companies.find(c => c.id === q.companyId)?.name})` : ''}
                   </option>

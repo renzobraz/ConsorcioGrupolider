@@ -7,9 +7,11 @@ export enum ProductType {
 export enum CorrectionIndex {
   INCC = 'INCC',
   IPCA = 'IPCA',
+  INPC = 'INPC',
   CDI = 'CDI',
   INCC_12 = 'INCC_12', // Acumulado 12 meses
-  IPCA_12 = 'IPCA_12'  // Acumulado 12 meses
+  IPCA_12 = 'IPCA_12',  // Acumulado 12 meses
+  INPC_12 = 'INPC_12'   // Acumulado 12 meses
 }
 
 export enum PaymentPlanType {
@@ -21,6 +23,20 @@ export enum PaymentPlanType {
 export enum BidBaseType {
   CREDIT_ONLY = 'CREDITO',      // Percentual sobre o Valor da Carta
   TOTAL_PROJECT = 'TOTAL'      // Percentual sobre o Valor Total (Crédito + Taxas)
+}
+
+export enum CalculationMethod {
+  LINEAR = 'LINEAR',
+  INDEX_TABLE = 'TABELA_INDICES'
+}
+
+export interface IndexTableEntry {
+  id: string;
+  startInstallment: number;
+  endInstallment: number;
+  rateFC: number; // %
+  rateTA: number; // %
+  rateFR: number; // %
 }
 
 export interface MonthlyIndex {
@@ -76,6 +92,16 @@ export interface Quota {
   // Manual Adjustments for Reports
   creditManualAdjustment?: number; // Atualização Credito (Valor digitado)
   bidFreeCorrection?: number; // Correção 92% CDI
+
+  // New Calculation Methods
+  calculationMethod?: CalculationMethod;
+  indexTable?: IndexTableEntry[];
+  
+  // Third-party acquisition
+  acquiredFromThirdParty?: boolean;
+  assumedInstallment?: number;
+  prePaidFCPercent?: number;
+  acquisitionCost?: number;
 }
 
 export interface PaymentInstallment {

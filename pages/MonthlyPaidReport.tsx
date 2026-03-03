@@ -18,7 +18,7 @@ interface MonthlySummary {
 }
 
 const MonthlyPaidReport = () => {
-    const { quotas, indices, companies, administrators } = useConsortium();
+    const { quotas, indices, companies, administrators, globalFilters, setGlobalFilters } = useConsortium();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [monthlyData, setMonthlyData] = useState<MonthlySummary[]>([]);
@@ -34,7 +34,6 @@ const MonthlyPaidReport = () => {
         d.setFullYear(d.getFullYear() + 2);
         return d.toISOString().split('T')[0];
     });
-    const [filterCompany, setFilterCompany] = useState('');
 
     useEffect(() => {
         const buildMonthlyReport = async () => {
@@ -44,7 +43,10 @@ const MonthlyPaidReport = () => {
                 const monthMap: Record<string, MonthlySummary> = {};
 
                 quotas.forEach(quota => {
-                    if (filterCompany && quota.companyId !== filterCompany) return;
+                    if (globalFilters.companyId && quota.companyId !== globalFilters.companyId) return;
+                    if (globalFilters.administratorId && quota.administratorId !== globalFilters.administratorId) return;
+                    if (globalFilters.status === 'ACTIVE' && quota.isContemplated) return;
+                    if (globalFilters.status === 'CONTEMPLATED' && !quota.isContemplated) return;
 
                     const schedule = generateSchedule(quota, indices);
                     const paymentMap = allPayments[quota.id] || {};
@@ -105,7 +107,7 @@ const MonthlyPaidReport = () => {
         };
 
         buildMonthlyReport();
-    }, [quotas, indices, startDate, endDate, filterCompany]);
+    }, [quotas, indices, startDate, endDate, globalFilters.companyId, globalFilters.administratorId, globalFilters.status]);
 
     const totals = useMemo(() => {
         return monthlyData.reduce((acc, curr) => ({
@@ -125,7 +127,7 @@ const MonthlyPaidReport = () => {
 
     const handleDetailNavigation = (monthYear: string) => {
         // Envia o filtro de empresa atual na URL para que o detalhe saiba quem filtrar
-        const query = filterCompany ? `?companyId=${filterCompany}` : '';
+        const query = globalFilters.companyId ? `?companyId=${globalFilters.companyId}` : '';
         navigate(`/reports/monthly/${monthYear}${query}`);
     };
 
@@ -168,19 +170,36 @@ const MonthlyPaidReport = () => {
                 <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Empresa</label>
                     <select 
-                        value={filterCompany} 
-                        onChange={(e) => setFilterCompany(e.target.value)}
+                        value={globalFilters.companyId} 
+                        onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                         <option value="">Todas as Empresas</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                 </div>
-                <div className="flex items-end">
-                    <div className="bg-emerald-50 text-emerald-700 p-2 rounded-lg border border-emerald-100 w-full flex items-center justify-center gap-2">
-                        <TrendingUp size={16} />
-                        <span className="text-xs font-bold">Fluxo Atualizado</span>
-                    </div>
+                <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Administradora</label>
+                    <select 
+                        value={globalFilters.administratorId} 
+                        onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                        <option value="">Todas as Administradoras</option>
+                        {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Status</label>
+                    <select 
+                        value={globalFilters.status} 
+                        onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                        <option value="">Todos os Status</option>
+                        <option value="CONTEMPLATED">Contempladas</option>
+                        <option value="ACTIVE">Em Andamento</option>
+                    </select>
                 </div>
             </div>
 

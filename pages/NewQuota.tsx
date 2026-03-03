@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
-import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType } from '../types';
-import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle } from 'lucide-react';
+import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType, CalculationMethod, IndexTableEntry } from '../types';
+import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 
 const NewQuota = () => {
@@ -18,6 +18,7 @@ const NewQuota = () => {
     correctionIndex: CorrectionIndex.INCC_12, // Padrão agora é o anual
     paymentPlan: PaymentPlanType.NORMAL,
     bidBase: BidBaseType.CREDIT_ONLY,
+    calculationMethod: CalculationMethod.LINEAR,
     termMonths: 60,
     adminFeeRate: 15,
     reserveFundRate: 2,
@@ -28,7 +29,12 @@ const NewQuota = () => {
     bidTotal: 0,
     contemplationDate: '',
     administratorId: '',
-    companyId: ''
+    companyId: '',
+    acquiredFromThirdParty: false,
+    assumedInstallment: 1,
+    prePaidFCPercent: 0,
+    acquisitionCost: 0,
+    indexTable: []
   });
 
   useEffect(() => {
@@ -38,7 +44,10 @@ const NewQuota = () => {
         setFormData({
             ...existingQuota,
             bidBase: existingQuota.bidBase || BidBaseType.CREDIT_ONLY,
-            dueDay: existingQuota.dueDay || 25
+            dueDay: existingQuota.dueDay || 25,
+            calculationMethod: existingQuota.calculationMethod || CalculationMethod.LINEAR,
+            acquiredFromThirdParty: existingQuota.acquiredFromThirdParty || false,
+            indexTable: existingQuota.indexTable || []
         });
         if (existingQuota.creditValue) {
            setDisplayCreditValue(existingQuota.creditValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -60,6 +69,7 @@ const NewQuota = () => {
     let finalValue: any = value;
     if (type === 'number') {
       finalValue = value === '' ? '' : parseFloat(value);
+      if (Number.isNaN(finalValue)) finalValue = '';
     } else if (type === 'checkbox') {
       finalValue = (e.target as HTMLInputElement).checked;
     }
@@ -83,6 +93,32 @@ const NewQuota = () => {
     const numberValue = parseFloat(rawValue) / 100;
     setDisplayCreditValue(numberValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setFormData(prev => ({ ...prev, creditValue: numberValue }));
+  };
+
+  const handleAddIndexTableRow = () => {
+      setFormData(prev => ({
+          ...prev,
+          indexTable: [
+              ...(prev.indexTable || []),
+              { id: crypto.randomUUID(), startInstallment: 1, endInstallment: 1, rateFC: 0, rateTA: 0, rateFR: 0 }
+          ]
+      }));
+  };
+
+  const handleRemoveIndexTableRow = (id: string) => {
+      setFormData(prev => ({
+          ...prev,
+          indexTable: (prev.indexTable || []).filter(row => row.id !== id)
+      }));
+  };
+
+  const handleIndexTableChange = (id: string, field: keyof IndexTableEntry, value: number) => {
+      setFormData(prev => ({
+          ...prev,
+          indexTable: (prev.indexTable || []).map(row => 
+              row.id === id ? { ...row, [field]: value } : row
+          )
+      }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -122,6 +158,12 @@ const NewQuota = () => {
       firstDueDate: formData.firstDueDate || new Date().toISOString().split('T')[0],
       correctionIndex: formData.correctionIndex as CorrectionIndex,
       paymentPlan: formData.paymentPlan as PaymentPlanType,
+      calculationMethod: formData.calculationMethod as CalculationMethod,
+      indexTable: formData.indexTable,
+      acquiredFromThirdParty: Boolean(formData.acquiredFromThirdParty),
+      assumedInstallment: Number(formData.assumedInstallment || 1),
+      prePaidFCPercent: Number(formData.prePaidFCPercent || 0),
+      acquisitionCost: Number(formData.acquisitionCost || 0),
       isContemplated: Boolean(formData.isContemplated),
       contemplationDate: formData.contemplationDate,
       bidFree: Number(formData.bidFree || 0),
@@ -169,6 +211,12 @@ const NewQuota = () => {
         firstDueDate: formData.firstDueDate || '',
         correctionIndex: formData.correctionIndex as CorrectionIndex,
         paymentPlan: formData.paymentPlan as PaymentPlanType,
+        calculationMethod: formData.calculationMethod as CalculationMethod,
+        indexTable: formData.indexTable,
+        acquiredFromThirdParty: Boolean(formData.acquiredFromThirdParty),
+        assumedInstallment: Number(formData.assumedInstallment || 1),
+        prePaidFCPercent: Number(formData.prePaidFCPercent || 0),
+        acquisitionCost: Number(formData.acquisitionCost || 0),
         isContemplated: Boolean(formData.isContemplated),
         contemplationDate: formData.contemplationDate,
         bidFree: Number(formData.bidFree || 0),
@@ -236,18 +284,110 @@ const NewQuota = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Dia Fixo de Vencimento</label>
-              <input required name="dueDay" type="number" min="1" max="31" value={formData.dueDay} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-emerald-700" onChange={handleChange} />
+              <input required name="dueDay" type="number" min="1" max="31" value={formData.dueDay ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-emerald-700" onChange={handleChange} />
               <p className="text-[10px] text-slate-400 mt-1 italic">Padrão Sicredi: Dia 25 (Ajusta p/ dia útil)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Prazo (Meses)</label>
-              <input required name="termMonths" type="number" min="1" value={formData.termMonths} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="termMonths" type="number" min="1" value={formData.termMonths ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
             </div>
           </div>
         </div>
 
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Financeiro e Plano</h2>
+          
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6">
+              <div className="flex flex-col md:flex-row md:items-center gap-6">
+                  <div className="flex-1">
+                      <label className="block text-sm font-bold text-slate-700 mb-2">Método de Cálculo das Parcelas</label>
+                      <div className="flex gap-4">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="calculationMethod" value={CalculationMethod.LINEAR} checked={formData.calculationMethod === CalculationMethod.LINEAR} onChange={handleChange} className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-gray-300" />
+                              <span className="text-sm text-slate-700">Linear (Padrão)</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="radio" name="calculationMethod" value={CalculationMethod.INDEX_TABLE} checked={formData.calculationMethod === CalculationMethod.INDEX_TABLE} onChange={handleChange} className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-gray-300" />
+                              <span className="text-sm text-slate-700">Tabela de Índices (Degrau)</span>
+                          </label>
+                      </div>
+                  </div>
+                  <div className="flex-1">
+                      <label className="flex items-center gap-2 cursor-pointer p-3 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                          <input type="checkbox" name="acquiredFromThirdParty" checked={formData.acquiredFromThirdParty} onChange={handleChange} className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300" />
+                          <span className="text-sm font-bold text-slate-700">Cota Adquirida de Terceiros (Transferência)</span>
+                      </label>
+                  </div>
+              </div>
+          </div>
+
+          {formData.acquiredFromThirdParty && (
+              <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-6">
+                  <h3 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2"><Info size={16} /> Dados da Transferência</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                          <label className="block text-xs font-medium text-amber-700 mb-1">Parcela Inicial Assumida</label>
+                          <input required={formData.acquiredFromThirdParty} name="assumedInstallment" type="number" min="1" value={formData.assumedInstallment ?? ''} className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" onChange={handleChange} />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-amber-700 mb-1">% Fundo Comum Pago (Ex-dono)</label>
+                          <input required={formData.acquiredFromThirdParty} name="prePaidFCPercent" type="number" step="0.0001" value={formData.prePaidFCPercent ?? ''} className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" onChange={handleChange} />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-amber-700 mb-1">Valor Pago (Ágio/Repasse) R$</label>
+                          <input name="acquisitionCost" type="number" step="0.01" value={formData.acquisitionCost ?? ''} className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" onChange={handleChange} />
+                      </div>
+                  </div>
+              </div>
+          )}
+
+          {formData.calculationMethod === CalculationMethod.INDEX_TABLE && (
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2"><Calculator size={16} /> Tabela de Índices (Percentuais Mensais)</h3>
+                      <button type="button" onClick={handleAddIndexTableRow} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 flex items-center gap-1"><Plus size={14} /> Adicionar Faixa</button>
+                  </div>
+                  <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                          <thead className="bg-blue-100 text-blue-800">
+                              <tr>
+                                  <th className="p-2 rounded-tl">De (Parc)</th>
+                                  <th className="p-2">Até (Parc)</th>
+                                  <th className="p-2">% Fundo Comum</th>
+                                  <th className="p-2">% Taxa Adm</th>
+                                  <th className="p-2">% Fundo Reserva</th>
+                                  <th className="p-2 rounded-tr w-10"></th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              {formData.indexTable?.map((row, idx) => (
+                                  <tr key={row.id} className="border-b border-blue-100 bg-white">
+                                      <td className="p-1"><input type="number" min="1" value={isNaN(row.startInstallment) ? '' : row.startInstallment} onChange={(e) => handleIndexTableChange(row.id, 'startInstallment', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded p-1" /></td>
+                                      <td className="p-1"><input type="number" min="1" value={isNaN(row.endInstallment) ? '' : row.endInstallment} onChange={(e) => handleIndexTableChange(row.id, 'endInstallment', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded p-1" /></td>
+                                      <td className="p-1"><input type="number" step="0.0001" value={isNaN(row.rateFC) ? '' : row.rateFC} onChange={(e) => handleIndexTableChange(row.id, 'rateFC', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded p-1" /></td>
+                                      <td className="p-1"><input type="number" step="0.0001" value={isNaN(row.rateTA) ? '' : row.rateTA} onChange={(e) => handleIndexTableChange(row.id, 'rateTA', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded p-1" /></td>
+                                      <td className="p-1"><input type="number" step="0.0001" value={isNaN(row.rateFR) ? '' : row.rateFR} onChange={(e) => handleIndexTableChange(row.id, 'rateFR', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded p-1" /></td>
+                                      <td className="p-1 text-center">
+                                          <button type="button" onClick={() => handleRemoveIndexTableRow(row.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14} /></button>
+                                      </td>
+                                  </tr>
+                              ))}
+                              {(!formData.indexTable || formData.indexTable.length === 0) && (
+                                  <tr><td colSpan={6} className="p-4 text-center text-slate-500 bg-white">Nenhuma faixa cadastrada. Adicione faixas para definir os percentuais.</td></tr>
+                              )}
+                          </tbody>
+                      </table>
+                  </div>
+                  {formData.indexTable && formData.indexTable.length > 0 && (
+                      <div className="mt-3 text-xs text-blue-700 bg-blue-100 p-2 rounded flex justify-between">
+                          <span><strong>Total FC:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateFC * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
+                          <span><strong>Total TA:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateTA * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
+                          <span><strong>Total FR:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateFR * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
+                      </div>
+                  )}
+              </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Valor da Carta (R$) *</label>
@@ -267,19 +407,21 @@ const NewQuota = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Taxa Adm (TA) %</label>
-              <input required name="adminFeeRate" type="number" step="0.0001" placeholder="0.0000" value={formData.adminFeeRate} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="adminFeeRate" type="number" step="0.0001" placeholder="0.0000" value={formData.adminFeeRate ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Fundo Reserva (FR) %</label>
-              <input required name="reserveFundRate" type="number" step="0.01" value={formData.reserveFundRate} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} onBlur={handleReserveFundBlur} />
+              <input required name="reserveFundRate" type="number" step="0.01" value={formData.reserveFundRate ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} onBlur={handleReserveFundBlur} />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Índice Correção Anual</label>
               <select name="correctionIndex" className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold" value={formData.correctionIndex} onChange={handleChange}>
                 <option value={CorrectionIndex.INCC_12}>INCC (Acumulado 12m)</option>
                 <option value={CorrectionIndex.IPCA_12}>IPCA (Acumulado 12m)</option>
+                <option value={CorrectionIndex.INPC_12}>INPC (Acumulado 12m)</option>
                 <option value={CorrectionIndex.INCC}>INCC (Mensal)</option>
                 <option value={CorrectionIndex.IPCA}>IPCA (Mensal)</option>
+                <option value={CorrectionIndex.INPC}>INPC (Mensal)</option>
               </select>
             </div>
              <div>
@@ -329,11 +471,11 @@ const NewQuota = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Livre (R$)</label>
-              <input name="bidFree" type="number" step="0.01" value={formData.bidFree || 0} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidFree" type="number" step="0.01" value={formData.bidFree ?? ''} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Embutido (R$)</label>
-              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded || 0} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded ?? ''} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
             </div>
             <div>
                <label className="block text-sm font-medium text-slate-700 mb-1">Valor Total Lance</label>

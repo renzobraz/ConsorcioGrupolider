@@ -3,29 +3,27 @@
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar } from 'lucide-react';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const Simulation = () => {
-  const { quotas, currentQuota, setCurrentQuota, installments, updateInstallmentPayment, companies, administrators, indices } = useConsortium();
+  const { quotas, currentQuota, setCurrentQuota, installments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
   
   const [searchText, setSearchText] = useState('');
-  const [filterCompany, setFilterCompany] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [editingCell, setEditingCell] = useState<{ id: number, field: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
 
   const filteredOptions = useMemo(() => {
     return quotas.filter(q => {
       const textMatch = (q.group || '').toLowerCase().includes(searchText.toLowerCase()) || (q.quotaNumber || '').toLowerCase().includes(searchText.toLowerCase());
-      const companyMatch = filterCompany ? q.companyId === filterCompany : true;
+      const companyMatch = globalFilters.companyId ? q.companyId === globalFilters.companyId : true;
       let statusMatch = true;
-      if (filterStatus === 'ACTIVE') statusMatch = !q.isContemplated;
-      if (filterStatus === 'CONTEMPLATED') statusMatch = q.isContemplated;
+      if (globalFilters.status === 'ACTIVE') statusMatch = !q.isContemplated;
+      if (globalFilters.status === 'CONTEMPLATED') statusMatch = q.isContemplated;
       return textMatch && companyMatch && statusMatch;
     });
-  }, [quotas, searchText, filterCompany, filterStatus]);
+  }, [quotas, searchText, globalFilters.companyId, globalFilters.status]);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -127,9 +125,63 @@ const Simulation = () => {
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600" /> Simulador e Extrato</h2>
              {currentQuota && <button onClick={() => navigate(`/edit/${currentQuota.id}`)} className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 text-sm font-medium flex items-center gap-2"><Pencil size={16} /> Editar Cota</button>}
         </div>
+        
+        {/* FILTERS ROW */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-             <div className="md:col-span-3 relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input type="text" placeholder="Pesquisar..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-             <div className="md:col-span-9"><select className="w-full py-2 px-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md outline-none" value={currentQuota?.id || ''} onChange={(e) => { const found = quotas.find(q => q.id === e.target.value); setCurrentQuota(found || null); }}><option value="">Selecionar Cota ({filteredOptions.length})</option>{filteredOptions.map(q => (<option key={q.id} value={q.id}>{q.group} - {q.quotaNumber} {q.companyId ? `(${companies.find(c => c.id === q.companyId)?.name})` : ''}</option>))}</select></div>
+             {/* Search */}
+             <div className="md:col-span-3 relative">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input type="text" placeholder="Pesquisar..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500" />
+             </div>
+             
+             {/* Company Filter */}
+             <div className="md:col-span-3 relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.companyId}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, companyId: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Todas as Empresas</option>
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+             </div>
+
+             {/* Status Filter */}
+             <div className="md:col-span-2 relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white"
+                    value={globalFilters.status}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, status: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Status</option>
+                    <option value="CONTEMPLATED">Contempladas</option>
+                    <option value="ACTIVE">Em Andamento</option>
+                </select>
+             </div>
+
+             {/* Quota Select */}
+             <div className="md:col-span-4">
+                 <select 
+                    className="w-full py-2 px-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md outline-none cursor-pointer" 
+                    value={currentQuota?.id || ''} 
+                    onChange={(e) => { const found = quotas.find(q => q.id === e.target.value); setCurrentQuota(found || null); }}
+                >
+                    <option value="">Selecionar Cota ({filteredOptions.length})</option>
+                    {filteredOptions.map(q => (
+                        <option key={q.id} value={q.id}>
+                            {q.group} - {q.quotaNumber} {q.companyId ? `(${companies.find(c => c.id === q.companyId)?.name})` : ''}
+                        </option>
+                    ))}
+                 </select>
+             </div>
         </div>
       </div>
 
@@ -141,14 +193,14 @@ const Simulation = () => {
                   <th className="p-2 text-center bg-slate-100 sticky left-0 z-30 w-10">P</th>
                   <th className="p-2 min-w-[70px]">Vencimento</th>
                   <th className="p-2 text-right">FC Mensal (%)</th>
-                  <th className="p-2 text-right">FR Mensal (%)</th>
                   <th className="p-2 text-right">TA Mensal (%)</th>
+                  <th className="p-2 text-right">FR Mensal (%)</th>
                   <th className="p-2 text-right">Multa</th>
                   <th className="p-2 text-right">Juros</th>
                   <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Pago (%)</th>
                   <th className="p-2 text-right border-l border-slate-200 bg-slate-50/80">Saldo FC (%)</th>
-                  <th className="p-2 text-right bg-slate-50/80">Saldo FR (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo TA (%)</th>
+                  <th className="p-2 text-right bg-slate-50/80">Saldo FR (%)</th>
                   <th className="p-2 text-right font-bold bg-slate-100 border-l border-slate-200">Saldo Total (%)</th>
                 </tr>
               </thead>
@@ -176,8 +228,8 @@ const Simulation = () => {
                                 </div>
                             </td>
                             <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFR?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFR?.toFixed(4)}%</span></div></td>
                             <td colSpan={2}></td>
                             <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercent?.toFixed(4)}%</span></div></td>
                             <td colSpan={4}></td>
@@ -193,8 +245,8 @@ const Simulation = () => {
                                 </div>
                             </td>
                             <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFR?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFR?.toFixed(4)}%</span></div></td>
                             <td colSpan={2}></td>
                             <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercent?.toFixed(4)}%</span></div></td>
                             <td colSpan={4}></td>
@@ -206,14 +258,14 @@ const Simulation = () => {
                     <td className="p-2 text-center font-medium sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100">{inst.installmentNumber}</td>
                     <td className="p-2 text-slate-500">{formatDate(inst.dueDate)}</td>
                     {renderEditableCell(inst, 'fc', inst.commonFund, inst.manualFC !== undefined && inst.manualFC !== null, inst.monthlyRateFC)}
-                    {renderEditableCell(inst, 'fr', inst.reserveFund, inst.manualFR !== undefined && inst.manualFR !== null, inst.monthlyRateFR)}
                     {renderEditableCell(inst, 'ta', inst.adminFee, inst.manualTA !== undefined && inst.manualTA !== null, inst.monthlyRateTA)}
+                    {renderEditableCell(inst, 'fr', inst.reserveFund, inst.manualFR !== undefined && inst.manualFR !== null, inst.monthlyRateFR)}
                     {renderEditableCell(inst, 'fine', inst.manualFine || 0, inst.manualFine !== undefined && inst.manualFine !== null)}
                     {renderEditableCell(inst, 'interest', inst.manualInterest || 0, inst.manualInterest !== undefined && inst.manualInterest !== null)}
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/20"><div className="flex flex-col items-end"><span>{formatCurrency(inst.totalInstallment || 0)}</span><span className="text-[8px] text-slate-400">{( (inst.totalInstallment / (inst.correctedCreditValue || 1) ) * 100).toFixed(4)}%</span></div></td>
                     <td className="p-2 text-right border-l border-slate-100"><span>{formatCurrency(inst.balanceFC)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFC.toFixed(4)}%</span></td>
-                    <td className="p-2 text-right"><span>{formatCurrency(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
                     <td className="p-2 text-right"><span>{formatCurrency(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right"><span>{formatCurrency(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
                     <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatCurrency(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
                   </tr>
                   </React.Fragment>
@@ -223,8 +275,8 @@ const Simulation = () => {
                   <tr>
                       <td className="p-2 text-center bg-slate-300 sticky left-0 z-30" colSpan={2}>Soma Final</td>
                       <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fc)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.fcPct.toFixed(4)}%</span></div></td>
-                      <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fr)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.frPct.toFixed(4)}%</span></div></td>
                       <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.ta)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.taPct.toFixed(4)}%</span></div></td>
+                      <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fr)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.frPct.toFixed(4)}%</span></div></td>
                       <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.fine)}</td>
                       <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.interest)}</td>
                       <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>

@@ -4,11 +4,7 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 import { ShoppingBag, Printer, Filter, X } from 'lucide-react';
 
 const CreditUsageReport = () => {
-  const { allCreditUsages, quotas, companies, administrators } = useConsortium();
-
-  // Filters State
-  const [filterAdmin, setFilterAdmin] = useState('');
-  const [filterCompany, setFilterCompany] = useState('');
+  const { allCreditUsages, quotas, companies, administrators, globalFilters, setGlobalFilters } = useConsortium();
 
   // Combine Usage Data with Quota Info & Filter
   const reportData = allCreditUsages.map(usage => {
@@ -22,8 +18,8 @@ const CreditUsageReport = () => {
           admin
       };
   }).filter(item => {
-      const matchAdmin = !filterAdmin || item.admin?.id === filterAdmin;
-      const matchComp = !filterCompany || item.company?.id === filterCompany;
+      const matchAdmin = !globalFilters.administratorId || item.admin?.id === globalFilters.administratorId;
+      const matchComp = !globalFilters.companyId || item.company?.id === globalFilters.companyId;
       return matchAdmin && matchComp;
   }).sort((a, b) => b.date.localeCompare(a.date)); // Newest first
 
@@ -68,8 +64,8 @@ const CreditUsageReport = () => {
             <div className="flex-1 w-full md:w-auto">
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Empresa</label>
                 <select 
-                    value={filterCompany} 
-                    onChange={(e) => setFilterCompany(e.target.value)}
+                    value={globalFilters.companyId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                 >
                     <option value="">Todas</option>
@@ -81,8 +77,8 @@ const CreditUsageReport = () => {
             <div className="flex-1 w-full md:w-auto">
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Administradora</label>
                 <select 
-                    value={filterAdmin} 
-                    onChange={(e) => setFilterAdmin(e.target.value)}
+                    value={globalFilters.administratorId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                 >
                     <option value="">Todas</option>
@@ -91,9 +87,9 @@ const CreditUsageReport = () => {
                     ))}
                 </select>
             </div>
-            {(filterAdmin || filterCompany) && (
+            {(globalFilters.administratorId || globalFilters.companyId) && (
                 <button 
-                    onClick={() => { setFilterAdmin(''); setFilterCompany(''); }}
+                    onClick={() => setGlobalFilters({ ...globalFilters, administratorId: '', companyId: '' })}
                     className="text-slate-500 hover:text-red-500 text-sm font-medium px-2 py-2 flex items-center gap-1"
                 >
                     <X size={16}/> Limpar

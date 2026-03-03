@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 // --- CONFIGURAÇÃO FIXA (OPCIONAL) ---
 // Preencha estas variáveis se quiser que a conexão persista mesmo limpando o navegador.
 // Útil para ambientes de desenvolvimento que resetam o LocalStorage.
-const FIXED_URL = ""; // Coloque sua URL aqui. Ex: "https://xyz.supabase.co"
-const FIXED_KEY = ""; // Coloque sua API Key aqui. Ex: "eyJh..."
+const FIXED_URL = "https://qxbuopbrsvxybektxobs.supabase.co"; // Coloque sua URL aqui. Ex: "https://xyz.supabase.co"
+const FIXED_KEY = "sb_publishable_ZkyIA-weUr0kLvUZ4oR6OA_betFG8t5"; // Coloque sua API Key aqui. Ex: "eyJh..."
 
 const cleanConfig = (value: string | null) => {
   if (!value) return '';
@@ -66,6 +66,26 @@ export const getSupabase = () => {
                 persistSession: true,
                 autoRefreshToken: true,
                 detectSessionInUrl: false
+            },
+            global: {
+                fetch: (resource, options) => {
+                    const timeout = 15000; // 15 seconds timeout
+                    const controller = new AbortController();
+                    const id = setTimeout(() => controller.abort(), timeout);
+                    return fetch(resource, {
+                        ...options,
+                        signal: controller.signal
+                    }).then(res => {
+                        clearTimeout(id);
+                        return res;
+                    }).catch(err => {
+                        clearTimeout(id);
+                        if (err.name === 'AbortError') {
+                            throw new Error('Tempo limite de conexão excedido. Verifique sua internet.');
+                        }
+                        throw err;
+                    });
+                }
             }
         });
       } catch (error) {

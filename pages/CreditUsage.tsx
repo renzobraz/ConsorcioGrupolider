@@ -275,7 +275,7 @@ const CreditUsage = () => {
                     step="0.01"
                     placeholder="0,00"
                     className="w-full border border-slate-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={form.amount}
+                    value={Number.isNaN(form.amount) ? '' : form.amount}
                     onChange={e => setForm({...form, amount: e.target.value})}
                   />
               </div>

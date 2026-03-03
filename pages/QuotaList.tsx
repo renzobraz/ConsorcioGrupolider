@@ -1,21 +1,32 @@
 
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, percent, Percent } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader } from 'lucide-react';
 import { ProductType } from '../types';
 import { calculateCurrentCreditValue } from '../services/calculationService';
 
 const QuotaList = () => {
-  const { quotas, deleteQuota, setCurrentQuota, administrators, companies, indices, allCreditUsages } = useConsortium();
+  const { quotas, deleteQuota, setCurrentQuota, administrators, companies, indices, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   
-  // Filter States
-  const [search, setSearch] = useState('');
-  const [filterAdmin, setFilterAdmin] = useState('');
-  const [filterCompany, setFilterCompany] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  // Filter States - Lendo search da URL, mas usando globalFilters para o resto
+  const search = searchParams.get('q') || '';
+
+  // Função auxiliar para atualizar a URL apenas para a busca
+  const updateSearch = (value: string) => {
+      setSearchParams(prev => {
+          const newParams = new URLSearchParams(prev);
+          if (value) {
+              newParams.set('q', value);
+          } else {
+              newParams.delete('q');
+          }
+          return newParams;
+      }, { replace: true });
+  };
 
   // Delete Modal State
   const [quotaToDelete, setQuotaToDelete] = useState<{ id: string, label: string } | null>(null);
@@ -27,12 +38,12 @@ const QuotaList = () => {
       (q.quotaNumber || '').toLowerCase().includes(search.toLowerCase()) || 
       (q.contractNumber || '').toLowerCase().includes(search.toLowerCase());
 
-    const matchesAdmin = !filterAdmin || q.administratorId === filterAdmin;
-    const matchesCompany = !filterCompany || q.companyId === filterCompany;
+    const matchesAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+    const matchesCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
 
     let matchesStatus = true;
-    if (filterStatus === 'CONTEMPLATED') matchesStatus = q.isContemplated;
-    if (filterStatus === 'ACTIVE') matchesStatus = !q.isContemplated;
+    if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
+    if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
 
     return matchesSearch && matchesAdmin && matchesCompany && matchesStatus;
   });
@@ -57,13 +68,11 @@ const QuotaList = () => {
   };
 
   const clearFilters = () => {
-    setSearch('');
-    setFilterAdmin('');
-    setFilterCompany('');
-    setFilterStatus('');
+    setSearchParams({});
+    setGlobalFilters({ companyId: '', administratorId: '', status: '' });
   };
 
-  const hasActiveFilters = search || filterAdmin || filterCompany || filterStatus;
+  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status;
 
   return (
     <div className="space-y-6">
@@ -89,15 +98,15 @@ const QuotaList = () => {
             placeholder="Buscar por Grupo, Cota ou Contrato..." 
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => updateSearch(e.target.value)}
           />
         </div>
 
         <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
                 <select 
-                    value={filterCompany} 
-                    onChange={(e) => setFilterCompany(e.target.value)}
+                    value={globalFilters.companyId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todas as Empresas</option>
@@ -108,8 +117,8 @@ const QuotaList = () => {
             </div>
             <div className="flex-1">
                 <select 
-                    value={filterAdmin} 
-                    onChange={(e) => setFilterAdmin(e.target.value)}
+                    value={globalFilters.administratorId} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todas as Administradoras</option>
@@ -120,8 +129,8 @@ const QuotaList = () => {
             </div>
             <div className="flex-1">
                 <select 
-                    value={filterStatus} 
-                    onChange={(e) => setFilterStatus(e.target.value)}
+                    value={globalFilters.status} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
                 >
                     <option value="">Todos os Status</option>
