@@ -141,6 +141,34 @@ const NewQuota = () => {
       }
     }
 
+    if (formData.calculationMethod === CalculationMethod.INDEX_TABLE && formData.indexTable && formData.indexTable.length > 0) {
+        let totalFC = 0;
+        let totalTA = 0;
+        let totalFR = 0;
+        
+        formData.indexTable.forEach(row => {
+            const numInstallments = row.endInstallment - row.startInstallment + 1;
+            if (numInstallments > 0) {
+                totalFC += numInstallments * (row.rateFC || 0);
+                totalTA += numInstallments * (row.rateTA || 0);
+                totalFR += numInstallments * (row.rateFR || 0);
+            }
+        });
+
+        const epsilon = 0.001;
+        if (Math.abs(totalFC - 100) > epsilon || 
+            Math.abs(totalTA - (formData.adminFeeRate || 0)) > epsilon || 
+            Math.abs(totalFR - (formData.reserveFundRate || 0)) > epsilon) {
+            
+            alert(`Atenção: A soma da Tabela de Índices está incorreta!\n\n` +
+                  `FC: ${totalFC.toFixed(4)}% (Esperado: 100%)\n` +
+                  `TA: ${totalTA.toFixed(4)}% (Esperado: ${formData.adminFeeRate}%)\n` +
+                  `FR: ${totalFR.toFixed(4)}% (Esperado: ${formData.reserveFundRate}%)\n\n` +
+                  `Por favor, corrija os valores antes de salvar.`);
+            return;
+        }
+    }
+
     setIsSaving(true);
     const quotaData: Quota = {
       id: id || crypto.randomUUID(),
@@ -171,7 +199,8 @@ const NewQuota = () => {
       bidTotal: Number(formData.bidTotal || 0),
       bidBase: formData.bidBase as BidBaseType,
       administratorId: formData.administratorId || undefined,
-      companyId: formData.companyId || undefined
+      companyId: formData.companyId || undefined,
+      correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined
     };
     try {
       if (id) {
@@ -224,7 +253,8 @@ const NewQuota = () => {
         bidTotal: Number(formData.bidTotal || 0),
         bidBase: formData.bidBase as BidBaseType,
         administratorId: formData.administratorId,
-        companyId: formData.companyId
+        companyId: formData.companyId,
+        correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined
       };
       await updateQuota(quotaData);
       setCurrentQuota(quotaData);
@@ -380,9 +410,9 @@ const NewQuota = () => {
                   </div>
                   {formData.indexTable && formData.indexTable.length > 0 && (
                       <div className="mt-3 text-xs text-blue-700 bg-blue-100 p-2 rounded flex justify-between">
-                          <span><strong>Total FC:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateFC * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
-                          <span><strong>Total TA:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateTA * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
-                          <span><strong>Total FR:</strong> {formData.indexTable.reduce((acc, row) => acc + (row.rateFR * (row.endInstallment - row.startInstallment + 1)), 0).toFixed(4)}%</span>
+                          <span><strong>Total FC:</strong> {formData.indexTable.reduce((acc, row) => acc + ((row.rateFC || 0) * ((row.endInstallment || 0) - (row.startInstallment || 0) + 1)), 0).toFixed(4)}%</span>
+                          <span><strong>Total TA:</strong> {formData.indexTable.reduce((acc, row) => acc + ((row.rateTA || 0) * ((row.endInstallment || 0) - (row.startInstallment || 0) + 1)), 0).toFixed(4)}%</span>
+                          <span><strong>Total FR:</strong> {formData.indexTable.reduce((acc, row) => acc + ((row.rateFR || 0) * ((row.endInstallment || 0) - (row.startInstallment || 0) + 1)), 0).toFixed(4)}%</span>
                       </div>
                   )}
               </div>
@@ -423,6 +453,10 @@ const NewQuota = () => {
                 <option value={CorrectionIndex.IPCA}>IPCA (Mensal)</option>
                 <option value={CorrectionIndex.INPC}>INPC (Mensal)</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1" title="Limite máximo de correção anual (opcional)">Teto de Reajuste Anual (%)</label>
+              <input name="correctionRateCap" type="number" step="0.01" placeholder="Ex: 10.00" value={formData.correctionRateCap ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
             </div>
              <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Plano Pagamento</label>

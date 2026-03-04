@@ -79,7 +79,11 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
           const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
           
           if (monthlyIndex && monthlyIndex.rate > 0) {
-              currentCreditValue = currentCreditValue * (1 + (monthlyIndex.rate / 100));
+              let appliedRate = monthlyIndex.rate;
+              if (quota.correctionRateCap && quota.correctionRateCap > 0) {
+                  appliedRate = Math.min(appliedRate, quota.correctionRateCap);
+              }
+              currentCreditValue = currentCreditValue * (1 + (appliedRate / 100));
           }
       }
       
@@ -154,6 +158,8 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
     let correctionApplied = false;
     let correctionFactor = 0;
     let correctionIndexName: string | undefined = undefined;
+    let correctionCapApplied = false;
+    let correctionRealRate = 0;
     
     // NOVA REGRA:
     // Ocorre quando o mês da parcela atual for igual ao mês da data âncora (1ª assembleia)
@@ -169,7 +175,13 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
             
             if (monthlyIndex && monthlyIndex.rate > 0) {
                 correctionApplied = true;
-                correctionFactor = monthlyIndex.rate / 100;
+                let appliedRate = monthlyIndex.rate;
+                correctionRealRate = monthlyIndex.rate;
+                if (quota.correctionRateCap && quota.correctionRateCap > 0 && appliedRate > quota.correctionRateCap) {
+                    appliedRate = quota.correctionRateCap;
+                    correctionCapApplied = true;
+                }
+                correctionFactor = appliedRate / 100;
                 correctionIndexName = quota.correctionIndex;
                 currentCreditValue *= (1 + correctionFactor);
             }
@@ -315,7 +327,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
       bidEmbeddedApplied, bidEmbeddedPercent, bidEmbeddedAbatementFC, bidEmbeddedPercentFC, bidEmbeddedAbatementFR, bidEmbeddedPercentFR, bidEmbeddedAbatementTA, bidEmbeddedPercentTA,
       bidFreeApplied, bidFreePercent, bidFreeAbatementFC, bidFreePercentFC, bidFreeAbatementFR, bidFreePercentFR, bidFreeAbatementTA, bidFreePercentTA,
       bidAbatementFC: bidEmbeddedAbatementFC + bidFreeAbatementFC, bidAbatementFR: bidEmbeddedAbatementFR + bidFreeAbatementFR, bidAbatementTA: bidEmbeddedAbatementTA + bidFreeAbatementTA,
-      correctionApplied, correctionFactor, correctedCreditValue: currentCreditValue, correctionIndexName,
+      correctionApplied, correctionFactor, correctedCreditValue: currentCreditValue, correctionIndexName, correctionCapApplied, correctionRealRate,
       realAmountPaid: null, isPaid: false
     });
   }

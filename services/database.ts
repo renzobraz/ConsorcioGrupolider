@@ -35,11 +35,12 @@ const toDbQuota = (q: Quota) => ({
   company_id: q.companyId || null,
   bid_free_correction: q.bidFreeCorrection || 0,
   calculation_method: q.calculationMethod || 'LINEAR',
-  index_table: q.indexTable ? JSON.stringify(q.indexTable) : null,
+  index_table: q.indexTable || null,
   acquired_from_third_party: q.acquiredFromThirdParty || false,
   assumed_installment: q.assumedInstallment || null,
   pre_paid_fc_percent: q.prePaidFCPercent || null,
-  acquisition_cost: q.acquisitionCost || null
+  acquisition_cost: q.acquisitionCost || null,
+  correction_rate_cap: q.correctionRateCap || null
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -72,7 +73,8 @@ const fromDbQuota = (dbQ: any): Quota => ({
   acquiredFromThirdParty: dbQ.acquired_from_third_party || false,
   assumedInstallment: dbQ.assumed_installment ? Number(dbQ.assumed_installment) : undefined,
   prePaidFCPercent: dbQ.pre_paid_fc_percent ? Number(dbQ.pre_paid_fc_percent) : undefined,
-  acquisitionCost: dbQ.acquisition_cost ? Number(dbQ.acquisition_cost) : undefined
+  acquisitionCost: dbQ.acquisition_cost ? Number(dbQ.acquisition_cost) : undefined,
+  correctionRateCap: dbQ.correction_rate_cap ? Number(dbQ.correction_rate_cap) : undefined
 });
 
 export const db = {

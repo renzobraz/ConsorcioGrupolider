@@ -212,6 +212,11 @@ const Simulation = () => {
                          <td className="p-2 text-center text-blue-600 sticky left-0 bg-blue-50 z-10"><TrendingUp size={12} className="mx-auto"/></td>
                          <td colSpan={11} className="p-2 text-blue-800 text-[10px] font-bold uppercase tracking-wide">
                             CORREÇÃO {inst.correctionIndexName}: {formatPercent((inst.correctionFactor || 0) * 100)} 
+                            {inst.correctionCapApplied && (
+                                <span className="ml-1 text-red-600 font-bold">
+                                    (TETO APLICADO. ÍNDICE REAL: {formatPercent(inst.correctionRealRate || 0)})
+                                </span>
+                            )}
                             <span className="ml-2 font-normal opacity-75">(Crédito Base: {formatCurrency(inst.correctedCreditValue || 0)})</span>
                          </td>
                       </tr>

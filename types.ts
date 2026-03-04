@@ -102,6 +102,9 @@ export interface Quota {
   assumedInstallment?: number;
   prePaidFCPercent?: number;
   acquisitionCost?: number;
+  
+  // Correction Cap
+  correctionRateCap?: number; // Teto de Reajuste Anual (%)
 }
 
 export interface PaymentInstallment {
@@ -164,6 +167,8 @@ export interface PaymentInstallment {
   correctionIndexName?: string; 
   correctionStartDate?: string; 
   correctionEndDate?: string; 
+  correctionCapApplied?: boolean;
+  correctionRealRate?: number;
 
   // User Input / Overrides
   realAmountPaid: number | null; 
