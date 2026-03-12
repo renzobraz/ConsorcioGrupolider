@@ -27,7 +27,8 @@ export enum BidBaseType {
 
 export enum CalculationMethod {
   LINEAR = 'LINEAR',
-  INDEX_TABLE = 'TABELA_INDICES'
+  INDEX_TABLE = 'TABELA_INDICES',
+  INDEX_TABLE_REDUCED = 'TABELA_INDICES_REDUZIDA'
 }
 
 export interface IndexTableEntry {
@@ -96,6 +97,7 @@ export interface Quota {
   // New Calculation Methods
   calculationMethod?: CalculationMethod;
   indexTable?: IndexTableEntry[];
+  recalculateBalanceAfterHalfOrContemplation?: boolean;
   
   // Third-party acquisition
   acquiredFromThirdParty?: boolean;
@@ -105,6 +107,11 @@ export interface Quota {
   
   // Correction Cap
   correctionRateCap?: number; // Teto de Reajuste Anual (%)
+}
+
+export enum PaymentStatus {
+  PREVISTO = 'PREVISTO',
+  PAGO = 'PAGO'
 }
 
 export interface PaymentInstallment {
@@ -118,6 +125,8 @@ export interface PaymentInstallment {
   monthlyRateFR?: number; 
   adminFee: number; // TA Mensal
   monthlyRateTA?: number; 
+  insurance: number;
+  amortization: number;
   totalInstallment: number; // Total
   
   // Balances (Saldo Devedor)
@@ -173,11 +182,15 @@ export interface PaymentInstallment {
   // User Input / Overrides
   realAmountPaid: number | null; 
   isPaid: boolean;
+  status?: PaymentStatus;
+  paymentDate?: string | null;
   manualFC?: number | null; 
   manualFR?: number | null; 
   manualTA?: number | null; 
   manualFine?: number | null; 
   manualInterest?: number | null; 
+  manualInsurance?: number | null;
+  manualAmortization?: number | null;
 }
 
 export interface CreditUsageEntry {

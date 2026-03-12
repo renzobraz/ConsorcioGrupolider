@@ -34,7 +34,8 @@ const NewQuota = () => {
     assumedInstallment: 1,
     prePaidFCPercent: 0,
     acquisitionCost: 0,
-    indexTable: []
+    indexTable: [],
+    recalculateBalanceAfterHalfOrContemplation: false
   });
 
   useEffect(() => {
@@ -47,7 +48,8 @@ const NewQuota = () => {
             dueDay: existingQuota.dueDay || 25,
             calculationMethod: existingQuota.calculationMethod || CalculationMethod.LINEAR,
             acquiredFromThirdParty: existingQuota.acquiredFromThirdParty || false,
-            indexTable: existingQuota.indexTable || []
+            indexTable: existingQuota.indexTable || [],
+            recalculateBalanceAfterHalfOrContemplation: existingQuota.recalculateBalanceAfterHalfOrContemplation || false
         });
         if (existingQuota.creditValue) {
            setDisplayCreditValue(existingQuota.creditValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -141,7 +143,7 @@ const NewQuota = () => {
       }
     }
 
-    if (formData.calculationMethod === CalculationMethod.INDEX_TABLE && formData.indexTable && formData.indexTable.length > 0) {
+    if (formData.calculationMethod === CalculationMethod.INDEX_TABLE && formData.indexTable && formData.indexTable.length > 0 && !formData.recalculateBalanceAfterHalfOrContemplation) {
         let totalFC = 0;
         let totalTA = 0;
         let totalFR = 0;
@@ -200,7 +202,8 @@ const NewQuota = () => {
       bidBase: formData.bidBase as BidBaseType,
       administratorId: formData.administratorId || undefined,
       companyId: formData.companyId || undefined,
-      correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined
+      correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
+      recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation)
     };
     try {
       if (id) {
@@ -254,7 +257,8 @@ const NewQuota = () => {
         bidBase: formData.bidBase as BidBaseType,
         administratorId: formData.administratorId,
         companyId: formData.companyId,
-        correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined
+        correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
+        recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation)
       };
       await updateQuota(quotaData);
       setCurrentQuota(quotaData);
@@ -415,6 +419,14 @@ const NewQuota = () => {
                           <span><strong>Total FR:</strong> {formData.indexTable.reduce((acc, row) => acc + ((row.rateFR || 0) * ((row.endInstallment || 0) - (row.startInstallment || 0) + 1)), 0).toFixed(4)}%</span>
                       </div>
                   )}
+                  <div className="mt-4">
+                      <label className="inline-flex items-center cursor-pointer">
+                          <input type="checkbox" name="recalculateBalanceAfterHalfOrContemplation" checked={formData.recalculateBalanceAfterHalfOrContemplation || false} onChange={handleChange} className="sr-only peer" />
+                          <div className="relative w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                          <span className="ms-3 text-sm font-medium text-slate-700">Recalcular % FC após a contemplação ou 50% do prazo (Plano Reduzido)</span>
+                      </label>
+                      <p className="text-xs text-slate-500 mt-1 ml-12">Marque esta opção se a tabela acima representa apenas o período de parcela reduzida. O sistema ignorará a trava de 100% e assumirá o recálculo automático do saldo restante no momento correto.</p>
+                  </div>
               </div>
           )}
 

@@ -193,95 +193,12 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [quotas, currentQuota, refreshData]);
 
-  // Helper to merge manual payments and recalculate balances
-  const mergeScheduleWithPayments = (baseSchedule: PaymentInstallment[], savedPayments: Record<number, any>) => {
-      let accDiffFC = 0;
-      let accDiffFR = 0;
-      let accDiffTA = 0;
-
-      return baseSchedule.map(inst => {
-          const paymentData = savedPayments[inst.installmentNumber];
-          
-          // 1. Determine Final Payment Values (Manual overrides Calculated)
-          const finalFC = paymentData && paymentData.manualFC !== undefined ? paymentData.manualFC : inst.commonFund;
-          const finalFR = paymentData && paymentData.manualFR !== undefined ? paymentData.manualFR : inst.reserveFund;
-          const finalTA = paymentData && paymentData.manualTA !== undefined ? paymentData.manualTA : inst.adminFee;
-          
-          const finalFine = paymentData?.manualFine || inst.manualFine || 0;
-          const finalInterest = paymentData?.manualInterest || inst.manualInterest || 0;
-          const finalAmountPaid = paymentData?.amount ?? null; // Keep null if not paid
-
-          // 2. Calculate Difference (Original Calculated - Manual)
-          // Positive Diff = Calculated was 100, Manual was 50 -> Diff 50. Debt INCREASES by 50.
-          // Negative Diff = Calculated was 100, Manual was 150 -> Diff -50. Debt DECREASES by 50.
-          // Only apply diff if there IS a manual value override
-          if (paymentData && paymentData.manualFC !== undefined) {
-              accDiffFC += (inst.commonFund - finalFC);
-          }
-          if (paymentData && paymentData.manualFR !== undefined) {
-              accDiffFR += (inst.reserveFund - finalFR);
-          }
-          if (paymentData && paymentData.manualTA !== undefined) {
-              accDiffTA += (inst.adminFee - finalTA);
-          }
-
-          // 3. Adjust Balances
-          // inst.balance comes from generation assuming standard payment. 
-          // We add the accumulated difference to correct it based on manual history.
-          const adjBalanceFC = Math.max(0, inst.balanceFC + accDiffFC);
-          const adjBalanceFR = Math.max(0, inst.balanceFR + accDiffFR);
-          const adjBalanceTA = Math.max(0, inst.balanceTA + accDiffTA);
-          const adjBalanceTotal = adjBalanceFC + adjBalanceFR + adjBalanceTA;
-
-          // 4. Recalculate Percentages relative to Credit Value
-          const currentCredit = inst.correctedCreditValue || 1;
-          const percentBalanceFC = (adjBalanceFC / currentCredit) * 100;
-          const percentBalanceFR = (adjBalanceFR / currentCredit) * 100;
-          const percentBalanceTA = (adjBalanceTA / currentCredit) * 100;
-          const percentBalanceTotal = (adjBalanceTotal / currentCredit) * 100;
-
-          return {
-              ...inst,
-              realAmountPaid: finalAmountPaid,
-              isPaid: !!paymentData,
-              
-              // Manual flags/values
-              manualFC: paymentData?.manualFC,
-              manualFR: paymentData?.manualFR,
-              manualTA: paymentData?.manualTA,
-              manualFine: paymentData?.manualFine,
-              manualInterest: paymentData?.manualInterest,
-
-              // Displayed Values (Overrides)
-              commonFund: finalFC,
-              reserveFund: finalFR,
-              adminFee: finalTA,
-              
-              // Total Calculation
-              totalInstallment: finalFC + finalFR + finalTA + finalFine + finalInterest,
-
-              // Adjusted Balances
-              balanceFC: adjBalanceFC,
-              balanceFR: adjBalanceFR,
-              balanceTA: adjBalanceTA,
-              balanceTotal: adjBalanceTotal,
-
-              // Adjusted Percentages
-              percentBalanceFC,
-              percentBalanceFR,
-              percentBalanceTA,
-              percentBalanceTotal
-          };
-      });
-  };
-
   const setCurrentQuota = useCallback(async (quota: Quota | null) => {
     setCurrentQuotaState(quota);
     if (quota) {
       setIsLoading(true);
       
       try {
-        const baseSchedule = generateSchedule(quota, indices);
         let savedPayments: Record<number, any> = {};
         try {
            savedPayments = await db.getPayments(quota.id);
@@ -289,9 +206,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
            console.warn("Could not load payments", e);
         }
         
-        // Merge and Recalculate Balances
-        const mergedSchedule = mergeScheduleWithPayments(baseSchedule, savedPayments);
-        setInstallments(mergedSchedule);
+        const schedule = generateSchedule(quota, indices, savedPayments);
+        setInstallments(schedule);
 
       } catch (err: any) {
          console.error("Failed to generate schedule/payments", err);
@@ -308,13 +224,27 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [indices]);
 
-
-  const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number }) => {
+  const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;
+
+    // Find existing installment to merge data
+    const existingInst = installments.find(i => i.installmentNumber === installmentNumber);
+    const mergedData = {
+      amount: data.amount !== undefined ? data.amount : existingInst?.realAmountPaid,
+      fc: data.fc !== undefined ? data.fc : existingInst?.manualFC,
+      fr: data.fr !== undefined ? data.fr : existingInst?.manualFR,
+      ta: data.ta !== undefined ? data.ta : existingInst?.manualTA,
+      fine: data.fine !== undefined ? data.fine : existingInst?.manualFine,
+      interest: data.interest !== undefined ? data.interest : existingInst?.manualInterest,
+      insurance: data.insurance !== undefined ? data.insurance : existingInst?.manualInsurance,
+      amortization: data.amortization !== undefined ? data.amortization : existingInst?.manualAmortization,
+      status: data.status !== undefined ? data.status : existingInst?.status,
+      paymentDate: data.paymentDate !== undefined ? data.paymentDate : existingInst?.paymentDate
+    };
 
     // 1. Update DB first
     try {
-      await db.savePayment(currentQuota.id, installmentNumber, data);
+      await db.savePayment(currentQuota.id, installmentNumber, mergedData);
     } catch (err: any) {
       console.error("Failed to save payment", err);
       if (db.isCloudEnabled()) {
@@ -323,41 +253,17 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return; // Stop if save fails
     }
 
-    // 2. Re-generate Schedule and Re-Merge to ensure balances propagate correctly
-    // We cannot just update the single row in 'installments' state because 
-    // changing FC in row X affects Balances in row X+1, X+2, etc.
-    
-    // Construct updated payments map from current installments + new data
-    const updatedPaymentsMap: Record<number, any> = {};
-    installments.forEach(inst => {
-        if (inst.isPaid || inst.manualFC !== undefined || inst.manualFR !== undefined || inst.manualTA !== undefined) {
-            updatedPaymentsMap[inst.installmentNumber] = {
-                amount: inst.realAmountPaid,
-                manualFC: inst.manualFC,
-                manualFR: inst.manualFR,
-                manualTA: inst.manualTA,
-                manualFine: inst.manualFine,
-                manualInterest: inst.manualInterest
-            };
-        }
-    });
-
-    // Merge new data into map
-    const existing = updatedPaymentsMap[installmentNumber] || {};
-    updatedPaymentsMap[installmentNumber] = {
-        amount: data.amount !== undefined ? data.amount : existing.amount,
-        manualFC: data.fc !== undefined ? data.fc : existing.manualFC,
-        manualFR: data.fr !== undefined ? data.fr : existing.manualFR,
-        manualTA: data.ta !== undefined ? data.ta : existing.manualTA,
-        manualFine: data.fine !== undefined ? data.fine : existing.manualFine,
-        manualInterest: data.interest !== undefined ? data.interest : existing.manualInterest
-    };
+    // 2. Re-generate Schedule
+    let savedPayments: Record<number, any> = {};
+    try {
+        savedPayments = await db.getPayments(currentQuota.id);
+    } catch(e) {
+        console.warn("Could not load payments for recalculation", e);
+    }
 
     // Re-run generation logic
-    const baseSchedule = generateSchedule(currentQuota, indices);
-    const mergedSchedule = mergeScheduleWithPayments(baseSchedule, updatedPaymentsMap);
-    
-    setInstallments(mergedSchedule);
+    const schedule = generateSchedule(currentQuota, indices, savedPayments);
+    setInstallments(schedule);
 
   }, [currentQuota, installments, indices]); // dependencies
 

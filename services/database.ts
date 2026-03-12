@@ -34,7 +34,7 @@ const toDbQuota = (q: Quota) => ({
   administrator_id: q.administratorId || null,
   company_id: q.companyId || null,
   bid_free_correction: q.bidFreeCorrection || 0,
-  calculation_method: q.calculationMethod || 'LINEAR',
+  calculation_method: q.recalculateBalanceAfterHalfOrContemplation ? 'TABELA_INDICES_REDUZIDA' : (q.calculationMethod || 'LINEAR'),
   index_table: q.indexTable || null,
   acquired_from_third_party: q.acquiredFromThirdParty || false,
   assumed_installment: q.assumedInstallment || null,
@@ -68,13 +68,14 @@ const fromDbQuota = (dbQ: any): Quota => ({
   administratorId: dbQ.administrator_id,
   companyId: dbQ.company_id,
   bidFreeCorrection: Number(dbQ.bid_free_correction || 0),
-  calculationMethod: dbQ.calculation_method || 'LINEAR',
+  calculationMethod: (dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA' ? 'TABELA_INDICES' : (dbQ.calculation_method || 'LINEAR')) as CalculationMethod,
   indexTable: dbQ.index_table ? (typeof dbQ.index_table === 'string' ? JSON.parse(dbQ.index_table) : dbQ.index_table) : undefined,
   acquiredFromThirdParty: dbQ.acquired_from_third_party || false,
   assumedInstallment: dbQ.assumed_installment ? Number(dbQ.assumed_installment) : undefined,
   prePaidFCPercent: dbQ.pre_paid_fc_percent ? Number(dbQ.pre_paid_fc_percent) : undefined,
   acquisitionCost: dbQ.acquisition_cost ? Number(dbQ.acquisition_cost) : undefined,
-  correctionRateCap: dbQ.correction_rate_cap ? Number(dbQ.correction_rate_cap) : undefined
+  correctionRateCap: dbQ.correction_rate_cap ? Number(dbQ.correction_rate_cap) : undefined,
+  recalculateBalanceAfterHalfOrContemplation: dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA'
 });
 
 export const db = {
@@ -122,20 +123,46 @@ export const db = {
   getPayments: async (quotaId: string): Promise<Record<number, any>> => {
     const supabase = getSupabase();
     if (supabase) {
-        const { data, error } = await supabase.from('payments').select('*').eq('quota_id', quotaId);
-        if (error) throw error;
-        const paymentMap: Record<number, any> = {};
-        (data || []).forEach((p: any) => {
-          paymentMap[p.installment_number] = {
-             amount: Number(p.amount_paid),
-             manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
-             manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
-             manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
-             manualFine: p.manual_fine !== null ? Number(p.manual_fine) : undefined,
-             manualInterest: p.manual_interest !== null ? Number(p.manual_interest) : undefined,
-          };
-        });
-        return paymentMap;
+        try {
+          const { data, error } = await supabase.from('payments').select('*').eq('quota_id', quotaId);
+          if (error) throw error;
+          const paymentMap: Record<number, any> = {};
+          (data || []).forEach((p: any) => {
+            paymentMap[p.installment_number] = {
+               amount: Number(p.amount_paid),
+               manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
+               manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
+               manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
+               manualFine: p.manual_fine !== null ? Number(p.manual_fine) : undefined,
+               manualInterest: p.manual_interest !== null ? Number(p.manual_interest) : undefined,
+               manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
+               manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
+               status: p.status || 'PREVISTO',
+               paymentDate: p.payment_date || undefined,
+            };
+          });
+          return paymentMap;
+        } catch (err: any) {
+          if (err.code === '42703') {
+            // Fallback for missing columns
+            console.warn("Missing columns in payments table, falling back to basic columns");
+            const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date').eq('quota_id', quotaId);
+            if (error) throw error;
+            const paymentMap: Record<number, any> = {};
+            (data || []).forEach((p: any) => {
+              paymentMap[p.installment_number] = {
+                 amount: Number(p.amount_paid),
+                 manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
+                 manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
+                 manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
+                 status: 'PREVISTO',
+                 paymentDate: p.payment_date || undefined,
+              };
+            });
+            return paymentMap;
+          }
+          throw err;
+        }
     } else {
         const data = localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`);
         return data ? JSON.parse(data) : {};
@@ -161,11 +188,33 @@ export const db = {
             manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
             manualFine: p.manual_fine !== null ? Number(p.manual_fine) : undefined,
             manualInterest: p.manual_interest !== null ? Number(p.manual_interest) : undefined,
+            manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
+            manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
+            status: p.status || 'PREVISTO',
+            paymentDate: p.payment_date || undefined,
           };
         });
-      } catch (err) {
-        console.error("Failed to fetch all payments for dictionary", err);
-        throw err;
+      } catch (err: any) {
+        if (err.code === '42703') {
+          console.warn("Missing columns in payments table, falling back to basic columns for dictionary");
+          const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date');
+          if (error) throw error;
+          
+          (data || []).forEach((p: any) => {
+            if (!dict[p.quota_id]) dict[p.quota_id] = {};
+            dict[p.quota_id][p.installment_number] = {
+              amount: Number(p.amount_paid),
+              manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
+              manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
+              manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
+              status: 'PREVISTO',
+              paymentDate: p.payment_date || undefined,
+            };
+          });
+        } else {
+          console.error("Failed to fetch all payments for dictionary", err);
+          throw err;
+        }
       }
     } else {
       for (let i = 0; i < localStorage.length; i++) {
@@ -188,13 +237,16 @@ export const db = {
       const payload = {
         quota_id: quotaId,
         installment_number: installmentNumber,
-        amount_paid: data.amount,
+        amount_paid: data.amount ?? null,
         manual_fc: data.fc ?? null,
         manual_fr: data.fr ?? null,
         manual_ta: data.ta ?? null,
         manual_fine: data.fine ?? null,
         manual_interest: data.interest ?? null,
-        payment_date: new Date().toISOString()
+        manual_insurance: data.insurance ?? null,
+        manual_amortization: data.amortization ?? null,
+        status: data.status || 'PAGO',
+        payment_date: data.paymentDate || new Date().toISOString()
       };
       await supabase.from('payments').upsert(payload);
     } else {

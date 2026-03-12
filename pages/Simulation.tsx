@@ -3,8 +3,9 @@
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter } from 'lucide-react';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { PaymentStatus } from '../types';
 
 const Simulation = () => {
   const { quotas, currentQuota, setCurrentQuota, installments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
@@ -13,6 +14,77 @@ const Simulation = () => {
   const [searchText, setSearchText] = useState('');
   const [editingCell, setEditingCell] = useState<{ id: number, field: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
+
+  // Payment Modal State
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedInstallment, setSelectedInstallment] = useState<any>(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    status: PaymentStatus.PREVISTO,
+    paymentDate: '',
+    amount: 0,
+    fc: 0,
+    fr: 0,
+    ta: 0,
+    insurance: 0,
+    amortization: 0,
+    fine: 0,
+    interest: 0
+  });
+
+  const openPaymentModal = (inst: any) => {
+    setSelectedInstallment(inst);
+    setPaymentFormData({
+      status: inst.status === 'PAGO' ? PaymentStatus.PAGO : PaymentStatus.PAGO, // Default to PAGO when opening to effectuate
+      paymentDate: inst.paymentDate ? inst.paymentDate.split('T')[0] : new Date().toISOString().split('T')[0],
+      amount: inst.realAmountPaid !== null ? inst.realAmountPaid : inst.totalInstallment,
+      fc: inst.manualFC !== undefined && inst.manualFC !== null ? inst.manualFC : inst.commonFund,
+      fr: inst.manualFR !== undefined && inst.manualFR !== null ? inst.manualFR : inst.reserveFund,
+      ta: inst.manualTA !== undefined && inst.manualTA !== null ? inst.manualTA : inst.adminFee,
+      insurance: inst.manualInsurance !== undefined && inst.manualInsurance !== null ? inst.manualInsurance : (inst.insurance || 0),
+      amortization: inst.manualAmortization !== undefined && inst.manualAmortization !== null ? inst.manualAmortization : (inst.amortization || 0),
+      fine: inst.manualFine || 0,
+      interest: inst.manualInterest || 0
+    });
+    setIsPaymentModalOpen(true);
+  };
+
+  const handlePaymentFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    if (name === 'status' || name === 'paymentDate') {
+      setPaymentFormData(prev => ({ ...prev, [name]: value }));
+    } else {
+      // Handle numeric inputs
+      const numValue = parseFloat(value.replace(',', '.'));
+      setPaymentFormData(prev => {
+        const newData = { ...prev, [name]: isNaN(numValue) ? 0 : numValue };
+        // Auto-calculate total amount if a component value changes
+        if (name !== 'amount') {
+          newData.amount = newData.fc + newData.fr + newData.ta + newData.insurance + newData.amortization + newData.fine + newData.interest;
+        }
+        return newData;
+      });
+    }
+  };
+
+  const savePaymentModal = () => {
+    if (!selectedInstallment) return;
+    
+    updateInstallmentPayment(selectedInstallment.installmentNumber, {
+      status: paymentFormData.status,
+      paymentDate: paymentFormData.paymentDate,
+      amount: paymentFormData.amount,
+      fc: paymentFormData.fc,
+      fr: paymentFormData.fr,
+      ta: paymentFormData.ta,
+      insurance: paymentFormData.insurance,
+      amortization: paymentFormData.amortization,
+      fine: paymentFormData.fine,
+      interest: paymentFormData.interest
+    });
+    
+    setIsPaymentModalOpen(false);
+    setSelectedInstallment(null);
+  };
 
   const filteredOptions = useMemo(() => {
     return quotas.filter(q => {
@@ -37,8 +109,8 @@ const Simulation = () => {
 
   const detailedSummary = useMemo(() => {
     const stats = {
-        paid: { fc: 0, fr: 0, ta: 0, fine: 0, interest: 0, total: 0 },
-        toPay: { fc: 0, fr: 0, ta: 0, fine: 0, interest: 0, total: 0 },
+        paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
+        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
         counts: { total: 0 }
     };
     if (!currentQuota) return stats;
@@ -47,17 +119,19 @@ const Simulation = () => {
         const isMatured = inst.dueDate.split('T')[0] <= todayStr;
         if (isMatured) {
             stats.paid.fc += inst.commonFund; stats.paid.fr += inst.reserveFund; stats.paid.ta += inst.adminFee;
+            stats.paid.insurance += (inst.insurance || 0); stats.paid.amortization += (inst.amortization || 0);
             stats.paid.fine += (inst.manualFine || 0); stats.paid.interest += (inst.manualInterest || 0);
         } else {
             stats.toPay.fc += inst.commonFund; stats.toPay.fr += inst.reserveFund; stats.toPay.ta += inst.adminFee;
+            stats.toPay.insurance += (inst.insurance || 0); stats.toPay.amortization += (inst.amortization || 0);
             stats.counts.total++;
         }
         if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
             stats.paid.fc += (inst.bidAbatementFC || 0); stats.paid.fr += (inst.bidAbatementFR || 0); stats.paid.ta += (inst.bidAbatementTA || 0);
         }
     });
-    stats.paid.total = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.fine + stats.paid.interest;
-    stats.toPay.total = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta;
+    stats.paid.total = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.insurance + stats.paid.amortization + stats.paid.fine + stats.paid.interest;
+    stats.toPay.total = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization;
     return stats;
   }, [currentQuota, installments, todayStr]);
 
@@ -80,11 +154,13 @@ const Simulation = () => {
             taPct: acc.taPct + (inst.monthlyRateTA || 0) + bTAP,
             fr: acc.fr + inst.reserveFund + bFR,
             frPct: acc.frPct + (inst.monthlyRateFR || 0) + bFRP,
+            insurance: acc.insurance + (inst.insurance || 0),
+            amortization: acc.amortization + (inst.amortization || 0),
             fine: acc.fine + (inst.manualFine || 0),
             interest: acc.interest + (inst.manualInterest || 0),
             total: acc.total + totalLineValue
         };
-    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, fine: 0, interest: 0, total: 0 });
+    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 });
 
     return {
         ...totals,
@@ -120,6 +196,205 @@ const Simulation = () => {
 
   return (
     <div className="space-y-6">
+      {/* Payment Modal */}
+      {isPaymentModalOpen && selectedInstallment && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <CheckCircle className="text-emerald-600" size={20} />
+                Efetivar Parcela {selectedInstallment.installmentNumber}
+              </h3>
+              <button onClick={() => setIsPaymentModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Status & Date */}
+                <div className="space-y-4 md:col-span-2 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2 mb-3">Status do Pagamento</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
+                      <select
+                        name="status"
+                        value={paymentFormData.status}
+                        onChange={handlePaymentFormChange}
+                        className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      >
+                        <option value={PaymentStatus.PREVISTO}>Previsto</option>
+                        <option value={PaymentStatus.PAGO}>Pago</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Data do Pagamento</label>
+                      <input
+                        type="date"
+                        name="paymentDate"
+                        value={paymentFormData.paymentDate}
+                        onChange={handlePaymentFormChange}
+                        className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Values */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2 mb-3">Valores Principais</h4>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fundo Comum (FC)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="fc"
+                        value={paymentFormData.fc}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Taxa de Administração (TA)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="ta"
+                        value={paymentFormData.ta}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fundo de Reserva (FR)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="fr"
+                        value={paymentFormData.fr}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Additional Values */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2 mb-3">Valores Adicionais</h4>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Seguro</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="insurance"
+                        value={paymentFormData.insurance}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Amortização</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="amortization"
+                        value={paymentFormData.amortization}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Multa</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          name="fine"
+                          value={paymentFormData.fine}
+                          onChange={handlePaymentFormChange}
+                          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Juros</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          name="interest"
+                          value={paymentFormData.interest}
+                          onChange={handlePaymentFormChange}
+                          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 mt-2 border-t border-slate-200">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">Valor Total Pago</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 font-bold text-sm">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        name="amount"
+                        value={paymentFormData.amount}
+                        onChange={handlePaymentFormChange}
+                        className="w-full pl-9 pr-3 py-2 border-2 border-emerald-200 bg-emerald-50 rounded-md text-emerald-900 font-bold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => setIsPaymentModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={savePaymentModal}
+                className="px-6 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center gap-2"
+              >
+                <CheckCircle size={16} />
+                Salvar Pagamento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4 print:hidden">
         <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600" /> Simulador e Extrato</h2>
@@ -185,6 +460,7 @@ const Simulation = () => {
         </div>
       </div>
 
+      {currentQuota && (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
@@ -195,6 +471,8 @@ const Simulation = () => {
                   <th className="p-2 text-right">FC Mensal (%)</th>
                   <th className="p-2 text-right">TA Mensal (%)</th>
                   <th className="p-2 text-right">FR Mensal (%)</th>
+                  <th className="p-2 text-right">Seguro</th>
+                  <th className="p-2 text-right">Amort.</th>
                   <th className="p-2 text-right">Multa</th>
                   <th className="p-2 text-right">Juros</th>
                   <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Pago (%)</th>
@@ -202,6 +480,7 @@ const Simulation = () => {
                   <th className="p-2 text-right bg-slate-50/80">Saldo TA (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo FR (%)</th>
                   <th className="p-2 text-right font-bold bg-slate-100 border-l border-slate-200">Saldo Total (%)</th>
+                  <th className="p-2 text-center bg-slate-100 border-l border-slate-200 w-12">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -210,7 +489,7 @@ const Simulation = () => {
                   {inst.correctionApplied && (
                       <tr className="bg-blue-50 border-y border-blue-100">
                          <td className="p-2 text-center text-blue-600 sticky left-0 bg-blue-50 z-10"><TrendingUp size={12} className="mx-auto"/></td>
-                         <td colSpan={11} className="p-2 text-blue-800 text-[10px] font-bold uppercase tracking-wide">
+                         <td colSpan={14} className="p-2 text-blue-800 text-[10px] font-bold uppercase tracking-wide">
                             CORREÇÃO {inst.correctionIndexName}: {formatPercent((inst.correctionFactor || 0) * 100)} 
                             {inst.correctionCapApplied && (
                                 <span className="ml-1 text-red-600 font-bold">
@@ -235,9 +514,9 @@ const Simulation = () => {
                             <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFC?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentTA?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFR?.toFixed(4)}%</span></div></td>
-                            <td colSpan={2}></td>
-                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercent?.toFixed(4)}%</span></div></td>
                             <td colSpan={4}></td>
+                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercent?.toFixed(4)}%</span></div></td>
+                            <td colSpan={5}></td>
                         </tr>
                       )}
                       {inst.bidFreeApplied! > 0 && (
@@ -252,19 +531,28 @@ const Simulation = () => {
                             <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFC?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentTA?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFR?.toFixed(4)}%</span></div></td>
-                            <td colSpan={2}></td>
-                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercent?.toFixed(4)}%</span></div></td>
                             <td colSpan={4}></td>
+                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercent?.toFixed(4)}%</span></div></td>
+                            <td colSpan={5}></td>
                         </tr>
                       )}
                     </React.Fragment>
                   )}
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="p-2 text-center font-medium sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100">{inst.installmentNumber}</td>
-                    <td className="p-2 text-slate-500">{formatDate(inst.dueDate)}</td>
+                  <tr className={`hover:bg-slate-50 transition-colors ${inst.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
+                    <td className="p-2 text-center font-medium sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100">
+                      {inst.status === 'PAGO' ? <CheckCircle size={14} className="text-emerald-500 mx-auto" /> : inst.installmentNumber}
+                    </td>
+                    <td className="p-2 text-slate-500">
+                      {formatDate(inst.dueDate)}
+                      {inst.status === 'PAGO' && inst.paymentDate && (
+                        <div className="text-[8px] text-emerald-600 font-medium">Pago: {formatDate(inst.paymentDate)}</div>
+                      )}
+                    </td>
                     {renderEditableCell(inst, 'fc', inst.commonFund, inst.manualFC !== undefined && inst.manualFC !== null, inst.monthlyRateFC)}
                     {renderEditableCell(inst, 'ta', inst.adminFee, inst.manualTA !== undefined && inst.manualTA !== null, inst.monthlyRateTA)}
                     {renderEditableCell(inst, 'fr', inst.reserveFund, inst.manualFR !== undefined && inst.manualFR !== null, inst.monthlyRateFR)}
+                    {renderEditableCell(inst, 'insurance', inst.insurance || 0, inst.manualInsurance !== undefined && inst.manualInsurance !== null)}
+                    {renderEditableCell(inst, 'amortization', inst.amortization || 0, inst.manualAmortization !== undefined && inst.manualAmortization !== null)}
                     {renderEditableCell(inst, 'fine', inst.manualFine || 0, inst.manualFine !== undefined && inst.manualFine !== null)}
                     {renderEditableCell(inst, 'interest', inst.manualInterest || 0, inst.manualInterest !== undefined && inst.manualInterest !== null)}
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/20"><div className="flex flex-col items-end"><span>{formatCurrency(inst.totalInstallment || 0)}</span><span className="text-[8px] text-slate-400">{( (inst.totalInstallment / (inst.correctedCreditValue || 1) ) * 100).toFixed(4)}%</span></div></td>
@@ -272,6 +560,15 @@ const Simulation = () => {
                     <td className="p-2 text-right"><span>{formatCurrency(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
                     <td className="p-2 text-right"><span>{formatCurrency(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
                     <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatCurrency(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
+                    <td className="p-2 text-center border-l border-slate-200">
+                      <button 
+                        onClick={() => openPaymentModal(inst)}
+                        className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${inst.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}
+                        title={inst.status === 'PAGO' ? 'Editar Pagamento' : 'Efetivar Parcela'}
+                      >
+                        {inst.status === 'PAGO' ? <><Edit3 size={12} /> Editar</> : <><CheckCircle size={12} /> Efetivar</>}
+                      </button>
+                    </td>
                   </tr>
                   </React.Fragment>
                 ))}
@@ -282,15 +579,18 @@ const Simulation = () => {
                       <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fc)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.fcPct.toFixed(4)}%</span></div></td>
                       <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.ta)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.taPct.toFixed(4)}%</span></div></td>
                       <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fr)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.frPct.toFixed(4)}%</span></div></td>
+                      <td className="p-2 text-right text-slate-700">{formatCurrency(footerTotals.insurance)}</td>
+                      <td className="p-2 text-right text-slate-700">{formatCurrency(footerTotals.amortization)}</td>
                       <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.fine)}</td>
                       <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.interest)}</td>
                       <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>
-                      <td colSpan={4} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
+                      <td colSpan={5} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
                   </tr>
               </tfoot>
             </table>
           </div>
       </div>
+      )}
 
       {currentQuota && (
           <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-12 print:border-none">
@@ -300,6 +600,8 @@ const Simulation = () => {
                         <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                         <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.paid.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                         <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.paid.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.paid.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
                         <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL PAGO</span> <div className="flex gap-12"><span>{detailedSummary.paid.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.paid.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
                 </div>
@@ -309,6 +611,8 @@ const Simulation = () => {
                         <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                         <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                         <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
                         <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL A VENCER</span> <div className="flex gap-12"><span>{detailedSummary.toPay.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.toPay.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-slate-300 flex justify-between text-xs font-black">

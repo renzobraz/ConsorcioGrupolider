@@ -78,9 +78,13 @@ const Reports = () => {
               if (isMatured) {
                   const fine = paymentData?.manualFine || inst.manualFine || 0;
                   const interest = paymentData?.manualInterest || inst.manualInterest || 0;
-                  sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + fine + interest;
+                  const insurance = paymentData?.manualInsurance || inst.insurance || 0;
+                  const amortization = paymentData?.manualAmortization || inst.amortization || 0;
+                  sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization + fine + interest;
               } else {
-                  sumAVencer += inst.commonFund + inst.reserveFund + inst.adminFee;
+                  const insurance = paymentData?.manualInsurance || inst.insurance || 0;
+                  const amortization = paymentData?.manualAmortization || inst.amortization || 0;
+                  sumAVencer += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization;
               }
 
               if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
@@ -267,7 +271,7 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {loading ? (<tr><td colSpan={15} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) : 
+                {loading ? (<tr><td colSpan={19} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) : 
                  sortedData.map(row => (
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="p-2 font-bold text-slate-700 sticky left-0 bg-white border-r border-slate-100 shadow-sm print:static print:bg-transparent">{row.group}</td>

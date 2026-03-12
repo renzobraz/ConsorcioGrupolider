@@ -93,7 +93,7 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   return currentCreditValue;
 };
 
-export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): PaymentInstallment[] => {
+export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}): PaymentInstallment[] => {
   const schedule: PaymentInstallment[] = [];
   if (!quota || !quota.firstDueDate) return [];
   
@@ -112,9 +112,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
   const dueDay = quota.dueDay || 25;
   
   let currentCreditValue = originalCredit;
-  let remainingPctFC = 100.0;
-  let remainingPctTA = adminFeeRateTotal;
-  let remainingPctFR = reserveFundRateTotal;
+  let balanceFC_Reais = originalCredit;
+  let balanceTA_Reais = originalCredit * (adminFeeRateTotal / 100);
+  let balanceFR_Reais = originalCredit * (reserveFundRateTotal / 100);
 
   // Third-party acquisition logic
   let startInstallment = 1;
@@ -122,7 +122,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
       startInstallment = quota.assumedInstallment;
       // If prePaidFCPercent is provided, we deduct it from the remaining FC
       if (quota.prePaidFCPercent !== undefined) {
-          remainingPctFC -= quota.prePaidFCPercent;
+          balanceFC_Reais -= (quota.prePaidFCPercent / 100) * currentCreditValue;
       }
   } else if (quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0) {
       // For new quotas using index table, start from the first defined installment
@@ -135,9 +135,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
   let bidProcessed = false;
   const today = new Date(); today.setHours(23, 59, 59, 999);
 
-  let deferredFCPct = 0;
-  let deferredTAPct = 0;
-  let deferredFRPct = 0;
+  let deferredFC_Reais = 0;
+  let deferredTA_Reais = 0;
+  let deferredFR_Reais = 0;
 
   let lastCorrectionYear = correctionAnchorDate.getFullYear();
 
@@ -183,7 +183,14 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
                 }
                 correctionFactor = appliedRate / 100;
                 correctionIndexName = quota.correctionIndex;
+                
                 currentCreditValue *= (1 + correctionFactor);
+                balanceFC_Reais *= (1 + correctionFactor);
+                balanceTA_Reais *= (1 + correctionFactor);
+                balanceFR_Reais *= (1 + correctionFactor);
+                deferredFC_Reais *= (1 + correctionFactor);
+                deferredTA_Reais *= (1 + correctionFactor);
+                deferredFR_Reais *= (1 + correctionFactor);
             }
         }
         
@@ -208,10 +215,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
              bidAmountApplied = quota.bidTotal || 0;
 
              const distributeBid = (amount: number) => {
-                 const totalRemainingPct = remainingPctFC + remainingPctTA + remainingPctFR;
-                 const weightFC = remainingPctFC / totalRemainingPct;
-                 const weightTA = remainingPctTA / totalRemainingPct;
-                 const weightFR = remainingPctFR / totalRemainingPct;
+                 const totalRemainingReais = Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais);
+                 const weightFC = totalRemainingReais > 0 ? Math.max(0, balanceFC_Reais) / totalRemainingReais : 0;
+                 const weightTA = totalRemainingReais > 0 ? Math.max(0, balanceTA_Reais) / totalRemainingReais : 0;
+                 const weightFR = totalRemainingReais > 0 ? Math.max(0, balanceFR_Reais) / totalRemainingReais : 0;
 
                  const mFC = parseFloat((amount * weightFC).toFixed(2));
                  const mTA = parseFloat((amount * weightTA).toFixed(2));
@@ -226,9 +233,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
                  const pTA = (mTA / currentCreditValue) * 100;
                  const pFR = (mFR / currentCreditValue) * 100;
 
-                 remainingPctFC -= pFC;
-                 remainingPctTA -= pTA;
-                 remainingPctFR -= pFR;
+                 balanceFC_Reais -= mFC;
+                 balanceTA_Reais -= mTA;
+                 balanceFR_Reais -= mFR;
 
                  return { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
              };
@@ -248,41 +255,48 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
         }
     }
 
-    let monthlyRateFC = 0, monthlyRateTA = 0, monthlyRateFR = 0;
+    let useIndexTable = quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0;
 
-    if (quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0) {
-        const entry = quota.indexTable.find(e => i >= e.startInstallment && i <= e.endInstallment);
+    if (useIndexTable && quota.recalculateBalanceAfterHalfOrContemplation) {
+        const halfTerm = Math.ceil(termMonths / 2);
+        const isNotContemplatedYet = !quota.isContemplated || (quota.contemplationDate && createLocalDate(quota.contemplationDate) > finalDueDate);
+        const isReducedPeriod = i <= halfTerm && isNotContemplatedYet;
+
+        if (!isReducedPeriod) {
+            useIndexTable = false; // Switch to linear recalculation for the remaining balance
+        }
+    }
+
+    let installmentFC = 0, installmentTA = 0, installmentFR = 0;
+
+    if (useIndexTable) {
+        const entry = quota.indexTable!.find(e => i >= e.startInstallment && i <= e.endInstallment);
         if (entry) {
-            monthlyRateFC = entry.rateFC;
-            monthlyRateTA = entry.rateTA;
-            monthlyRateFR = entry.rateFR;
-        } else {
-            // Fallback if index table is missing an entry for this installment
-            monthlyRateFC = 0;
-            monthlyRateTA = 0;
-            monthlyRateFR = 0;
+            installmentFC = parseFloat(((entry.rateFC / 100) * currentCreditValue).toFixed(2));
+            installmentTA = parseFloat(((entry.rateTA / 100) * currentCreditValue).toFixed(2));
+            installmentFR = parseFloat(((entry.rateFR / 100) * currentCreditValue).toFixed(2));
         }
     } else if (i === termMonths) {
-        monthlyRateFC = remainingPctFC;
-        monthlyRateTA = remainingPctTA;
-        monthlyRateFR = remainingPctFR;
+        installmentFC = parseFloat(Math.max(0, balanceFC_Reais).toFixed(2));
+        installmentTA = parseFloat(Math.max(0, balanceTA_Reais).toFixed(2));
+        installmentFR = parseFloat(Math.max(0, balanceFR_Reais).toFixed(2));
     } else if (quota.paymentPlan === PaymentPlanType.SEMESTRAL) {
-        const targetFC = remainingPctFC / monthsLeft;
-        const targetTA = remainingPctTA / monthsLeft;
-        const targetFR = remainingPctFR / monthsLeft;
+        const targetFC = Math.max(0, balanceFC_Reais) / monthsLeft;
+        const targetTA = Math.max(0, balanceTA_Reais) / monthsLeft;
+        const targetFR = Math.max(0, balanceFR_Reais) / monthsLeft;
 
         if (i % 6 === 0) {
-            monthlyRateFC = parseFloat((targetFC + deferredFCPct).toFixed(4));
-            monthlyRateTA = parseFloat((targetTA + deferredTAPct).toFixed(4));
-            monthlyRateFR = parseFloat((targetFR + deferredFRPct).toFixed(4));
-            deferredFCPct = 0; deferredTAPct = 0; deferredFRPct = 0;
+            installmentFC = parseFloat((targetFC + deferredFC_Reais).toFixed(2));
+            installmentTA = parseFloat((targetTA + deferredTA_Reais).toFixed(2));
+            installmentFR = parseFloat((targetFR + deferredFR_Reais).toFixed(2));
+            deferredFC_Reais = 0; deferredTA_Reais = 0; deferredFR_Reais = 0;
         } else {
-            monthlyRateFC = parseFloat((targetFC * 0.5).toFixed(4));
-            monthlyRateTA = parseFloat((targetTA * 0.5).toFixed(4));
-            monthlyRateFR = parseFloat((targetFR * 0.5).toFixed(4));
-            deferredFCPct += (targetFC - monthlyRateFC);
-            deferredTAPct += (targetTA - monthlyRateTA);
-            deferredFRPct += (targetFR - monthlyRateFR);
+            installmentFC = parseFloat((targetFC * 0.5).toFixed(2));
+            installmentTA = parseFloat((targetTA * 0.5).toFixed(2));
+            installmentFR = parseFloat((targetFR * 0.5).toFixed(2));
+            deferredFC_Reais += (targetFC - installmentFC);
+            deferredTA_Reais += (targetTA - installmentTA);
+            deferredFR_Reais += (targetFR - installmentFR);
         }
     } else if (quota.paymentPlan === PaymentPlanType.REDUZIDA) {
         const halfTerm = Math.ceil(termMonths / 2);
@@ -290,45 +304,91 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = []): Pa
         const isReducedPeriod = i <= halfTerm && isNotContemplatedYet;
 
         if (isReducedPeriod) {
-            monthlyRateFC = parseFloat(((100 / termMonths) * 0.5).toFixed(4));
+            const theoreticalRateFC = parseFloat(((100 / termMonths) * 0.5).toFixed(4));
+            installmentFC = parseFloat(((theoreticalRateFC / 100) * currentCreditValue).toFixed(2));
         } else {
-            monthlyRateFC = parseFloat((remainingPctFC / monthsLeft).toFixed(4));
+            installmentFC = parseFloat((Math.max(0, balanceFC_Reais) / monthsLeft).toFixed(2));
         }
-        monthlyRateTA = parseFloat((remainingPctTA / monthsLeft).toFixed(4));
-        monthlyRateFR = parseFloat((remainingPctFR / monthsLeft).toFixed(4));
+        installmentTA = parseFloat((Math.max(0, balanceTA_Reais) / monthsLeft).toFixed(2));
+        installmentFR = parseFloat((Math.max(0, balanceFR_Reais) / monthsLeft).toFixed(2));
     } else {
-        monthlyRateFC = parseFloat((remainingPctFC / monthsLeft).toFixed(4));
-        monthlyRateTA = parseFloat((remainingPctTA / monthsLeft).toFixed(4));
-        monthlyRateFR = parseFloat((remainingPctFR / monthsLeft).toFixed(4));
+        installmentFC = parseFloat((Math.max(0, balanceFC_Reais) / monthsLeft).toFixed(2));
+        installmentTA = parseFloat((Math.max(0, balanceTA_Reais) / monthsLeft).toFixed(2));
+        installmentFR = parseFloat((Math.max(0, balanceFR_Reais) / monthsLeft).toFixed(2));
     }
 
-    // Cálculo Monetária da Parcela baseado no Crédito Atualizado do mês
-    const installmentFC = parseFloat(((monthlyRateFC / 100) * currentCreditValue).toFixed(2));
-    const installmentTA = parseFloat(((monthlyRateTA / 100) * currentCreditValue).toFixed(2));
-    const installmentFR = parseFloat(((monthlyRateFR / 100) * currentCreditValue).toFixed(2));
-    
-    remainingPctFC -= monthlyRateFC;
-    remainingPctTA -= monthlyRateTA;
-    remainingPctFR -= monthlyRateFR;
+    let insurance = 0;
+    let amortization = 0;
+    let fine = 0;
+    let interest = 0;
+    let realAmountPaid = null;
+    let paymentDate = null;
+    let status = 'PREVISTO';
 
-    const totalInstallment = installmentFC + installmentTA + installmentFR;
+    // Apply manual overrides from payments
+    const payment = payments[i];
+    if (payment) {
+        if (payment.manualFC !== undefined && payment.manualFC !== null) installmentFC = payment.manualFC;
+        if (payment.manualTA !== undefined && payment.manualTA !== null) installmentTA = payment.manualTA;
+        if (payment.manualFR !== undefined && payment.manualFR !== null) installmentFR = payment.manualFR;
+        if (payment.manualInsurance !== undefined && payment.manualInsurance !== null) insurance = payment.manualInsurance;
+        if (payment.manualAmortization !== undefined && payment.manualAmortization !== null) amortization = payment.manualAmortization;
+        if (payment.manualFine !== undefined && payment.manualFine !== null) fine = payment.manualFine;
+        if (payment.manualInterest !== undefined && payment.manualInterest !== null) interest = payment.manualInterest;
+        
+        realAmountPaid = payment.amount ?? null;
+        paymentDate = payment.paymentDate || null;
+        status = payment.status || 'PREVISTO';
+    }
+
+    // Calculate actual rates used (for display purposes)
+    let actualRateFC = (installmentFC / currentCreditValue) * 100;
+    let actualRateTA = (installmentTA / currentCreditValue) * 100;
+    let actualRateFR = (installmentFR / currentCreditValue) * 100;
+
+    // Deduct from remaining balance in Reais
+    balanceFC_Reais -= installmentFC;
+    balanceTA_Reais -= installmentTA;
+    balanceFR_Reais -= installmentFR;
+
+    const totalInstallment = installmentFC + installmentTA + installmentFR + insurance + amortization + fine + interest;
 
     schedule.push({
-      installmentNumber: i, dueDate: dueDateStr, commonFund: installmentFC, monthlyRateFC, reserveFund: installmentFR, monthlyRateFR, adminFee: installmentTA, monthlyRateTA, totalInstallment,
-      balanceFC: (remainingPctFC / 100) * currentCreditValue, 
-      balanceFR: (remainingPctFR / 100) * currentCreditValue, 
-      balanceTA: (remainingPctTA / 100) * currentCreditValue, 
-      balanceTotal: ((remainingPctFC + remainingPctTA + remainingPctFR) / 100) * currentCreditValue,
-      percentBalanceFC: Math.max(0, remainingPctFC), 
-      percentBalanceFR: Math.max(0, remainingPctFR), 
-      percentBalanceTA: Math.max(0, remainingPctTA), 
-      percentBalanceTotal: Math.max(0, remainingPctFC + remainingPctTA + remainingPctFR),
+      installmentNumber: i, 
+      dueDate: dueDateStr, 
+      commonFund: installmentFC, 
+      monthlyRateFC: actualRateFC, 
+      reserveFund: installmentFR, 
+      monthlyRateFR: actualRateFR, 
+      adminFee: installmentTA, 
+      monthlyRateTA: actualRateTA, 
+      insurance, 
+      amortization, 
+      totalInstallment,
+      balanceFC: Math.max(0, balanceFC_Reais), 
+      balanceFR: Math.max(0, balanceFR_Reais), 
+      balanceTA: Math.max(0, balanceTA_Reais), 
+      balanceTotal: Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais),
+      percentBalanceFC: Math.max(0, (balanceFC_Reais / currentCreditValue) * 100), 
+      percentBalanceFR: Math.max(0, (balanceFR_Reais / currentCreditValue) * 100), 
+      percentBalanceTA: Math.max(0, (balanceTA_Reais / currentCreditValue) * 100), 
+      percentBalanceTotal: Math.max(0, ((balanceFC_Reais + balanceTA_Reais + balanceFR_Reais) / currentCreditValue) * 100),
       bidAmountApplied, bidDate: bidDateApplied,
       bidEmbeddedApplied, bidEmbeddedPercent, bidEmbeddedAbatementFC, bidEmbeddedPercentFC, bidEmbeddedAbatementFR, bidEmbeddedPercentFR, bidEmbeddedAbatementTA, bidEmbeddedPercentTA,
       bidFreeApplied, bidFreePercent, bidFreeAbatementFC, bidFreePercentFC, bidFreeAbatementFR, bidFreePercentFR, bidFreeAbatementTA, bidFreePercentTA,
       bidAbatementFC: bidEmbeddedAbatementFC + bidFreeAbatementFC, bidAbatementFR: bidEmbeddedAbatementFR + bidFreeAbatementFR, bidAbatementTA: bidEmbeddedAbatementTA + bidFreeAbatementTA,
       correctionApplied, correctionFactor, correctedCreditValue: currentCreditValue, correctionIndexName, correctionCapApplied, correctionRealRate,
-      realAmountPaid: null, isPaid: false
+      realAmountPaid, 
+      isPaid: status === 'PAGO',
+      status,
+      paymentDate,
+      manualFC: payment?.manualFC,
+      manualFR: payment?.manualFR,
+      manualTA: payment?.manualTA,
+      manualFine: payment?.manualFine,
+      manualInterest: payment?.manualInterest,
+      manualInsurance: payment?.manualInsurance,
+      manualAmortization: payment?.manualAmortization,
     });
   }
   return schedule;
