@@ -25,7 +25,10 @@ import CalculatorTool from './pages/CalculatorTool';
 import CreditUsage from './pages/CreditUsage'; 
 import CreditManagement from './pages/CreditManagement';
 import CreditUsageReport from './pages/CreditUsageReport';
+import Login from './pages/Login';
+import UserManagement from './pages/UserManagement';
 import { ConsortiumProvider, useConsortium } from './store/ConsortiumContext';
+import { AuthProvider, useAuth } from './store/AuthContext';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -36,33 +39,35 @@ interface SidebarProps {
 
 const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarProps) => {
   const location = useLocation();
+  const { hasPermission, isAdmin, user } = useAuth();
   
   const isActive = (path: string) => location.pathname === path 
     ? "bg-emerald-600 text-white shadow-lg" 
     : "text-slate-300 hover:bg-slate-800 hover:text-white";
 
   const navItems = [
-    { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard" },
-    { to: "/quotas", icon: <List size={20} />, label: "Minhas Cotas" },
-    { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro" },
-    { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato" },
-    { to: "/reports", icon: <FileBarChart size={20} />, label: "Relatório por Cota" },
-    { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago" },
-    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos" },
-    { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos" },
-    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa" },
-  ];
+    { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('canViewDashboard') },
+    { to: "/quotas", icon: <List size={20} />, label: "Minhas Cotas", show: true },
+    { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('canManageQuotas') },
+    { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('canSimulate') },
+    { to: "/reports", icon: <FileBarChart size={20} />, label: "Relatório por Cota", show: hasPermission('canViewReports') },
+    { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('canViewReports') },
+    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
+    { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('canViewReports') },
+    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
+  ].filter(item => item.show);
 
   const registryItems = [
-    { to: "/administrators", icon: <Building2 size={20} />, label: "Administradoras" },
-    { to: "/companies", icon: <Briefcase size={20} />, label: "Empresas" },
-    { to: "/indices", icon: <TrendingUp size={20} />, label: "Índices Correção" },
-  ];
+    { to: "/administrators", icon: <Building2 size={20} />, label: "Administradoras", show: hasPermission('canManageSettings') },
+    { to: "/companies", icon: <Briefcase size={20} />, label: "Empresas", show: hasPermission('canManageSettings') },
+    { to: "/indices", icon: <TrendingUp size={20} />, label: "Índices Correção", show: hasPermission('canManageSettings') },
+  ].filter(item => item.show);
 
   const systemItems = [
-    { to: "/manual", icon: <BookOpen size={20} />, label: "Manual do Sistema" },
-    { to: "/settings", icon: <SettingsIcon size={20} />, label: "Configurações" },
-  ];
+    { to: "/manual", icon: <BookOpen size={20} />, label: "Manual do Sistema", show: true },
+    { to: "/settings", icon: <SettingsIcon size={20} />, label: "Configurações", show: hasPermission('canManageSettings') },
+    { to: "/users", icon: <Building2 size={20} />, label: "Usuários", show: isAdmin },
+  ].filter(item => item.show);
 
   return (
     <div 
@@ -147,16 +152,16 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
           {!isCollapsed ? (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
-                AD
+                {user?.name.substring(0, 2).toUpperCase() || 'AD'}
               </div>
               <div className="text-xs truncate">
-                <p className="font-bold text-slate-200">Administrador</p>
-                <p className="text-slate-500">v2.1.0</p>
+                <p className="font-bold text-slate-200">{user?.name || 'Administrador'}</p>
+                <p className="text-slate-500">{user?.email || 'admin@consorcio.com'}</p>
               </div>
             </div>
           ) : (
             <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 font-bold text-xs mx-auto">
-              AD
+              {user?.name.substring(0, 2).toUpperCase() || 'AD'}
             </div>
           )}
       </div>
@@ -195,9 +200,10 @@ const ConnectionStatus = () => {
   );
 };
 
-const Layout = ({ children }: { children?: React.ReactNode }) => {
+const Layout = ({ children }: { children: React.ReactNode }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { user, logout } = useAuth();
 
   // Auto-collapse on smaller screens but not mobile
   useEffect(() => {
@@ -213,6 +219,10 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex overflow-hidden">
@@ -238,8 +248,8 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
              <div className="h-8 w-[1px] bg-slate-200 mx-2"></div>
              <div className="flex items-center gap-2">
                 <div className="hidden md:block text-right">
-                    <p className="text-sm font-bold text-slate-700 leading-none">Minha Conta</p>
-                    <p className="text-[10px] text-slate-400 mt-1 uppercase">Sair do sistema</p>
+                    <p className="text-sm font-bold text-slate-700 leading-none">{user.name}</p>
+                    <button onClick={logout} className="text-[10px] text-slate-400 mt-1 uppercase hover:text-red-500 transition-colors">Sair do sistema</button>
                 </div>
              </div>
           </div>
@@ -253,34 +263,46 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
   );
 };
 
+const ProtectedRoute = ({ children, permission }: { children: React.ReactNode, permission?: keyof import('./types').UserPermissions }) => {
+  const { user, hasPermission, isAdmin } = useAuth();
+  
+  if (!user) return <Navigate to="/" replace />;
+  if (permission && !hasPermission(permission) && !isAdmin) return <Navigate to="/quotas" replace />;
+  
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
-    <ConsortiumProvider>
-      <HashRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/quotas" element={<QuotaList />} />
-            <Route path="/new" element={<NewQuota />} />
-            <Route path="/edit/:id" element={<NewQuota />} />
-            <Route path="/usage/:id" element={<CreditUsage />} />
-            <Route path="/simulate" element={<Simulation />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/reports/monthly" element={<MonthlyPaidReport />} />
-            <Route path="/reports/monthly/:monthYear" element={<MonthlyDetailReport />} />
-            <Route path="/reports/usage" element={<CreditUsageReport />} />
-            <Route path="/indices" element={<CorrectionIndices />} />
-            <Route path="/administrators" element={<Administrators />} />
-            <Route path="/companies" element={<Companies />} />
-            <Route path="/credit-management" element={<CreditManagement />} />
-            <Route path="/manual" element={<Manual />} />
-            <Route path="/calculator" element={<CalculatorTool />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Layout>
-      </HashRouter>
-    </ConsortiumProvider>
+    <AuthProvider>
+      <ConsortiumProvider>
+        <HashRouter>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<ProtectedRoute permission="canViewDashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/quotas" element={<ProtectedRoute><QuotaList /></ProtectedRoute>} />
+              <Route path="/new" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
+              <Route path="/edit/:id" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
+              <Route path="/usage/:id" element={<ProtectedRoute permission="canManageQuotas"><CreditUsage /></ProtectedRoute>} />
+              <Route path="/simulate" element={<ProtectedRoute permission="canSimulate"><Simulation /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute permission="canViewReports"><Reports /></ProtectedRoute>} />
+              <Route path="/reports/monthly" element={<ProtectedRoute permission="canViewReports"><MonthlyPaidReport /></ProtectedRoute>} />
+              <Route path="/reports/monthly/:monthYear" element={<ProtectedRoute permission="canViewReports"><MonthlyDetailReport /></ProtectedRoute>} />
+              <Route path="/reports/usage" element={<ProtectedRoute permission="canViewReports"><CreditUsageReport /></ProtectedRoute>} />
+              <Route path="/indices" element={<ProtectedRoute permission="canManageSettings"><CorrectionIndices /></ProtectedRoute>} />
+              <Route path="/administrators" element={<ProtectedRoute permission="canManageSettings"><Administrators /></ProtectedRoute>} />
+              <Route path="/companies" element={<ProtectedRoute permission="canManageSettings"><Companies /></ProtectedRoute>} />
+              <Route path="/credit-management" element={<ProtectedRoute permission="canManageQuotas"><CreditManagement /></ProtectedRoute>} />
+              <Route path="/manual" element={<ProtectedRoute><Manual /></ProtectedRoute>} />
+              <Route path="/calculator" element={<ProtectedRoute permission="canSimulate"><CalculatorTool /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute permission="canManageSettings"><Settings /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Layout>
+        </HashRouter>
+      </ConsortiumProvider>
+    </AuthProvider>
   );
 };
 

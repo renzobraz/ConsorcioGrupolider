@@ -155,10 +155,11 @@ const Reports = () => {
   const filteredData = reportData.filter(row => {
     const matchAdmin = !globalFilters.administratorId || row.administratorId === globalFilters.administratorId;
     const matchComp = !globalFilters.companyId || row.companyId === globalFilters.companyId;
+    const matchProduct = !globalFilters.productType || row.productType === globalFilters.productType;
     let matchStatus = true;
     if (globalFilters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
     else if (globalFilters.status === 'ACTIVE') matchStatus = !row.isContemplated;
-    return matchAdmin && matchComp && matchStatus;
+    return matchAdmin && matchComp && matchProduct && matchStatus;
   });
 
   const sortedData = useMemo(() => {
@@ -219,10 +220,11 @@ const Reports = () => {
         </button>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 print:hidden">
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Fechamento</label><input type="date" value={referenceDate} onChange={(e) => setReferenceDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" /></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Produto</label><select value={globalFilters.productType} onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="VEICULO">Veículo</option><option value="IMOVEL">Imóvel</option></select></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
       </div>
 

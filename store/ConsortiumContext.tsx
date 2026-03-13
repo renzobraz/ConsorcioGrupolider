@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
+import { useAuth } from './AuthContext';
 
 interface ConsortiumContextType {
   quotas: Quota[];
@@ -44,8 +45,9 @@ interface ConsortiumContextType {
     companyId: string;
     administratorId: string;
     status: string;
+    productType: string;
   };
-  setGlobalFilters: (filters: { companyId: string; administratorId: string; status: string }) => void;
+  setGlobalFilters: (filters: { companyId: string; administratorId: string; status: string; productType: string }) => void;
 }
 
 const ConsortiumContext = createContext<ConsortiumContextType | undefined>(undefined);
@@ -67,8 +69,11 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [globalFilters, setGlobalFilters] = useState({
     companyId: '',
     administratorId: '',
-    status: ''
+    status: '',
+    productType: ''
   });
+
+  const { user, isAdmin } = useAuth();
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
@@ -363,9 +368,16 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   }, []);
 
+  const filteredQuotas = React.useMemo(() => {
+    if (!user) return [];
+    if (isAdmin) return quotas;
+    const allowedIds = user.permissions.allowedCompanyIds || [];
+    return quotas.filter(q => q.companyId && allowedIds.includes(q.companyId));
+  }, [quotas, user, isAdmin]);
+
   return (
     <ConsortiumContext.Provider value={{ 
-      quotas, 
+      quotas: filteredQuotas, 
       indices,
       administrators,
       companies,

@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -8,6 +8,27 @@ const INDICES_KEY = 'consortium_indices_db';
 const ADMINS_KEY = 'consortium_admins_db';
 const COMPANIES_KEY = 'consortium_companies_db';
 const CREDIT_USAGES_KEY = 'consortium_credit_usages_db';
+const USERS_KEY = 'consortium_users_db';
+
+const toDbUser = (u: User) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  password: u.password,
+  role: u.role,
+  permissions: u.permissions,
+  is_active: u.isActive
+});
+
+const fromDbUser = (dbU: any): User => ({
+  id: dbU.id,
+  email: dbU.email,
+  name: dbU.name,
+  password: dbU.password,
+  role: dbU.role,
+  permissions: dbU.permissions,
+  isActive: dbU.is_active
+});
 
 const toDbQuota = (q: Quota) => ({
   id: q.id,
@@ -392,6 +413,45 @@ export const db = {
     else {
       const list = JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]');
       localStorage.setItem(CREDIT_USAGES_KEY, JSON.stringify(list.filter((u: any) => u.id !== id)));
+    }
+  },
+
+  getUsers: async (): Promise<User[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('users').select('*');
+        if (error) throw new Error(error.message);
+        return (data || []).map(fromDbUser);
+      } catch (err: any) { throw err; }
+    } else {
+      const data = localStorage.getItem(USERS_KEY);
+      return data ? JSON.parse(data) : [];
+    }
+  },
+
+  saveUser: async (user: User): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { error } = await supabase.from('users').upsert(toDbUser(user));
+      if (error) throw new Error(error.message);
+    } else {
+      const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+      const existingIndex = users.findIndex((u: User) => u.id === user.id);
+      if (existingIndex >= 0) users[existingIndex] = user;
+      else users.push(user);
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    }
+  },
+
+  deleteUser: async (id: string): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+    } else {
+      const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+      localStorage.setItem(USERS_KEY, JSON.stringify(users.filter((u: User) => u.id !== id)));
     }
   }
 };

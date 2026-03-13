@@ -73,13 +73,28 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
           // Usamos então o índice de 2 meses antes (M-2).
           // Ex: Aniversário em Janeiro. Índice de Dezembro sai dia 12/Jan. Boleto vence dia 05/Jan.
           // Logo, usa-se o índice de Novembro.
-          const indexDate = addMonths(startDate, (anniversaryCount * 12) - 2);
-          const indexLookupStr = indexDate.toISOString().split('T')[0].substring(0, 8) + '01';
+          const indexEndDate = addMonths(startDate, (anniversaryCount * 12) - 2);
+          const indexStartDate = addMonths(indexEndDate, -11); // 12 months total: from M-13 to M-2
           
-          const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+          let accumulatedMultiplier = 1;
+          let hasAnyIndex = false;
           
-          if (monthlyIndex && monthlyIndex.rate > 0) {
-              let appliedRate = monthlyIndex.rate;
+          for (let m = 0; m < 12; m++) {
+              const currentMonthDate = addMonths(indexStartDate, m);
+              const year = currentMonthDate.getFullYear();
+              const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+              const indexLookupStr = `${year}-${month}-01`;
+              
+              const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+              
+              if (monthlyIndex && monthlyIndex.rate !== 0) {
+                  accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                  hasAnyIndex = true;
+              }
+          }
+          
+          if (hasAnyIndex) {
+              let appliedRate = (accumulatedMultiplier - 1) * 100;
               if (quota.correctionRateCap && quota.correctionRateCap > 0) {
                   appliedRate = Math.min(appliedRate, quota.correctionRateCap);
               }
@@ -167,16 +182,31 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     if (i > 1 && finalDueDate.getMonth() === correctionAnchorDate.getMonth() && finalDueDate.getFullYear() > lastCorrectionYear) {
         // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
         // Ex: Aniversário em Novembro -> Busca índice de Setembro
-        const indexMonthDate = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth() - 2, 1);
-        const indexLookupStr = indexMonthDate.toISOString().split('T')[0];
+        const indexEndDate = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth() - 2, 1);
+        const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
 
-        if (indexMonthDate <= today) {
-            const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+        if (indexEndDate <= today) {
+            let accumulatedMultiplier = 1;
+            let hasAnyIndex = false;
             
-            if (monthlyIndex && monthlyIndex.rate > 0) {
+            for (let m = 0; m < 12; m++) {
+                const currentMonthDate = addMonths(indexStartDate, m);
+                const year = currentMonthDate.getFullYear();
+                const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+                const indexLookupStr = `${year}-${month}-01`;
+                
+                const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+                
+                if (monthlyIndex && monthlyIndex.rate !== 0) {
+                    accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                    hasAnyIndex = true;
+                }
+            }
+            
+            if (hasAnyIndex) {
                 correctionApplied = true;
-                let appliedRate = monthlyIndex.rate;
-                correctionRealRate = monthlyIndex.rate;
+                let appliedRate = (accumulatedMultiplier - 1) * 100;
+                correctionRealRate = appliedRate;
                 if (quota.correctionRateCap && quota.correctionRateCap > 0 && appliedRate > quota.correctionRateCap) {
                     appliedRate = quota.correctionRateCap;
                     correctionCapApplied = true;

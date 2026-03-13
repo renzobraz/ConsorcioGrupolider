@@ -40,12 +40,13 @@ const QuotaList = () => {
 
     const matchesAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
     const matchesCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
+    const matchesProduct = !globalFilters.productType || q.productType === globalFilters.productType;
 
     let matchesStatus = true;
     if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
     if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
 
-    return matchesSearch && matchesAdmin && matchesCompany && matchesStatus;
+    return matchesSearch && matchesAdmin && matchesCompany && matchesProduct && matchesStatus;
   });
 
   const handleSimulate = (quota: any) => {
@@ -69,10 +70,10 @@ const QuotaList = () => {
 
   const clearFilters = () => {
     setSearchParams({});
-    setGlobalFilters({ companyId: '', administratorId: '', status: '' });
+    setGlobalFilters({ companyId: '', administratorId: '', status: '', productType: '' });
   };
 
-  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status;
+  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status || globalFilters.productType;
 
   return (
     <div className="space-y-6">
@@ -125,6 +126,17 @@ const QuotaList = () => {
                     {administrators.map(a => (
                         <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
+                </select>
+            </div>
+            <div className="flex-1">
+                <select 
+                    value={globalFilters.productType} 
+                    onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
+                >
+                    <option value="">Todos os Produtos</option>
+                    <option value="VEICULO">Veículo</option>
+                    <option value="IMOVEL">Imóvel</option>
                 </select>
             </div>
             <div className="flex-1">

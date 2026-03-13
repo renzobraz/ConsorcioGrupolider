@@ -4,6 +4,30 @@ export enum ProductType {
   REAL_ESTATE = 'IMOVEL'
 }
 
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  USER = 'USER'
+}
+
+export interface UserPermissions {
+  canViewDashboard: boolean;
+  canManageQuotas: boolean;
+  canSimulate: boolean;
+  canViewReports: boolean;
+  canManageSettings: boolean;
+  allowedCompanyIds?: string[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  password?: string;
+  role: UserRole;
+  permissions: UserPermissions;
+  isActive: boolean;
+}
+
 export enum CorrectionIndex {
   INCC = 'INCC',
   IPCA = 'IPCA',

@@ -94,13 +94,14 @@ const Dashboard = () => {
         const filteredQuotas = quotas.filter(q => {
           const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
           const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+          const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
           const matchQuota = !selectedQuotaId || q.id === selectedQuotaId;
           
           let matchStatus = true;
           if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
           if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
 
-          return matchCompany && matchAdmin && matchQuota && matchStatus;
+          return matchCompany && matchAdmin && matchProduct && matchQuota && matchStatus;
         });
 
         let accContemplated = 0;
@@ -511,6 +512,22 @@ const Dashboard = () => {
             <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
               <Filter size={18} className="text-slate-400 ml-2" />
               <select 
+                value={globalFilters.productType} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, productType: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when product filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-32 cursor-pointer"
+              >
+                <option value="">Produto (Todos)</option>
+                <option value="VEICULO">Veículo</option>
+                <option value="IMOVEL">Imóvel</option>
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Filter size={18} className="text-slate-400 ml-2" />
+              <select 
                 value={globalFilters.status} 
                 onChange={(e) => {
                   setGlobalFilters({ ...globalFilters, status: e.target.value });
@@ -536,10 +553,11 @@ const Dashboard = () => {
                   .filter(q => {
                     const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
                     const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+                    const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
                     let matchStatus = true;
                     if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
                     if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
-                    return matchCompany && matchAdmin && matchStatus;
+                    return matchCompany && matchAdmin && matchProduct && matchStatus;
                   })
                   .map(q => (
                   <option key={q.id} value={q.id}>
