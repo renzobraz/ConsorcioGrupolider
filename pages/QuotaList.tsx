@@ -5,7 +5,7 @@ import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
 import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader } from 'lucide-react';
 import { ProductType } from '../types';
-import { calculateCurrentCreditValue } from '../services/calculationService';
+import { calculateCurrentCreditValue, generateSchedule, calculateIRR } from '../services/calculationService';
 
 const QuotaList = () => {
   const { quotas, deleteQuota, setCurrentQuota, administrators, companies, indices, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
@@ -175,6 +175,7 @@ const QuotaList = () => {
                   <th className="p-4 font-semibold text-right bg-emerald-50/50 text-emerald-800 border-l border-emerald-100">Vlr Atual</th>
                   <th className="p-4 font-semibold text-right bg-blue-50/50 text-blue-800 border-l border-blue-100">Taxas (TA/FR)</th>
                   <th className="p-4 font-semibold text-right bg-amber-50 text-amber-800 border-l border-emerald-100">Cred. Usado</th>
+                  <th className="p-4 font-semibold text-center bg-slate-100 text-slate-800 border-l border-slate-200">CET Anual</th>
                   <th className="p-4 font-semibold text-center">Plano</th>
                   <th className="p-4 font-semibold text-center">Índice</th>
                   <th className="p-4 font-semibold text-center">Prazo</th>
@@ -242,6 +243,45 @@ const QuotaList = () => {
                     </td>
                     <td className="p-4 text-right font-medium text-amber-700 bg-amber-50/30 border-l border-emerald-50">
                         {usedCredit > 0 ? formatCurrency(usedCredit) : '-'}
+                    </td>
+                    <td className="p-4 text-center bg-slate-50/50 border-l border-slate-100">
+                      {(() => {
+                        const schedule = generateSchedule(quota, indices);
+                        const embeddedBid = quota.bidEmbedded || 0;
+                        const netCredit = (calculateCurrentCreditValue(quota, indices)) - embeddedBid;
+                        const acqCost = quota.acquisitionCost || 0;
+                        
+                        const cashFlows = [netCredit - acqCost];
+                        schedule.forEach(inst => {
+                            let outflow = inst.totalInstallment;
+                            if (inst.bidFreeApplied && inst.bidFreeApplied > 0) {
+                                outflow += inst.bidFreeApplied;
+                            }
+                            cashFlows.push(-outflow);
+                        });
+
+                        const irrMonthly = calculateIRR(cashFlows);
+                        if (irrMonthly !== null && !isNaN(irrMonthly) && netCredit > 0) {
+                            const irrAnnual = Math.pow(1 + irrMonthly, 12) - 1;
+                            return (
+                                <div className="flex flex-col items-center">
+                                    <span className="text-sm font-black text-slate-800">{(irrAnnual * 100).toFixed(2)}%</span>
+                                    <span className="text-[9px] text-slate-400 uppercase">a.a.</span>
+                                </div>
+                            );
+                        } else if (netCredit > 0) {
+                            const totalPaidInSchedule = schedule.reduce((sum, inst) => sum + inst.totalInstallment + (inst.bidFreeApplied || 0), 0);
+                            const totalCost = totalPaidInSchedule + acqCost;
+                            const linearCETAnnual = ((totalCost / netCredit) - 1) / (quota.termMonths / 12);
+                            return (
+                                <div className="flex flex-col items-center">
+                                    <span className="text-sm font-bold text-slate-500">{(linearCETAnnual * 100).toFixed(2)}%</span>
+                                    <span className="text-[9px] text-slate-400 uppercase">a.a. (lin)</span>
+                                </div>
+                            );
+                        }
+                        return <span className="text-slate-300">-</span>;
+                      })()}
                     </td>
                     <td className="p-4 text-center text-sm">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${

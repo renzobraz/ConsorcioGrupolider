@@ -10,6 +10,7 @@ const defaultPermissions: UserPermissions = {
   canSimulate: true,
   canViewReports: false,
   canManageSettings: false,
+  canMarkQuotas: false,
   allowedCompanyIds: [],
 };
 
@@ -268,6 +269,10 @@ const UserManagement = () => {
                             <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
                               <input type="checkbox" checked={editForm.permissions?.canManageSettings} onChange={() => togglePermission('canManageSettings')} className="rounded text-emerald-600 focus:ring-emerald-500" />
                               <span className="text-sm text-slate-700">Configurações (Admin/Empresas)</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
+                              <input type="checkbox" checked={editForm.permissions?.canMarkQuotas} onChange={() => togglePermission('canMarkQuotas')} className="rounded text-emerald-600 focus:ring-emerald-500" />
+                              <span className="text-sm text-slate-700">Marcar Minhas Cotas</span>
                             </label>
                           </div>
                           

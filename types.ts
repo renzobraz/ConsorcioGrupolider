@@ -15,6 +15,7 @@ export interface UserPermissions {
   canSimulate: boolean;
   canViewReports: boolean;
   canManageSettings: boolean;
+  canMarkQuotas: boolean;
   allowedCompanyIds?: string[];
 }
 

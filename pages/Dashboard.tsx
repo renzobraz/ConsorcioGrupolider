@@ -2,38 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { generateSchedule, calculateCurrentCreditValue } from '../services/calculationService';
+import { generateSchedule, calculateCurrentCreditValue, calculateIRR } from '../services/calculationService';
 import { db } from '../services/database';
 import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader, PlayCircle, TrendingUp, Percent, FileText, CalendarClock, X, ArrowRight, Filter, PieChart, Layers, PiggyBank, ShoppingBag, BadgeCheck } from 'lucide-react';
 
 // Função para calcular a TIR (Taxa Interna de Retorno) / IRR
 // Método de Newton-Raphson
-const calculateIRR = (cashFlows: number[], guess = 0.01): number | null => {
-  const maxIter = 1000;
-  const precision = 1e-7;
-  let rate = guess;
-
-  for (let i = 0; i < maxIter; i++) {
-    let npv = 0;
-    let dNpv = 0;
-    
-    for (let t = 0; t < cashFlows.length; t++) {
-      const div = Math.pow(1 + rate, t);
-      npv += cashFlows[t] / div;
-      dNpv -= (t * cashFlows[t]) / (div * (1 + rate));
-    }
-
-    if ((Math.abs(npv) < precision) || (Math.abs(dNpv) < precision)) {
-      return rate;
-    }
-
-    const newRate = rate - npv / dNpv;
-    if (Math.abs(newRate - rate) < precision) return newRate;
-    
-    rate = newRate;
-  }
-  return null; // Não convergiu
-};
+// (Movido para calculationService.ts)
 
 const Dashboard = () => {
   const { quotas, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
@@ -209,9 +184,19 @@ const Dashboard = () => {
           accGlobalPaid += quotaPaid;
           accGlobalToPay += quotaToPay;
 
-          const cashFlows = [netCredit];
+          // Cálculo da TIR (CET)
+          // Consideramos o crédito líquido como entrada no mês 0
+          // E as parcelas (incluindo lances livres e custo de aquisição) como saídas
+          const acqCost = quota.acquisitionCost || 0;
+          const cashFlows = [netCredit - acqCost];
+          
           schedule.forEach(inst => {
-              cashFlows.push(-inst.totalInstallment);
+              let outflow = inst.totalInstallment;
+              // Se houve lance livre aplicado neste mês, somamos à saída
+              if (inst.bidFreeApplied && inst.bidFreeApplied > 0) {
+                  outflow += inst.bidFreeApplied;
+              }
+              cashFlows.push(-outflow);
           });
 
           const irrMonthly = calculateIRR(cashFlows);
@@ -221,12 +206,14 @@ const Dashboard = () => {
               accumulatedAnnualCostWeighted += (irrAnnual * netCredit);
               totalCreditForWeighting += netCredit;
           } else if (netCredit > 0) {
-              const totalCostRate = (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
-              const term = quota.termMonths || 1;
-              const monthlySimple = (totalCostRate / term) / 100;
-              const annualSimple = monthlySimple * 12;
-              accumulatedMonthlyCostWeighted += (monthlySimple * netCredit);
-              accumulatedAnnualCostWeighted += (annualSimple * netCredit);
+              // Fallback linear mais preciso: (Total Pago / Crédito Líquido - 1) / Prazo
+              const totalPaidInSchedule = schedule.reduce((sum, inst) => sum + inst.totalInstallment + (inst.bidFreeApplied || 0), 0);
+              const totalCost = totalPaidInSchedule + acqCost;
+              const linearCETAnnual = ((totalCost / netCredit) - 1) / (quota.termMonths / 12);
+              const linearCETMonthly = linearCETAnnual / 12;
+              
+              accumulatedMonthlyCostWeighted += (linearCETMonthly * netCredit);
+              accumulatedAnnualCostWeighted += (linearCETAnnual * netCredit);
               totalCreditForWeighting += netCredit;
           }
         });

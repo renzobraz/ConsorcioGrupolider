@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3 } from 'lucide-react';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PaymentStatus } from '../types';
 
@@ -90,12 +90,14 @@ const Simulation = () => {
     return quotas.filter(q => {
       const textMatch = (q.group || '').toLowerCase().includes(searchText.toLowerCase()) || (q.quotaNumber || '').toLowerCase().includes(searchText.toLowerCase());
       const companyMatch = globalFilters.companyId ? q.companyId === globalFilters.companyId : true;
+      const adminMatch = globalFilters.administratorId ? q.administratorId === globalFilters.administratorId : true;
+      const productMatch = globalFilters.productType ? q.productType === globalFilters.productType : true;
       let statusMatch = true;
       if (globalFilters.status === 'ACTIVE') statusMatch = !q.isContemplated;
       if (globalFilters.status === 'CONTEMPLATED') statusMatch = q.isContemplated;
-      return textMatch && companyMatch && statusMatch;
+      return textMatch && companyMatch && adminMatch && productMatch && statusMatch;
     });
-  }, [quotas, searchText, globalFilters.companyId, globalFilters.status]);
+  }, [quotas, searchText, globalFilters]);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -404,13 +406,13 @@ const Simulation = () => {
         {/* FILTERS ROW */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
              {/* Search */}
-             <div className="md:col-span-3 relative">
+             <div className="md:col-span-2 relative">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                  <input type="text" placeholder="Pesquisar..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500" />
              </div>
              
              {/* Company Filter */}
-             <div className="md:col-span-3 relative">
+             <div className="md:col-span-2 relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <select 
                     className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
@@ -420,8 +422,41 @@ const Simulation = () => {
                         setCurrentQuota(null); // Reset selection
                     }}
                 >
-                    <option value="">Todas as Empresas</option>
+                    <option value="">Empresa</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+             </div>
+
+             {/* Administrator Filter */}
+             <div className="md:col-span-2 relative">
+                <Gavel className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.administratorId}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Administradora</option>
+                    {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+
+             {/* Product Filter */}
+             <div className="md:col-span-2 relative">
+                <ShoppingBag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.productType}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, productType: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Produto</option>
+                    <option value="VEICULO">Veículo</option>
+                    <option value="IMOVEL">Imóvel</option>
                 </select>
              </div>
 
@@ -443,16 +478,16 @@ const Simulation = () => {
              </div>
 
              {/* Quota Select */}
-             <div className="md:col-span-4">
+             <div className="md:col-span-2">
                  <select 
                     className="w-full py-2 px-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md outline-none cursor-pointer" 
                     value={currentQuota?.id || ''} 
                     onChange={(e) => { const found = quotas.find(q => q.id === e.target.value); setCurrentQuota(found || null); }}
                 >
-                    <option value="">Selecionar Cota ({filteredOptions.length})</option>
+                    <option value="">Cota ({filteredOptions.length})</option>
                     {filteredOptions.map(q => (
                         <option key={q.id} value={q.id}>
-                            {q.group} - {q.quotaNumber} {q.companyId ? `(${companies.find(c => c.id === q.companyId)?.name})` : ''}
+                            {q.group}-{q.quotaNumber}
                         </option>
                     ))}
                  </select>

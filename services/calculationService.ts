@@ -9,6 +9,35 @@ const createLocalDate = (dateStr: string): Date => {
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 };
 
+// Função para calcular a TIR (Taxa Interna de Retorno) / IRR
+// Método de Newton-Raphson
+export const calculateIRR = (cashFlows: number[], guess = 0.01): number | null => {
+  const maxIter = 1000;
+  const precision = 1e-7;
+  let rate = guess;
+
+  for (let i = 0; i < maxIter; i++) {
+    let npv = 0;
+    let dNpv = 0;
+    
+    for (let t = 0; t < cashFlows.length; t++) {
+      const div = Math.pow(1 + rate, t);
+      npv += cashFlows[t] / div;
+      dNpv -= (t * cashFlows[t]) / (div * (1 + rate));
+    }
+
+    if ((Math.abs(npv) < precision) || (Math.abs(dNpv) < precision)) {
+      return rate;
+    }
+
+    const newRate = rate - npv / dNpv;
+    if (isNaN(newRate) || !isFinite(newRate)) return null;
+    rate = newRate;
+  }
+
+  return null;
+};
+
 export const calculateCDICorrection = (value: number, startDateStr: string | undefined, indices: MonthlyIndex[], cutoffDateStr?: string): number => {
     if (!value || value <= 0 || !startDateStr) return 0;
     const startDate = createLocalDate(startDateStr);

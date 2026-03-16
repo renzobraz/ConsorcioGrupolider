@@ -27,6 +27,7 @@ const DEFAULT_ADMIN: User = {
     canSimulate: true,
     canViewReports: true,
     canManageSettings: true,
+    canMarkQuotas: true,
   }
 };
 
