@@ -72,10 +72,13 @@ const Reports = () => {
 
           schedule.forEach(inst => {
               const instDateStr = inst.dueDate.split('T')[0];
-              const isMatured = instDateStr <= refDateStr;
               const paymentData = paymentMap[inst.installmentNumber];
+              // Strict check: must have status 'PAGO' and a payment date
+              const isActuallyPaid = !!paymentData && 
+                                    (paymentData.status === 'PAGO' || paymentData.isPaid === true) && 
+                                    !!paymentData.paymentDate;
 
-              if (isMatured) {
+              if (isActuallyPaid) {
                   const fine = paymentData?.manualFine || inst.manualFine || 0;
                   const interest = paymentData?.manualInterest || inst.manualInterest || 0;
                   const insurance = paymentData?.manualInsurance || inst.insurance || 0;
@@ -87,7 +90,7 @@ const Reports = () => {
                   sumAVencer += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization;
               }
 
-              if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+              if (isActuallyPaid && inst.bidAmountApplied && inst.bidAmountApplied > 0) {
                   sumVencido += (inst.bidAbatementFC || 0) + (inst.bidAbatementFR || 0) + (inst.bidAbatementTA || 0);
               }
           });
@@ -222,10 +225,10 @@ const Reports = () => {
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 print:hidden">
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Fechamento</label><input type="date" value={referenceDate} onChange={(e) => setReferenceDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" /></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Produto</label><select value={globalFilters.productType} onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="VEICULO">Veículo</option><option value="IMOVEL">Imóvel</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Produto</label><select value={globalFilters.productType || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="VEICULO">Veículo</option><option value="IMOVEL">Imóvel</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">

@@ -1,5 +1,5 @@
 
-import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod } from '../types';
+import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus } from '../types';
 import { addMonths, getNextBusinessDay } from '../utils/formatters';
 
 const createLocalDate = (dateStr: string): Date => {
@@ -103,22 +103,35 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
           // Ex: Aniversário em Janeiro. Índice de Dezembro sai dia 12/Jan. Boleto vence dia 05/Jan.
           // Logo, usa-se o índice de Novembro.
           const indexEndDate = addMonths(startDate, (anniversaryCount * 12) - 2);
-          const indexStartDate = addMonths(indexEndDate, -11); // 12 months total: from M-13 to M-2
+          const isAnnual = quota.correctionIndex.endsWith('_12');
           
           let accumulatedMultiplier = 1;
           let hasAnyIndex = false;
           
-          for (let m = 0; m < 12; m++) {
-              const currentMonthDate = addMonths(indexStartDate, m);
-              const year = currentMonthDate.getFullYear();
-              const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+          if (isAnnual) {
+              const year = indexEndDate.getFullYear();
+              const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
               const indexLookupStr = `${year}-${month}-01`;
-              
               const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
               
               if (monthlyIndex && monthlyIndex.rate !== 0) {
-                  accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                  accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
                   hasAnyIndex = true;
+              }
+          } else {
+              const indexStartDate = addMonths(indexEndDate, -11); // 12 months total: from M-13 to M-2
+              for (let m = 0; m < 12; m++) {
+                  const currentMonthDate = addMonths(indexStartDate, m);
+                  const year = currentMonthDate.getFullYear();
+                  const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+                  const indexLookupStr = `${year}-${month}-01`;
+                  
+                  const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+                  
+                  if (monthlyIndex && monthlyIndex.rate !== 0) {
+                      accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                      hasAnyIndex = true;
+                  }
               }
           }
           
@@ -212,23 +225,36 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
         // Ex: Aniversário em Novembro -> Busca índice de Setembro
         const indexEndDate = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth() - 2, 1);
-        const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
+        const isAnnual = quota.correctionIndex.endsWith('_12');
 
         if (indexEndDate <= today) {
             let accumulatedMultiplier = 1;
             let hasAnyIndex = false;
             
-            for (let m = 0; m < 12; m++) {
-                const currentMonthDate = addMonths(indexStartDate, m);
-                const year = currentMonthDate.getFullYear();
-                const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+            if (isAnnual) {
+                const year = indexEndDate.getFullYear();
+                const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
                 const indexLookupStr = `${year}-${month}-01`;
-                
                 const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
                 
                 if (monthlyIndex && monthlyIndex.rate !== 0) {
-                    accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                    accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
                     hasAnyIndex = true;
+                }
+            } else {
+                const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
+                for (let m = 0; m < 12; m++) {
+                    const currentMonthDate = addMonths(indexStartDate, m);
+                    const year = currentMonthDate.getFullYear();
+                    const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+                    const indexLookupStr = `${year}-${month}-01`;
+                    
+                    const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+                    
+                    if (monthlyIndex && monthlyIndex.rate !== 0) {
+                        accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                        hasAnyIndex = true;
+                    }
                 }
             }
             
@@ -439,7 +465,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       correctionApplied, correctionFactor, correctedCreditValue: currentCreditValue, correctionIndexName, correctionCapApplied, correctionRealRate,
       realAmountPaid, 
       isPaid: status === 'PAGO',
-      status,
+      status: status as PaymentStatus,
       paymentDate,
       manualFC: payment?.manualFC,
       manualFR: payment?.manualFR,

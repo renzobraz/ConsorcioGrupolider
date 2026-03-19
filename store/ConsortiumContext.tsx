@@ -23,7 +23,18 @@ interface ConsortiumContextType {
   currentQuota: Quota | null;
   setCurrentQuota: (quota: Quota | null) => Promise<void>;
   installments: PaymentInstallment[];
-  updateInstallmentPayment: (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number }) => Promise<void>;
+  updateInstallmentPayment: (installmentNumber: number, data: { 
+    amount?: number, 
+    fc?: number, 
+    fr?: number, 
+    ta?: number, 
+    fine?: number, 
+    interest?: number,
+    insurance?: number,
+    amortization?: number,
+    status?: string,
+    paymentDate?: string
+  }) => Promise<void>;
   addIndex: (index: MonthlyIndex) => Promise<void>;
   updateIndex: (index: MonthlyIndex) => Promise<void>;
   deleteIndex: (id: string) => Promise<void>;
@@ -234,17 +245,21 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Find existing installment to merge data
     const existingInst = installments.find(i => i.installmentNumber === installmentNumber);
+    
+    // If status is PREVISTO, we should clear manual overrides to allow system re-calculation
+    const isPrevisto = data.status === 'PREVISTO';
+    
     const mergedData = {
-      amount: data.amount !== undefined ? data.amount : existingInst?.realAmountPaid,
-      fc: data.fc !== undefined ? data.fc : existingInst?.manualFC,
-      fr: data.fr !== undefined ? data.fr : existingInst?.manualFR,
-      ta: data.ta !== undefined ? data.ta : existingInst?.manualTA,
-      fine: data.fine !== undefined ? data.fine : existingInst?.manualFine,
-      interest: data.interest !== undefined ? data.interest : existingInst?.manualInterest,
-      insurance: data.insurance !== undefined ? data.insurance : existingInst?.manualInsurance,
-      amortization: data.amortization !== undefined ? data.amortization : existingInst?.manualAmortization,
+      amount: isPrevisto ? null : (data.amount !== undefined ? data.amount : (existingInst?.realAmountPaid !== undefined ? existingInst.realAmountPaid : null)),
+      manualFC: isPrevisto ? null : (data.fc !== undefined ? data.fc : (existingInst?.manualFC !== undefined ? existingInst.manualFC : null)),
+      manualFR: isPrevisto ? null : (data.fr !== undefined ? data.fr : (existingInst?.manualFR !== undefined ? existingInst.manualFR : null)),
+      manualTA: isPrevisto ? null : (data.ta !== undefined ? data.ta : (existingInst?.manualTA !== undefined ? existingInst.manualTA : null)),
+      manualFine: isPrevisto ? null : (data.fine !== undefined ? data.fine : (existingInst?.manualFine !== undefined ? existingInst.manualFine : null)),
+      manualInterest: isPrevisto ? null : (data.interest !== undefined ? data.interest : (existingInst?.manualInterest !== undefined ? existingInst.manualInterest : null)),
+      manualInsurance: isPrevisto ? null : (data.insurance !== undefined ? data.insurance : (existingInst?.manualInsurance !== undefined ? existingInst.manualInsurance : null)),
+      manualAmortization: isPrevisto ? null : (data.amortization !== undefined ? data.amortization : (existingInst?.manualAmortization !== undefined ? existingInst.manualAmortization : null)),
       status: data.status !== undefined ? data.status : existingInst?.status,
-      paymentDate: data.paymentDate !== undefined ? data.paymentDate : existingInst?.paymentDate
+      paymentDate: isPrevisto ? null : (data.paymentDate !== undefined ? data.paymentDate : existingInst?.paymentDate)
     };
 
     // 1. Update DB first
@@ -262,13 +277,30 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let savedPayments: Record<number, any> = {};
     try {
         savedPayments = await db.getPayments(currentQuota.id);
+        
+        // Ensure the data we just saved is reflected in the local object for recalculation
+        // This prevents race conditions where getPayments might return stale data
+        savedPayments[installmentNumber] = {
+          ...mergedData,
+          amountPaid: mergedData.amount,
+          // Map mergedData keys to what generateSchedule expects if they differ
+          paymentDate: mergedData.paymentDate
+        };
     } catch(e) {
         console.warn("Could not load payments for recalculation", e);
+        // Fallback: use at least the current update
+        savedPayments[installmentNumber] = {
+          ...mergedData,
+          amountPaid: mergedData.amount
+        };
     }
 
     // Re-run generation logic
     const schedule = generateSchedule(currentQuota, indices, savedPayments);
     setInstallments(schedule);
+    
+    // Clear any previous errors if successful
+    setConnectionError(null);
 
   }, [currentQuota, installments, indices]); // dependencies
 

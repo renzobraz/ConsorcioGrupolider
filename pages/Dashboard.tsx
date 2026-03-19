@@ -153,14 +153,18 @@ const Dashboard = () => {
 
           schedule.forEach(inst => {
               const instDateStr = inst.dueDate.split('T')[0];
-              const isMatured = instDateStr <= todayStr;
-              accTotalReserveFund += inst.reserveFund;
+              // Use strict check for "Paid" - must have status PAGO and a payment date
+              const isActuallyPaid = inst.isPaid && !!inst.paymentDate;
+              
+              if (!isActuallyPaid) {
+                  accTotalReserveFund += inst.reserveFund;
+              }
 
-              if (isMatured) {
+              if (isActuallyPaid) {
                   quotaPaid += inst.commonFund + inst.reserveFund + inst.adminFee + (inst.manualFine || 0) + (inst.manualInterest || 0);
               } else {
                   quotaToPay += inst.commonFund + inst.reserveFund + inst.adminFee;
-                  if (!nextInstallmentFound) {
+                  if (!nextInstallmentFound && instDateStr > todayStr) {
                       nextInstallments.push({
                           quotaId: quota.id,
                           group: quota.group,
@@ -174,7 +178,7 @@ const Dashboard = () => {
                   }
               }
 
-              if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+              if (isActuallyPaid && inst.bidAmountApplied && inst.bidAmountApplied > 0) {
                   const bidFR = (inst.bidAbatementFR || 0);
                   quotaPaid += (inst.bidAbatementFC || 0) + bidFR + (inst.bidAbatementTA || 0);
                   accTotalReserveFund += bidFR;

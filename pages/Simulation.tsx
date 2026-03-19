@@ -34,14 +34,14 @@ const Simulation = () => {
   const openPaymentModal = (inst: any) => {
     setSelectedInstallment(inst);
     setPaymentFormData({
-      status: inst.status === 'PAGO' ? PaymentStatus.PAGO : PaymentStatus.PAGO, // Default to PAGO when opening to effectuate
+      status: inst.status || PaymentStatus.PAGO,
       paymentDate: inst.paymentDate ? inst.paymentDate.split('T')[0] : new Date().toISOString().split('T')[0],
-      amount: inst.realAmountPaid !== null ? inst.realAmountPaid : inst.totalInstallment,
-      fc: inst.manualFC !== undefined && inst.manualFC !== null ? inst.manualFC : inst.commonFund,
-      fr: inst.manualFR !== undefined && inst.manualFR !== null ? inst.manualFR : inst.reserveFund,
-      ta: inst.manualTA !== undefined && inst.manualTA !== null ? inst.manualTA : inst.adminFee,
-      insurance: inst.manualInsurance !== undefined && inst.manualInsurance !== null ? inst.manualInsurance : (inst.insurance || 0),
-      amortization: inst.manualAmortization !== undefined && inst.manualAmortization !== null ? inst.manualAmortization : (inst.amortization || 0),
+      amount: (inst.realAmountPaid !== null && inst.realAmountPaid !== undefined) ? inst.realAmountPaid : (inst.totalInstallment || 0),
+      fc: (inst.manualFC !== undefined && inst.manualFC !== null) ? inst.manualFC : (inst.commonFund || 0),
+      fr: (inst.manualFR !== undefined && inst.manualFR !== null) ? inst.manualFR : (inst.reserveFund || 0),
+      ta: (inst.manualTA !== undefined && inst.manualTA !== null) ? inst.manualTA : (inst.adminFee || 0),
+      insurance: (inst.manualInsurance !== undefined && inst.manualInsurance !== null) ? inst.manualInsurance : (inst.insurance || 0),
+      amortization: (inst.manualAmortization !== undefined && inst.manualAmortization !== null) ? inst.manualAmortization : (inst.amortization || 0),
       fine: inst.manualFine || 0,
       interest: inst.manualInterest || 0
     });
@@ -66,24 +66,29 @@ const Simulation = () => {
     }
   };
 
-  const savePaymentModal = () => {
+  const savePaymentModal = async () => {
     if (!selectedInstallment) return;
     
-    updateInstallmentPayment(selectedInstallment.installmentNumber, {
-      status: paymentFormData.status,
-      paymentDate: paymentFormData.paymentDate,
-      amount: paymentFormData.amount,
-      fc: paymentFormData.fc,
-      fr: paymentFormData.fr,
-      ta: paymentFormData.ta,
-      insurance: paymentFormData.insurance,
-      amortization: paymentFormData.amortization,
-      fine: paymentFormData.fine,
-      interest: paymentFormData.interest
-    });
-    
-    setIsPaymentModalOpen(false);
-    setSelectedInstallment(null);
+    try {
+      await updateInstallmentPayment(selectedInstallment.installmentNumber, {
+        status: paymentFormData.status,
+        paymentDate: paymentFormData.paymentDate,
+        amount: paymentFormData.amount,
+        fc: paymentFormData.fc,
+        fr: paymentFormData.fr,
+        ta: paymentFormData.ta,
+        insurance: paymentFormData.insurance,
+        amortization: paymentFormData.amortization,
+        fine: paymentFormData.fine,
+        interest: paymentFormData.interest
+      });
+      
+      setIsPaymentModalOpen(false);
+      setSelectedInstallment(null);
+    } catch (error) {
+      console.error("Error saving payment:", error);
+      // Optionally show an error message to the user here
+    }
   };
 
   const filteredOptions = useMemo(() => {
@@ -185,6 +190,8 @@ const Simulation = () => {
         else if (editingCell.field === 'ta') update.ta = val;
         else if (editingCell.field === 'fine') update.fine = val;
         else if (editingCell.field === 'interest') update.interest = val;
+        else if (editingCell.field === 'insurance') update.insurance = val;
+        else if (editingCell.field === 'amortization') update.amortization = val;
         updateInstallmentPayment(installmentNum, update);
     }
     setEditingCell(null);
@@ -416,7 +423,7 @@ const Simulation = () => {
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <select 
                     className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.companyId}
+                    value={globalFilters.companyId || ''}
                     onChange={(e) => {
                         setGlobalFilters({ ...globalFilters, companyId: e.target.value });
                         setCurrentQuota(null); // Reset selection
@@ -432,7 +439,7 @@ const Simulation = () => {
                 <Gavel className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <select 
                     className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.administratorId}
+                    value={globalFilters.administratorId || ''}
                     onChange={(e) => {
                         setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
                         setCurrentQuota(null); // Reset selection
@@ -448,7 +455,7 @@ const Simulation = () => {
                 <ShoppingBag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <select 
                     className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.productType}
+                    value={globalFilters.productType || ''}
                     onChange={(e) => {
                         setGlobalFilters({ ...globalFilters, productType: e.target.value });
                         setCurrentQuota(null); // Reset selection

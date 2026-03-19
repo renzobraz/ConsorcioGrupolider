@@ -71,7 +71,10 @@ const MonthlyPaidReport = () => {
 
                         const currentMonth = monthMap[monthKey];
                         const paymentData = paymentMap[inst.installmentNumber];
-                        const isPaid = !!paymentData;
+                        // Strict check: must have status 'PAGO' and a payment date
+                        const isPaid = !!paymentData && 
+                                      (paymentData.status === 'PAGO' || paymentData.isPaid === true) && 
+                                      !!paymentData.paymentDate;
 
                         const actualFC = (isPaid && paymentData.manualFC !== undefined && paymentData.manualFC !== null) 
                             ? paymentData.manualFC : inst.commonFund;
@@ -89,7 +92,7 @@ const MonthlyPaidReport = () => {
                         currentMonth.fees += actualTA + actualFR;
                         currentMonth.others += actualFine + actualInterest;
 
-                        if ((inst.bidAmountApplied || 0) > 0) {
+                        if (isPaid && (inst.bidAmountApplied || 0) > 0) {
                             currentMonth.bids += inst.bidAmountApplied || 0;
                         }
 

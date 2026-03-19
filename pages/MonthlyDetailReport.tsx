@@ -56,7 +56,10 @@ const MonthlyDetailReport = () => {
                         if (instMonthKey !== monthYear) return;
 
                         const paymentData = paymentMap[inst.installmentNumber];
-                        const isPaid = !!paymentData;
+                        // Strict check: must have status 'PAGO' and a payment date
+                        const isPaid = !!paymentData && 
+                                      (paymentData.status === 'PAGO' || paymentData.isPaid === true) && 
+                                      !!paymentData.paymentDate;
 
                         const actualFC = (isPaid && paymentData.manualFC !== undefined && paymentData.manualFC !== null) 
                             ? paymentData.manualFC : inst.commonFund;

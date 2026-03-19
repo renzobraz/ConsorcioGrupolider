@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -150,7 +150,7 @@ export const db = {
           const paymentMap: Record<number, any> = {};
           (data || []).forEach((p: any) => {
             paymentMap[p.installment_number] = {
-               amount: Number(p.amount_paid),
+               amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
                manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
                manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
                manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
@@ -172,7 +172,7 @@ export const db = {
             const paymentMap: Record<number, any> = {};
             (data || []).forEach((p: any) => {
               paymentMap[p.installment_number] = {
-                 amount: Number(p.amount_paid),
+                 amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
                  manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
                  manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
                  manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
@@ -258,21 +258,28 @@ export const db = {
       const payload = {
         quota_id: quotaId,
         installment_number: installmentNumber,
-        amount_paid: data.amount ?? null,
-        manual_fc: data.fc ?? null,
-        manual_fr: data.fr ?? null,
-        manual_ta: data.ta ?? null,
-        manual_fine: data.fine ?? null,
-        manual_interest: data.interest ?? null,
-        manual_insurance: data.insurance ?? null,
-        manual_amortization: data.amortization ?? null,
+        amount_paid: data.amount !== undefined ? data.amount : null,
+        manual_fc: data.manualFC !== undefined ? data.manualFC : null,
+        manual_fr: data.manualFR !== undefined ? data.manualFR : null,
+        manual_ta: data.manualTA !== undefined ? data.manualTA : null,
+        manual_fine: data.manualFine !== undefined ? data.manualFine : null,
+        manual_interest: data.manualInterest !== undefined ? data.manualInterest : null,
+        manual_insurance: data.manualInsurance !== undefined ? data.manualInsurance : null,
+        manual_amortization: data.manualAmortization !== undefined ? data.manualAmortization : null,
         status: data.status || 'PAGO',
-        payment_date: data.paymentDate || new Date().toISOString()
+        payment_date: (data.paymentDate && data.paymentDate.trim() !== '') 
+          ? (data.paymentDate.includes('T') ? data.paymentDate : `${data.paymentDate}T12:00:00Z`) 
+          : (data.status === 'PAGO' ? new Date().toISOString() : null)
       };
-      await supabase.from('payments').upsert(payload);
+      await supabase.from('payments').upsert(payload, { onConflict: 'quota_id, installment_number' });
     } else {
       const payments = JSON.parse(localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`) || '{}');
-      payments[installmentNumber] = data;
+      payments[installmentNumber] = {
+        ...data,
+        paymentDate: (data.paymentDate && data.paymentDate.trim() !== '') 
+          ? (data.paymentDate.includes('T') ? data.paymentDate : `${data.paymentDate}T12:00:00Z`) 
+          : (data.status === 'PAGO' ? new Date().toISOString() : null)
+      };
       localStorage.setItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`, JSON.stringify(payments));
     }
   },

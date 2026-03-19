@@ -5,11 +5,13 @@ import {
   LayoutDashboard, PlusCircle, Table, Calculator, Menu, X, PiggyBank, 
   List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp, 
   AlertCircle, FileBarChart, Building2, Briefcase, BookOpen, 
-  ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays 
+  ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays,
+  Activity 
 } from 'lucide-react';
 
 // Components
 import Dashboard from './pages/Dashboard';
+import ManagementDashboard from './pages/ManagementDashboard';
 import NewQuota from './pages/NewQuota';
 import Simulation from './pages/Simulation';
 import QuotaList from './pages/QuotaList';
@@ -47,6 +49,7 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
 
   const navItems = [
     { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('canViewDashboard') },
+    { to: "/dashboard/gerencial", icon: <Activity size={20} />, label: "Dashboard Gerencial", show: hasPermission('canViewDashboard') },
     { to: "/quotas", icon: <List size={20} />, label: "Minhas Cotas", show: true },
     { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('canManageQuotas') },
     { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('canSimulate') },
@@ -280,6 +283,7 @@ const App = () => {
           <Layout>
             <Routes>
               <Route path="/" element={<ProtectedRoute permission="canViewDashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/dashboard/gerencial" element={<ProtectedRoute permission="canViewDashboard"><ManagementDashboard /></ProtectedRoute>} />
               <Route path="/quotas" element={<ProtectedRoute><QuotaList /></ProtectedRoute>} />
               <Route path="/new" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
               <Route path="/edit/:id" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
