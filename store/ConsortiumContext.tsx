@@ -77,7 +77,17 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [companies, setCompanies] = useState<Company[]>([]);
   const [allCreditUsages, setAllCreditUsages] = useState<CreditUsageEntry[]>([]);
   
-  const [currentQuota, setCurrentQuotaState] = useState<Quota | null>(null);
+  const [currentQuota, setCurrentQuotaState] = useState<Quota | null>(() => {
+    const saved = localStorage.getItem('current_quota');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
   const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
   const [payments, setPayments] = useState<Record<number, any>>({});
   const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
@@ -247,6 +257,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const setCurrentQuota = useCallback(async (quota: Quota | null) => {
     setCurrentQuotaState(quota);
     if (quota) {
+      localStorage.setItem('current_quota', JSON.stringify(quota));
       setIsLoading(true);
       
       try {
@@ -285,6 +296,13 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setManualTransactions([]);
     }
   }, [indices]);
+
+  // Restore current quota data on mount if persisted
+  useEffect(() => {
+    if (currentQuota && installments.length === 0 && !isLoading) {
+      setCurrentQuota(currentQuota);
+    }
+  }, [currentQuota, installments.length, isLoading, setCurrentQuota]);
 
   const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, manualEarnings?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;

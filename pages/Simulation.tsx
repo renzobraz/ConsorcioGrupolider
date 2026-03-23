@@ -52,7 +52,7 @@ const Simulation = () => {
     manualEarnings: '0'
   });
 
-  const openPaymentModal = (inst: any, isBid: boolean = false) => {
+  const openPaymentModal = (inst: any, isBid: boolean = false, isEmbedded: boolean = false) => {
     setSelectedInstallment(inst);
     setIsBidModal(isBid);
     
@@ -63,13 +63,18 @@ const Simulation = () => {
 
     if (isBid) {
       const bidPayment = payments[0] || {};
+      const amount = isEmbedded ? (inst.bidEmbeddedApplied || 0) : (inst.bidFreeApplied || 0);
+      const fc = isEmbedded ? (inst.bidEmbeddedAbatementFC || 0) : (inst.bidFreeAbatementFC || 0);
+      const fr = isEmbedded ? (inst.bidEmbeddedAbatementFR || 0) : (inst.bidFreeAbatementFR || 0);
+      const ta = isEmbedded ? (inst.bidEmbeddedAbatementTA || 0) : (inst.bidFreeAbatementTA || 0);
+
       setPaymentFormData({
         status: PaymentStatus.PAGO,
         paymentDate: bidPayment.paymentDate ? bidPayment.paymentDate.split('T')[0] : (inst.bidDate ? inst.bidDate.split('T')[0] : getTodayStr()),
-        amount: toStr(bidPayment.amount || (inst.bidFreeApplied || 0)),
-        fc: toStr(bidPayment.manualFC || (inst.bidFreeAbatementFC || 0)),
-        fr: toStr(bidPayment.manualFR || (inst.bidFreeAbatementFR || 0)),
-        ta: toStr(bidPayment.manualTA || (inst.bidFreeAbatementTA || 0)),
+        amount: toStr(bidPayment.amount || amount),
+        fc: toStr(bidPayment.manualFC || fc),
+        fr: toStr(bidPayment.manualFR || fr),
+        ta: toStr(bidPayment.manualTA || ta),
         insurance: toStr(bidPayment.manualInsurance || 0),
         amortization: toStr(bidPayment.manualAmortization || 0),
         fine: toStr(bidPayment.manualFine || 0),
@@ -142,9 +147,9 @@ const Simulation = () => {
       setIsPaymentModalOpen(false);
       setSelectedInstallment(null);
       setIsBidModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving payment:", error);
-      // Optionally show an error message to the user here
+      alert(error.message || "Erro ao salvar pagamento. Verifique sua conexão ou as configurações do banco de dados.");
     }
   };
 
@@ -1292,7 +1297,7 @@ const Simulation = () => {
                             <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/50 border-l border-amber-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercentBalanceTotal?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-center border-l border-amber-200 print:hidden">
                                 <button 
-                                    onClick={() => openPaymentModal(inst, true)}
+                                    onClick={() => openPaymentModal(inst, true, true)}
                                     className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
                                     title="Efetivar Lance"
                                 >
@@ -1328,7 +1333,7 @@ const Simulation = () => {
                             <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/50 border-l border-orange-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidFreeBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercentBalanceTotal?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-center border-l border-orange-200 print:hidden">
                                 <button 
-                                    onClick={() => openPaymentModal(inst, true)}
+                                    onClick={() => openPaymentModal(inst, true, false)}
                                     className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-orange-700 bg-orange-100 hover:bg-orange-200'}`}
                                     title="Efetivar Lance"
                                 >

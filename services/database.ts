@@ -303,14 +303,22 @@ export const db = {
           if (error.code === '42703') {
             console.warn(`Column missing in payments table, retrying without new columns. Error: ${error.message}`);
             const fallbackPayload = { ...payload };
+            // Aggressively remove columns that might be missing in older schemas
             delete fallbackPayload.status;
             delete fallbackPayload.manual_earnings;
             delete fallbackPayload.manual_amortization;
+            delete fallbackPayload.manual_insurance;
+            delete fallbackPayload.manual_fine;
+            delete fallbackPayload.manual_interest;
             
             const { error: retryError } = await supabase.from('payments').upsert(fallbackPayload, { onConflict: 'quota_id, installment_number' });
-            if (retryError) throw retryError;
+            if (retryError) {
+              console.error("Retry failed:", retryError);
+              throw new Error(`Erro ao salvar no banco de dados (Schema desatualizado): ${retryError.message}`);
+            }
           } else {
-            throw error;
+            console.error("Supabase Error in savePayment:", error);
+            throw new Error(`Erro no banco de dados: ${error.message} (Código: ${error.code})`);
           }
         }
       } catch (err: any) {
