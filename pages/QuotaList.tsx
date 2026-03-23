@@ -292,7 +292,12 @@ const QuotaList = () => {
                       </span>
                     </td>
                     <td className="p-4 text-center text-sm font-medium text-slate-600">
-                       {quota.correctionIndex}
+                       <div className="flex flex-col items-center">
+                         <span>{quota.correctionIndex}</span>
+                         {quota.indexReferenceMonth && (
+                           <span className="text-[10px] text-slate-400 uppercase">Ref: Mês {quota.indexReferenceMonth}</span>
+                         )}
+                       </div>
                     </td>
                     <td className="p-4 text-center text-slate-600">
                       {quota.termMonths} meses

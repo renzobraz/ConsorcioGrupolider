@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { formatCurrency, formatDate, formatDateToYYYYMMDD, getTodayStr } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Printer, Loader, Search, Filter, ArrowRight, Download, ChevronRight, TrendingUp, ExternalLink } from 'lucide-react';
 
@@ -27,12 +27,12 @@ const MonthlyPaidReport = () => {
     const [startDate, setStartDate] = useState(() => {
         const d = new Date();
         d.setFullYear(d.getFullYear() - 1);
-        return d.toISOString().split('T')[0].slice(0, 7) + "-01";
+        return formatDateToYYYYMMDD(d).slice(0, 7) + "-01";
     });
     const [endDate, setEndDate] = useState(() => {
         const d = new Date();
         d.setFullYear(d.getFullYear() + 2);
-        return d.toISOString().split('T')[0];
+        return formatDateToYYYYMMDD(d);
     });
 
     useEffect(() => {

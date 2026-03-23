@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { CreditUsageEntry } from '../types';
 import { generateSchedule } from '../services/calculationService';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { formatCurrency, formatDate, getTodayStr } from '../utils/formatters';
 import { ArrowLeft, Plus, Trash2, ShoppingBag, DollarSign, Wallet, TrendingDown, Pencil, X, Gavel, TrendingUp, Loader } from 'lucide-react';
 
 const CreditUsage = () => {
@@ -22,7 +22,7 @@ const CreditUsage = () => {
   const [form, setForm] = useState({
     description: '',
     amount: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayStr(),
     seller: ''
   });
 
@@ -51,7 +51,7 @@ const CreditUsage = () => {
 
   // Calculate Available Credit
   const schedule = generateSchedule(quota, indices);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayStr();
   
   let currentCredit = quota.creditValue;
   if (schedule.length > 0) {
@@ -96,7 +96,7 @@ const CreditUsage = () => {
       
       // Reset Form
       setEditingId(null);
-      setForm({ description: '', amount: '', date: new Date().toISOString().split('T')[0], seller: '' });
+      setForm({ description: '', amount: '', date: getTodayStr(), seller: '' });
       
       loadData(); // Refresh list
   };
@@ -114,7 +114,7 @@ const CreditUsage = () => {
 
   const handleCancelEdit = () => {
       setEditingId(null);
-      setForm({ description: '', amount: '', date: new Date().toISOString().split('T')[0], seller: '' });
+      setForm({ description: '', amount: '', date: getTodayStr(), seller: '' });
   };
 
   const handleDelete = async (usageId: string) => {

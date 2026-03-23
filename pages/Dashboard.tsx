@@ -232,6 +232,7 @@ const Dashboard = () => {
         const pctToPay = (accGlobalToPay / globalTotalContract) * 100;
 
         nextInstallments.sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+        setNextMaturitiesList(nextInstallments);
         const sumNextMaturities = nextInstallments.reduce((acc, curr) => acc + curr.amount, 0);
         const totalAvailable = (accCreditLiquidTotal + accCreditUpdate) - accCreditUsed;
 

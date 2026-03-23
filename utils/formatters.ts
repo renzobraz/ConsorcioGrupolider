@@ -23,9 +23,29 @@ export const formatPercent = (value: number): string => {
   }).format(value / 100);
 };
 
+export const formatDateToYYYYMMDD = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getTodayStr = (): string => {
+  return formatDateToYYYYMMDD(new Date());
+};
+
+export const createLocalDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date();
+  const cleanDate = dateStr.split('T')[0];
+  const parts = cleanDate.split('-');
+  if (parts.length !== 3) return new Date(dateStr);
+  const [year, month, day] = parts.map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
+
 export const formatDate = (dateString: string): string => {
   if (!dateString) return '-';
-  const date = new Date(dateString);
+  const date = createLocalDate(dateString);
   return new Intl.DateTimeFormat('pt-BR').format(date);
 };
 
@@ -57,4 +77,14 @@ export const addMonths = (date: Date, months: number): Date => {
     d.setDate(0); 
   }
   return d;
+};
+
+export const calculateIndexReferenceMonth = (dateStr: string): number => {
+  if (!dateStr) return 1;
+  const cleanDate = dateStr.split('T')[0];
+  const parts = cleanDate.split('-');
+  if (parts.length < 2) return 1;
+  const month = parseInt(parts[1], 10); // 1-12
+  const refMonth = month - 2;
+  return refMonth <= 0 ? refMonth + 12 : refMonth;
 };

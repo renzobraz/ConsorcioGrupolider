@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType, CalculationMethod, IndexTableEntry } from '../types';
 import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, calculateIndexReferenceMonth, getTodayStr } from '../utils/formatters';
 
 const NewQuota = () => {
   const navigate = useNavigate();
@@ -12,6 +12,7 @@ const NewQuota = () => {
   const { addQuota, updateQuota, getQuotaById, setCurrentQuota, administrators, companies, quotas } = useConsortium();
   const [isSaving, setIsSaving] = useState(false);
   const [displayCreditValue, setDisplayCreditValue] = useState('');
+  const [isManualMonth, setIsManualMonth] = useState(false);
 
   const [formData, setFormData] = useState<Partial<Quota>>({
     productType: ProductType.VEHICLE,
@@ -35,7 +36,10 @@ const NewQuota = () => {
     prePaidFCPercent: 0,
     acquisitionCost: 0,
     indexTable: [],
-    recalculateBalanceAfterHalfOrContemplation: false
+    recalculateBalanceAfterHalfOrContemplation: false,
+    anticipateCorrectionMonth: false,
+    prioritizeFeesInBid: false,
+    indexReferenceMonth: 1
   });
 
   useEffect(() => {
@@ -49,10 +53,16 @@ const NewQuota = () => {
             calculationMethod: existingQuota.calculationMethod || CalculationMethod.LINEAR,
             acquiredFromThirdParty: existingQuota.acquiredFromThirdParty || false,
             indexTable: existingQuota.indexTable || [],
-            recalculateBalanceAfterHalfOrContemplation: existingQuota.recalculateBalanceAfterHalfOrContemplation || false
+            recalculateBalanceAfterHalfOrContemplation: existingQuota.recalculateBalanceAfterHalfOrContemplation || false,
+            anticipateCorrectionMonth: existingQuota.anticipateCorrectionMonth || false,
+            prioritizeFeesInBid: existingQuota.prioritizeFeesInBid || false
         });
         if (existingQuota.creditValue) {
            setDisplayCreditValue(existingQuota.creditValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        }
+        // Se já existe no banco, marcamos como manual para não sobrescrever com o cálculo automático
+        if (existingQuota.indexReferenceMonth !== undefined && existingQuota.indexReferenceMonth !== null) {
+          setIsManualMonth(true);
         }
       } else {
         navigate('/quotas');
@@ -66,8 +76,23 @@ const NewQuota = () => {
     setFormData(prev => ({ ...prev, bidTotal: free + embedded }));
   }, [formData.bidFree, formData.bidEmbedded]);
 
+  useEffect(() => {
+    if (isManualMonth) return;
+    
+    const anchorDate = formData.firstAssemblyDate || formData.adhesionDate || formData.firstDueDate;
+    if (anchorDate) {
+      const refMonth = calculateIndexReferenceMonth(anchorDate);
+      setFormData(prev => ({ ...prev, indexReferenceMonth: refMonth }));
+    }
+  }, [formData.firstAssemblyDate, formData.adhesionDate, formData.firstDueDate, isManualMonth]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
+    
+    if (name === 'indexReferenceMonth') {
+      setIsManualMonth(true);
+    }
+
     let finalValue: any = value;
     if (type === 'number') {
       finalValue = value === '' ? '' : parseFloat(value);
@@ -178,14 +203,14 @@ const NewQuota = () => {
       quotaNumber: formData.quotaNumber!,
       contractNumber: formData.contractNumber || '',
       creditValue: Number(formData.creditValue),
-      adhesionDate: formData.adhesionDate || new Date().toISOString().split('T')[0],
-      firstAssemblyDate: formData.firstAssemblyDate || new Date().toISOString().split('T')[0],
+      adhesionDate: formData.adhesionDate || getTodayStr(),
+      firstAssemblyDate: formData.firstAssemblyDate || getTodayStr(),
       termMonths: Number(formData.termMonths),
       adminFeeRate: Number(formData.adminFeeRate),
       reserveFundRate: Number(formData.reserveFundRate),
       productType: formData.productType as ProductType,
       dueDay: Number(formData.dueDay || 25),
-      firstDueDate: formData.firstDueDate || new Date().toISOString().split('T')[0],
+      firstDueDate: formData.firstDueDate || getTodayStr(),
       correctionIndex: formData.correctionIndex as CorrectionIndex,
       paymentPlan: formData.paymentPlan as PaymentPlanType,
       calculationMethod: formData.calculationMethod as CalculationMethod,
@@ -203,7 +228,10 @@ const NewQuota = () => {
       administratorId: formData.administratorId || undefined,
       companyId: formData.companyId || undefined,
       correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
-      recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation)
+      recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
+      anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
+      prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
+      indexReferenceMonth: Number(formData.indexReferenceMonth || 1)
     };
     try {
       if (id) {
@@ -258,7 +286,10 @@ const NewQuota = () => {
         administratorId: formData.administratorId,
         companyId: formData.companyId,
         correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
-        recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation)
+        recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
+        anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
+        prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
+        indexReferenceMonth: Number(formData.indexReferenceMonth || 1)
       };
       await updateQuota(quotaData);
       setCurrentQuota(quotaData);
@@ -324,6 +355,13 @@ const NewQuota = () => {
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Prazo (Meses)</label>
               <input required name="termMonths" type="number" min="1" value={formData.termMonths ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Mês Ref. Índice Reajuste</label>
+              <input required name="indexReferenceMonth" type="number" min="1" max="12" value={formData.indexReferenceMonth ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-blue-700" onChange={handleChange} />
+              <p className="text-[10px] text-slate-400 mt-1 italic">
+                {isManualMonth ? 'Definido manualmente' : 'Calculado automaticamente (Regra M-2)'}
+              </p>
             </div>
           </div>
         </div>
@@ -470,6 +508,9 @@ const NewQuota = () => {
               <label className="block text-sm font-medium text-slate-600 mb-1" title="Limite máximo de correção anual (opcional)">Teto de Reajuste Anual (%)</label>
               <input name="correctionRateCap" type="number" step="0.01" placeholder="Ex: 10.00" value={formData.correctionRateCap ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
              <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Plano Pagamento</label>
               <select name="paymentPlan" className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" value={formData.paymentPlan} onChange={handleChange}>
@@ -477,6 +518,12 @@ const NewQuota = () => {
                 <option value={PaymentPlanType.REDUZIDA}>Parcela Reduzida (50%)</option>
                 <option value={PaymentPlanType.SEMESTRAL}>Parcela Semestral</option>
               </select>
+            </div>
+            <div className="flex items-center">
+              <label className="flex items-center gap-2 cursor-pointer p-3 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors w-full">
+                  <input type="checkbox" name="anticipateCorrectionMonth" checked={formData.anticipateCorrectionMonth} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300" />
+                  <span className="text-sm font-bold text-blue-800">Antecipar Reajuste Anual em 1 mês (Padrão Sicredi)</span>
+              </label>
             </div>
           </div>
         </div>
@@ -507,6 +554,13 @@ const NewQuota = () => {
                       <option value={BidBaseType.CREDIT_ONLY}>Valor da Carta (Crédito Líquido)</option>
                       <option value={BidBaseType.TOTAL_PROJECT}>Valor Total (Crédito + Taxa Adm + F. Reserva)</option>
                   </select>
+              </div>
+
+              <div className="flex-1">
+                  <label className="flex items-center gap-2 cursor-pointer p-2 bg-white border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors h-full">
+                      <input type="checkbox" name="prioritizeFeesInBid" checked={formData.prioritizeFeesInBid} onChange={handleChange} className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300" />
+                      <span className="text-xs font-bold text-emerald-800">Priorizar Quitação de Taxas (TA/FR) no Lance</span>
+                  </label>
               </div>
           </div>
 

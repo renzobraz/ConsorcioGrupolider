@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -8,6 +8,7 @@ const INDICES_KEY = 'consortium_indices_db';
 const ADMINS_KEY = 'consortium_admins_db';
 const COMPANIES_KEY = 'consortium_companies_db';
 const CREDIT_USAGES_KEY = 'consortium_credit_usages_db';
+const MANUAL_TRANSACTIONS_KEY = 'consortium_manual_transactions_db';
 const USERS_KEY = 'consortium_users_db';
 
 const toDbUser = (u: User) => ({
@@ -61,7 +62,11 @@ const toDbQuota = (q: Quota) => ({
   assumed_installment: q.assumedInstallment || null,
   pre_paid_fc_percent: q.prePaidFCPercent || null,
   acquisition_cost: q.acquisitionCost || null,
-  correction_rate_cap: q.correctionRateCap || null
+  correction_rate_cap: q.correctionRateCap || null,
+  index_reference_month: q.indexReferenceMonth || null,
+  bid_base: q.bidBase || null,
+  anticipate_correction_month: q.anticipateCorrectionMonth || false,
+  prioritize_fees_in_bid: q.prioritizeFeesInBid || false
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -96,7 +101,11 @@ const fromDbQuota = (dbQ: any): Quota => ({
   prePaidFCPercent: dbQ.pre_paid_fc_percent ? Number(dbQ.pre_paid_fc_percent) : undefined,
   acquisitionCost: dbQ.acquisition_cost ? Number(dbQ.acquisition_cost) : undefined,
   correctionRateCap: dbQ.correction_rate_cap ? Number(dbQ.correction_rate_cap) : undefined,
-  recalculateBalanceAfterHalfOrContemplation: dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA'
+  indexReferenceMonth: dbQ.index_reference_month ? Number(dbQ.index_reference_month) : undefined,
+  recalculateBalanceAfterHalfOrContemplation: dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA',
+  bidBase: dbQ.bid_base,
+  anticipateCorrectionMonth: dbQ.anticipate_correction_month || false,
+  prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false
 });
 
 export const db = {
@@ -133,11 +142,21 @@ export const db = {
   deleteQuota: async (id: string): Promise<void> => {
     const supabase = getSupabase();
     if (supabase) {
+      // Deletar dados relacionados explicitamente se não houver cascade no banco
+      await supabase.from('payments').delete().eq('quota_id', id);
+      await supabase.from('manual_transactions').delete().eq('quota_id', id);
+      await supabase.from('credit_usages').delete().eq('quota_id', id);
       await supabase.from('quotas').delete().eq('id', id);
     } else {
       const quotas = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
       localStorage.setItem(DB_KEY, JSON.stringify(quotas.filter((q: Quota) => q.id !== id)));
       localStorage.removeItem(`${PAYMENTS_KEY_PREFIX}${id}`);
+      
+      const manualTxs = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+      localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(manualTxs.filter((t: any) => t.quotaId !== id)));
+      
+      const creditUsages = JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]');
+      localStorage.setItem(CREDIT_USAGES_KEY, JSON.stringify(creditUsages.filter((u: any) => u.quotaId !== id)));
     }
   },
 
@@ -158,6 +177,7 @@ export const db = {
                manualInterest: p.manual_interest !== null ? Number(p.manual_interest) : undefined,
                manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
                manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
+               manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
                status: p.status || 'PREVISTO',
                paymentDate: p.payment_date || undefined,
             };
@@ -211,6 +231,7 @@ export const db = {
             manualInterest: p.manual_interest !== null ? Number(p.manual_interest) : undefined,
             manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
             manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
+            manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
             status: p.status || 'PREVISTO',
             paymentDate: p.payment_date || undefined,
           };
@@ -255,7 +276,7 @@ export const db = {
   savePayment: async (quotaId: string, installmentNumber: number, data: any): Promise<void> => {
     const supabase = getSupabase();
     if (supabase) {
-      const payload = {
+      const payload: any = {
         quota_id: quotaId,
         installment_number: installmentNumber,
         amount_paid: data.amount !== undefined ? data.amount : null,
@@ -266,12 +287,36 @@ export const db = {
         manual_interest: data.manualInterest !== undefined ? data.manualInterest : null,
         manual_insurance: data.manualInsurance !== undefined ? data.manualInsurance : null,
         manual_amortization: data.manualAmortization !== undefined ? data.manualAmortization : null,
+        manual_earnings: data.manualEarnings !== undefined ? data.manualEarnings : null,
         status: data.status || 'PAGO',
         payment_date: (data.paymentDate && data.paymentDate.trim() !== '') 
           ? (data.paymentDate.includes('T') ? data.paymentDate : `${data.paymentDate}T12:00:00Z`) 
           : (data.status === 'PAGO' ? new Date().toISOString() : null)
       };
-      await supabase.from('payments').upsert(payload, { onConflict: 'quota_id, installment_number' });
+
+      try {
+        const { error } = await supabase.from('payments').upsert(payload, { onConflict: 'quota_id, installment_number' });
+        
+        if (error) {
+          // If the error is about a missing column (like 'status' or 'manual_earnings'), 
+          // try saving without those columns as a fallback
+          if (error.code === '42703') {
+            console.warn(`Column missing in payments table, retrying without new columns. Error: ${error.message}`);
+            const fallbackPayload = { ...payload };
+            delete fallbackPayload.status;
+            delete fallbackPayload.manual_earnings;
+            delete fallbackPayload.manual_amortization;
+            
+            const { error: retryError } = await supabase.from('payments').upsert(fallbackPayload, { onConflict: 'quota_id, installment_number' });
+            if (retryError) throw retryError;
+          } else {
+            throw error;
+          }
+        }
+      } catch (err: any) {
+        console.error("Error in savePayment:", err);
+        throw err;
+      }
     } else {
       const payments = JSON.parse(localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`) || '{}');
       payments[installmentNumber] = {
@@ -423,6 +468,158 @@ export const db = {
     }
   },
 
+  // --- Manual Transactions ---
+  getManualTransactions: async (quotaId: string): Promise<ManualTransaction[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('manual_transactions').select('*').eq('quota_id', quotaId);
+        if (error) {
+          console.warn('Error fetching manual_transactions from Supabase, falling back to local storage:', error.message);
+          const all = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+          return all.filter((t: any) => t.quotaId === quotaId);
+        }
+        return (data || []).map(t => ({
+          id: t.id,
+          quotaId: t.quota_id,
+          date: t.date,
+          amount: Number(t.amount),
+          type: t.type,
+          description: t.description,
+          fc: t.fc !== null ? Number(t.fc) : undefined,
+          fr: t.fr !== null ? Number(t.fr) : undefined,
+          ta: t.ta !== null ? Number(t.ta) : undefined,
+          insurance: t.insurance !== null ? Number(t.insurance) : undefined,
+          amortization: t.amortization !== null ? Number(t.amortization) : undefined,
+          fine: t.fine !== null ? Number(t.fine) : undefined,
+          interest: t.interest !== null ? Number(t.interest) : undefined
+        }));
+      } catch (err) {
+        console.warn('Exception fetching manual_transactions from Supabase, falling back to local storage:', err);
+        const all = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+        return all.filter((t: any) => t.quotaId === quotaId);
+      }
+    }
+    const all = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+    return all.filter((t: any) => t.quotaId === quotaId);
+  },
+
+  getAllManualTransactions: async (): Promise<ManualTransaction[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('manual_transactions').select('*');
+        if (error) throw new Error(error.message);
+        return (data || []).map((t: any) => ({
+          id: t.id,
+          quotaId: t.quota_id,
+          date: t.date,
+          amount: Number(t.amount),
+          type: t.type,
+          description: t.description,
+          fc: t.fc !== null ? Number(t.fc) : undefined,
+          fr: t.fr !== null ? Number(t.fr) : undefined,
+          ta: t.ta !== null ? Number(t.ta) : undefined,
+          insurance: t.insurance !== null ? Number(t.insurance) : undefined,
+          amortization: t.amortization !== null ? Number(t.amortization) : undefined,
+          fine: t.fine !== null ? Number(t.fine) : undefined,
+          interest: t.interest !== null ? Number(t.interest) : undefined
+        }));
+      } catch (err) {
+        console.warn('Exception fetching all manual_transactions from Supabase:', err);
+        return JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+      }
+    }
+    return JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+  },
+
+  saveManualTransaction: async (transaction: ManualTransaction): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('manual_transactions').upsert({
+          id: transaction.id,
+          quota_id: transaction.quotaId,
+          date: transaction.date,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          fc: transaction.fc,
+          fr: transaction.fr,
+          ta: transaction.ta,
+          insurance: transaction.insurance,
+          amortization: transaction.amortization,
+          fine: transaction.fine,
+          interest: transaction.interest
+        });
+        if (error) {
+          console.error('Error saving manual_transaction to Supabase:', error.message);
+          // Still save to local storage as backup
+          const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+          const idx = list.findIndex((t: any) => t.id === transaction.id);
+          if (idx >= 0) list[idx] = transaction;
+          else list.push(transaction);
+          localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list));
+          
+          let userMessage = `Erro ao salvar no banco de dados: ${error.message}`;
+          if (error.message.includes("column") && error.message.includes("not found")) {
+            userMessage = "Erro de esquema no banco de dados. Por favor, execute o script SQL de atualização (veja as instruções no chat).";
+          }
+          
+          throw new Error(userMessage);
+        }
+      } catch (err) {
+        console.error('Exception saving manual_transaction to Supabase:', err);
+        // Fallback to local storage
+        const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+        const idx = list.findIndex((t: any) => t.id === transaction.id);
+        if (idx >= 0) list[idx] = transaction;
+        else list.push(transaction);
+        localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list));
+        
+        throw err;
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+      const idx = list.findIndex((t: any) => t.id === transaction.id);
+      if (idx >= 0) list[idx] = transaction;
+      else list.push(transaction);
+      localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list));
+    }
+  },
+
+  deleteManualTransaction: async (id: string): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('manual_transactions').delete().eq('id', id);
+        if (error) {
+          console.error('Error deleting manual_transaction from Supabase:', error.message);
+          // Still update local storage as backup
+          const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+          localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list.filter((t: any) => t.id !== id)));
+          
+          let userMessage = `Erro ao deletar no banco de dados: ${error.message}`;
+          if (error.message.includes("column") && error.message.includes("not found")) {
+            userMessage = "Erro de esquema no banco de dados. Por favor, execute o script SQL de atualização.";
+          }
+          
+          throw new Error(userMessage);
+        }
+      } catch (err) {
+        console.error('Exception deleting manual_transaction from Supabase:', err);
+        // Fallback to local storage
+        const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+        localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list.filter((t: any) => t.id !== id)));
+        
+        throw err;
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
+      localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list.filter((t: any) => t.id !== id)));
+    }
+  },
+
   getUsers: async (): Promise<User[]> => {
     const supabase = getSupabase();
     if (supabase) {
@@ -460,5 +657,65 @@ export const db = {
       const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
       localStorage.setItem(USERS_KEY, JSON.stringify(users.filter((u: User) => u.id !== id)));
     }
+  },
+
+  exportAllData: async (): Promise<any> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const [quotas, indices, admins, companies, creditUsages, manualTransactions, users] = await Promise.all([
+          db.getQuotas(),
+          db.getIndices(),
+          db.getAdministrators(),
+          db.getCompanies(),
+          db.getAllCreditUsages(),
+          db.getAllManualTransactions(),
+          db.getUsers()
+        ]);
+
+        // Fetch all payments for all quotas
+        const payments: Record<string, any> = {};
+        for (const q of quotas) {
+          try {
+            const qPayments = await db.getPayments(q.id);
+            if (Object.keys(qPayments).length > 0) {
+              payments[`payments_${q.id}`] = qPayments;
+            }
+          } catch (e) {
+            console.warn(`Could not fetch payments for quota ${q.id}`, e);
+          }
+        }
+
+        return {
+          quotas,
+          indices,
+          administrators: admins,
+          companies,
+          credit_usages: creditUsages,
+          manual_transactions: manualTransactions,
+          users,
+          payments
+        };
+      } catch (err: any) {
+        console.error("Failed to export from Supabase:", err);
+      }
+    }
+
+    // Local storage fallback
+    return {
+      quotas: JSON.parse(localStorage.getItem(DB_KEY) || '[]'),
+      indices: JSON.parse(localStorage.getItem(INDICES_KEY) || '[]'),
+      administrators: JSON.parse(localStorage.getItem(ADMINS_KEY) || '[]'),
+      companies: JSON.parse(localStorage.getItem(COMPANIES_KEY) || '[]'),
+      credit_usages: JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]'),
+      manual_transactions: JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]'),
+      users: JSON.parse(localStorage.getItem(USERS_KEY) || '[]'),
+      payments: Object.keys(localStorage).reduce((acc, key) => {
+        if (key.startsWith(PAYMENTS_KEY_PREFIX)) {
+          acc[key] = JSON.parse(localStorage.getItem(key) || '{}');
+        }
+        return acc;
+      }, {} as any)
+    };
   }
 };

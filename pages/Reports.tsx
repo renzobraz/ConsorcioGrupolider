@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue } from '../services/calculationService';
 import { db } from '../services/database';
+import { getTodayStr } from '../utils/formatters';
 import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer } from 'lucide-react';
 
 interface ReportRow {
@@ -44,7 +45,7 @@ const Reports = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Filters State removed (using globalFilters)
-  const [referenceDate, setReferenceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [referenceDate, setReferenceDate] = useState(getTodayStr());
   const [sortConfig, setSortConfig] = useState<{ key: keyof ReportRow, direction: 'asc' | 'desc' } | null>(null);
 
   const formatNumber = (val: number) => val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

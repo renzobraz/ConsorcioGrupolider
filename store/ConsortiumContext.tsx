@@ -1,9 +1,10 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry } from '../types';
+import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { useAuth } from './AuthContext';
+import { calculateIndexReferenceMonth } from '../utils/formatters';
 
 interface ConsortiumContextType {
   quotas: Quota[];
@@ -23,6 +24,7 @@ interface ConsortiumContextType {
   currentQuota: Quota | null;
   setCurrentQuota: (quota: Quota | null) => Promise<void>;
   installments: PaymentInstallment[];
+  payments: Record<number, any>;
   updateInstallmentPayment: (installmentNumber: number, data: { 
     amount?: number, 
     fc?: number, 
@@ -32,6 +34,7 @@ interface ConsortiumContextType {
     interest?: number,
     insurance?: number,
     amortization?: number,
+    manualEarnings?: number,
     status?: string,
     paymentDate?: string
   }) => Promise<void>;
@@ -48,6 +51,10 @@ interface ConsortiumContextType {
   getCreditUsages: (quotaId: string) => Promise<CreditUsageEntry[]>;
   addCreditUsage: (usage: CreditUsageEntry) => Promise<void>;
   deleteCreditUsage: (id: string) => Promise<void>;
+  
+  manualTransactions: ManualTransaction[];
+  addManualTransaction: (transaction: ManualTransaction) => Promise<void>;
+  deleteManualTransaction: (id: string) => Promise<void>;
   
   refreshData: () => Promise<void>;
 
@@ -72,6 +79,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   
   const [currentQuota, setCurrentQuotaState] = useState<Quota | null>(null);
   const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
+  const [payments, setPayments] = useState<Record<number, any>>({});
+  const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -86,6 +95,24 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const { user, isAdmin } = useAuth();
 
+  const migrateQuotas = useCallback(async (quotasToMigrate: Quota[]) => {
+    console.log(`Iniciando migração de ${quotasToMigrate.length} cotas...`);
+    for (const q of quotasToMigrate) {
+      const anchorDate = q.firstAssemblyDate || q.adhesionDate || q.firstDueDate;
+      if (anchorDate) {
+        const refMonth = calculateIndexReferenceMonth(anchorDate);
+        try {
+          await db.saveQuota({ ...q, indexReferenceMonth: refMonth });
+        } catch (err) {
+          console.error(`Falha ao migrar cota ${q.id}:`, err);
+        }
+      }
+    }
+    // Recarrega os dados após a migração silenciosa
+    const updatedQuotas = await db.getQuotas();
+    setQuotas(updatedQuotas);
+  }, []);
+
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     setConnectionError(null);
@@ -97,6 +124,14 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         const loadedQuotas = await db.getQuotas();
         setQuotas(loadedQuotas);
+
+        // Migração automática para o novo campo indexReferenceMonth
+        if (isAdmin) {
+          const needsMigration = loadedQuotas.filter(q => q.indexReferenceMonth === undefined || q.indexReferenceMonth === null);
+          if (needsMigration.length > 0) {
+            migrateQuotas(needsMigration);
+          }
+        }
       } catch (err: any) {
         console.error("Failed to load quotas:", err);
         if (isCloud) {
@@ -221,8 +256,17 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } catch(e) {
            console.warn("Could not load payments", e);
         }
+
+        let manualTransactions: ManualTransaction[] = [];
+        try {
+          manualTransactions = await db.getManualTransactions(quota.id);
+        } catch (e) {
+          console.warn("Could not load manual transactions", e);
+        }
         
-        const schedule = generateSchedule(quota, indices, savedPayments);
+        setPayments(savedPayments);
+        setManualTransactions(manualTransactions);
+        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments);
         setInstallments(schedule);
 
       } catch (err: any) {
@@ -237,32 +281,40 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     } else {
       setInstallments([]);
+      setPayments({});
+      setManualTransactions([]);
     }
   }, [indices]);
 
-  const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, status?: string, paymentDate?: string }) => {
+  const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, manualEarnings?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;
 
-    // Find existing installment to merge data
+    // Find existing installment or payment to merge data
     const existingInst = installments.find(i => i.installmentNumber === installmentNumber);
+    const existingPayment = payments[installmentNumber];
     
     // If status is PREVISTO, we should clear manual overrides to allow system re-calculation
     const isPrevisto = data.status === 'PREVISTO';
     
     const mergedData = {
-      amount: isPrevisto ? null : (data.amount !== undefined ? data.amount : (existingInst?.realAmountPaid !== undefined ? existingInst.realAmountPaid : null)),
-      manualFC: isPrevisto ? null : (data.fc !== undefined ? data.fc : (existingInst?.manualFC !== undefined ? existingInst.manualFC : null)),
-      manualFR: isPrevisto ? null : (data.fr !== undefined ? data.fr : (existingInst?.manualFR !== undefined ? existingInst.manualFR : null)),
-      manualTA: isPrevisto ? null : (data.ta !== undefined ? data.ta : (existingInst?.manualTA !== undefined ? existingInst.manualTA : null)),
-      manualFine: isPrevisto ? null : (data.fine !== undefined ? data.fine : (existingInst?.manualFine !== undefined ? existingInst.manualFine : null)),
-      manualInterest: isPrevisto ? null : (data.interest !== undefined ? data.interest : (existingInst?.manualInterest !== undefined ? existingInst.manualInterest : null)),
-      manualInsurance: isPrevisto ? null : (data.insurance !== undefined ? data.insurance : (existingInst?.manualInsurance !== undefined ? existingInst.manualInsurance : null)),
-      manualAmortization: isPrevisto ? null : (data.amortization !== undefined ? data.amortization : (existingInst?.manualAmortization !== undefined ? existingInst.manualAmortization : null)),
-      status: data.status !== undefined ? data.status : existingInst?.status,
-      paymentDate: isPrevisto ? null : (data.paymentDate !== undefined ? data.paymentDate : existingInst?.paymentDate)
+      amount: isPrevisto ? null : (data.amount !== undefined ? data.amount : (existingInst?.realAmountPaid !== undefined ? existingInst.realAmountPaid : (existingPayment?.amount !== undefined ? existingPayment.amount : null))),
+      manualFC: isPrevisto ? null : (data.fc !== undefined ? data.fc : (existingInst?.manualFC !== undefined ? existingInst.manualFC : (existingPayment?.manualFC !== undefined ? existingPayment.manualFC : null))),
+      manualFR: isPrevisto ? null : (data.fr !== undefined ? data.fr : (existingInst?.manualFR !== undefined ? existingInst.manualFR : (existingPayment?.manualFR !== undefined ? existingPayment.manualFR : null))),
+      manualTA: isPrevisto ? null : (data.ta !== undefined ? data.ta : (existingInst?.manualTA !== undefined ? existingInst.manualTA : (existingPayment?.manualTA !== undefined ? existingPayment.manualTA : null))),
+      manualFine: isPrevisto ? null : (data.fine !== undefined ? data.fine : (existingInst?.manualFine !== undefined ? existingInst.manualFine : (existingPayment?.manualFine !== undefined ? existingPayment.manualFine : null))),
+      manualInterest: isPrevisto ? null : (data.interest !== undefined ? data.interest : (existingInst?.manualInterest !== undefined ? existingInst.manualInterest : (existingPayment?.manualInterest !== undefined ? existingPayment.manualInterest : null))),
+      manualInsurance: isPrevisto ? null : (data.insurance !== undefined ? data.insurance : (existingInst?.manualInsurance !== undefined ? existingInst.manualInsurance : (existingPayment?.manualInsurance !== undefined ? existingPayment.manualInsurance : null))),
+      manualAmortization: isPrevisto ? null : (data.amortization !== undefined ? data.amortization : (existingInst?.manualAmortization !== undefined ? existingInst.manualAmortization : (existingPayment?.manualAmortization !== undefined ? existingPayment.manualAmortization : null))),
+      manualEarnings: isPrevisto ? null : (data.manualEarnings !== undefined ? data.manualEarnings : (existingInst?.manualEarnings !== undefined ? existingInst.manualEarnings : (existingPayment?.manualEarnings !== undefined ? existingPayment.manualEarnings : null))),
+      status: data.status !== undefined ? data.status : (existingInst?.status || existingPayment?.status),
+      paymentDate: isPrevisto ? null : (data.paymentDate !== undefined ? data.paymentDate : (existingInst?.paymentDate || existingPayment?.paymentDate))
     };
 
-    // 1. Update DB first
+    // 1. Update local state immediately for responsiveness
+    const updatedPayments = { ...payments, [installmentNumber]: mergedData };
+    setPayments(updatedPayments);
+
+    // 2. Save to DB
     try {
       await db.savePayment(currentQuota.id, installmentNumber, mergedData);
     } catch (err: any) {
@@ -270,39 +322,16 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (db.isCloudEnabled()) {
         setConnectionError(err.message || "Erro ao salvar pagamento");
       }
-      return; // Stop if save fails
+      // Note: We keep the local state updated even if DB save fails for better UX,
+      // but in a production app we might want to revert or show a retry button.
     }
 
-    // 2. Re-generate Schedule
-    let savedPayments: Record<number, any> = {};
-    try {
-        savedPayments = await db.getPayments(currentQuota.id);
-        
-        // Ensure the data we just saved is reflected in the local object for recalculation
-        // This prevents race conditions where getPayments might return stale data
-        savedPayments[installmentNumber] = {
-          ...mergedData,
-          amountPaid: mergedData.amount,
-          // Map mergedData keys to what generateSchedule expects if they differ
-          paymentDate: mergedData.paymentDate
-        };
-    } catch(e) {
-        console.warn("Could not load payments for recalculation", e);
-        // Fallback: use at least the current update
-        savedPayments[installmentNumber] = {
-          ...mergedData,
-          amountPaid: mergedData.amount
-        };
-    }
-
-    // Re-run generation logic
-    const schedule = generateSchedule(currentQuota, indices, savedPayments);
+    // 3. Re-generate Schedule
+    const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments);
     setInstallments(schedule);
-    
-    // Clear any previous errors if successful
     setConnectionError(null);
 
-  }, [currentQuota, installments, indices]); // dependencies
+  }, [currentQuota, installments, indices, payments, manualTransactions]); // dependencies
 
   const addIndex = useCallback(async (index: MonthlyIndex) => {
     setIndices(prev => {
@@ -400,6 +429,47 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   }, []);
 
+  // --- Manual Transaction Actions ---
+  const addManualTransaction = useCallback(async (transaction: ManualTransaction) => {
+    if (!currentQuota) return;
+    
+    const updatedManualTransactions = [...manualTransactions, transaction].sort((a, b) => a.date.localeCompare(b.date));
+    setManualTransactions(updatedManualTransactions);
+    
+    try {
+      await db.saveManualTransaction(transaction);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      setInstallments(schedule);
+    } catch (err: any) {
+      console.error("Failed to save manual transaction", err);
+      // Revert local state on failure
+      const original = await db.getManualTransactions(currentQuota.id);
+      setManualTransactions(original);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, [currentQuota, manualTransactions, indices, payments]);
+
+  const deleteManualTransaction = useCallback(async (id: string) => {
+    if (!currentQuota) return;
+    
+    const updatedManualTransactions = manualTransactions.filter(t => t.id !== id);
+    setManualTransactions(updatedManualTransactions);
+    
+    try {
+      await db.deleteManualTransaction(id);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      setInstallments(schedule);
+    } catch (err: any) {
+      console.error("Failed to delete manual transaction", err);
+      // Revert local state on failure
+      const original = await db.getManualTransactions(currentQuota.id);
+      setManualTransactions(original);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, [currentQuota, manualTransactions, indices, payments]);
+
   const filteredQuotas = React.useMemo(() => {
     if (!user) return [];
     if (isAdmin) return quotas;
@@ -424,6 +494,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentQuota, 
       setCurrentQuota, 
       installments,
+      payments,
       updateInstallmentPayment,
       addIndex,
       updateIndex,
@@ -435,6 +506,9 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getCreditUsages,
       addCreditUsage,
       deleteCreditUsage,
+      manualTransactions,
+      addManualTransaction,
+      deleteManualTransaction,
       refreshData,
       globalFilters,
       setGlobalFilters

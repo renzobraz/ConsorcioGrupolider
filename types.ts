@@ -86,6 +86,27 @@ export interface Company {
   email: string;
 }
 
+export enum ManualTransactionType {
+  EARNING = 'RENDIMENTO',
+  EXTRA_PAYMENT = 'PAGAMENTO_EXTRA'
+}
+
+export interface ManualTransaction {
+  id: string;
+  quotaId: string;
+  date: string;
+  amount: number;
+  type: ManualTransactionType;
+  description: string;
+  fc?: number;
+  fr?: number;
+  ta?: number;
+  insurance?: number;
+  amortization?: number;
+  fine?: number;
+  interest?: number;
+}
+
 export interface Quota {
   id: string;
   group: string;
@@ -123,6 +144,8 @@ export interface Quota {
   calculationMethod?: CalculationMethod;
   indexTable?: IndexTableEntry[];
   recalculateBalanceAfterHalfOrContemplation?: boolean;
+  anticipateCorrectionMonth?: boolean;
+  prioritizeFeesInBid?: boolean;
   
   // Third-party acquisition
   acquiredFromThirdParty?: boolean;
@@ -132,6 +155,12 @@ export interface Quota {
   
   // Correction Cap
   correctionRateCap?: number; // Teto de Reajuste Anual (%)
+  
+  // Index Reference
+  indexReferenceMonth?: number; // Mês de referência do índice (1-12)
+
+  // Manual Transactions
+  manualTransactions?: ManualTransaction[];
 }
 
 export enum PaymentStatus {
@@ -190,6 +219,25 @@ export interface PaymentInstallment {
   bidFreeAbatementTA?: number;
   bidFreePercentTA?: number; 
 
+  // Balances after Bid
+  bidEmbeddedBalanceFC?: number;
+  bidEmbeddedBalanceTA?: number;
+  bidEmbeddedBalanceFR?: number;
+  bidEmbeddedBalanceTotal?: number;
+  bidEmbeddedPercentBalanceFC?: number;
+  bidEmbeddedPercentBalanceTA?: number;
+  bidEmbeddedPercentBalanceFR?: number;
+  bidEmbeddedPercentBalanceTotal?: number;
+
+  bidFreeBalanceFC?: number;
+  bidFreeBalanceTA?: number;
+  bidFreeBalanceFR?: number;
+  bidFreeBalanceTotal?: number;
+  bidFreePercentBalanceFC?: number;
+  bidFreePercentBalanceTA?: number;
+  bidFreePercentBalanceFR?: number;
+  bidFreePercentBalanceTotal?: number;
+
   bidAbatementFC?: number;
   bidAbatementFR?: number;
   bidAbatementTA?: number;
@@ -204,6 +252,22 @@ export interface PaymentInstallment {
   correctionCapApplied?: boolean;
   correctionRealRate?: number;
 
+  // Balances after Correction
+  correctionBalanceFC?: number;
+  correctionBalanceTA?: number;
+  correctionBalanceFR?: number;
+  correctionBalanceTotal?: number;
+  correctionPercentBalanceFC?: number;
+  correctionPercentBalanceTA?: number;
+  correctionPercentBalanceFR?: number;
+  correctionPercentBalanceTotal?: number;
+  
+  // Correction Deltas (Absolute values of the adjustment)
+  correctionAmountFC?: number;
+  correctionAmountTA?: number;
+  correctionAmountFR?: number;
+  correctionAmountTotal?: number;
+
   // User Input / Overrides
   realAmountPaid: number | null; 
   isPaid: boolean;
@@ -216,6 +280,15 @@ export interface PaymentInstallment {
   manualInterest?: number | null; 
   manualInsurance?: number | null;
   manualAmortization?: number | null;
+  manualEarnings?: number | null;
+  
+  // Manual Transaction Info
+  isManualTransaction?: boolean;
+  manualTransactionId?: string;
+  manualTransactionType?: ManualTransactionType;
+  manualTransactionDescription?: string;
+  
+  tag?: string;
 }
 
 export interface CreditUsageEntry {

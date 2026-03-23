@@ -1,13 +1,8 @@
 
-import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus } from '../types';
-import { addMonths, getNextBusinessDay } from '../utils/formatters';
+import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus, ManualTransactionType } from '../types';
+import { addMonths, getNextBusinessDay, createLocalDate } from '../utils/formatters';
 
-const createLocalDate = (dateStr: string): Date => {
-  if(!dateStr) return new Date();
-  const cleanDate = dateStr.split('T')[0];
-  const [year, month, day] = cleanDate.split('-').map(Number);
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
-};
+// Removed local createLocalDate definition
 
 // Função para calcular a TIR (Taxa Interna de Retorno) / IRR
 // Método de Newton-Raphson
@@ -64,15 +59,13 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   if (!quota) return 0;
   let currentCreditValue = Number(quota.creditValue) || 0;
   
-  // REGRA DE CORREÇÃO: Prioridade para Data da 1ª Assembleia -> Data Adesão -> 1º Vencimento
-  const dateStr = quota.firstAssemblyDate || quota.adhesionDate || quota.firstDueDate;
-  if (!dateStr) return currentCreditValue;
+  // REGRA DE OURO (Prompt Usuário): Trava na 1ª Assembleia
+  // NUNCA iniciar o contador de reajuste anual com base na Data_Adesao ou data de pagamento da primeira parcela.
+  const firstAssemblyStr = quota.firstAssemblyDate;
+  if (!firstAssemblyStr) return currentCreditValue; // Congelado se não houver assembleia
   
-  const startDate = createLocalDate(dateStr);
-  startDate.setHours(0,0,0,0);
-  
-  const firstDueDate = createLocalDate(quota.firstDueDate || dateStr);
-  firstDueDate.setHours(0,0,0,0);
+  const firstAssemblyDate = createLocalDate(firstAssemblyStr);
+  const firstDueDate = createLocalDate(quota.firstDueDate || firstAssemblyStr);
   
   let cutoffDate = customCutoff || new Date();
   cutoffDate.setHours(23,59,59,999);
@@ -89,59 +82,59 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   let safetyCounter = 0;
   
   while (safetyCounter < 100) {
-      const anniversaryInstallmentDate = addMonths(startDate, anniversaryCount * 12);
+      // Data_Proximo_Reajuste DEVE obrigatoriamente ser calculada como: Data_1a_Assembleia + 12 meses.
+      const nextAdjustmentDate = addMonths(firstAssemblyDate, anniversaryCount * 12);
       
-      if (anniversaryInstallmentDate > cutoffDate) break;
+      if (nextAdjustmentDate > cutoffDate) break;
 
-      // REGRA DE CORREÇÃO:
-      // Só aplica se a data de aniversário for ESTRITAMENTE DEPOIS do primeiro vencimento.
-      // Se for antes ou no mesmo mês, o valor da carta inserido já contempla essa correção.
-      if (anniversaryInstallmentDate > firstDueDate) {
-          // REGRA DE DEFASAGEM DE ÍNDICE:
-          // Como o vencimento é no início do mês, o índice do mês anterior (M-1) ainda não foi divulgado.
-          // Usamos então o índice de 2 meses antes (M-2).
-          // Ex: Aniversário em Janeiro. Índice de Dezembro sai dia 12/Jan. Boleto vence dia 05/Jan.
-          // Logo, usa-se o índice de Novembro.
-          const indexEndDate = addMonths(startDate, (anniversaryCount * 12) - 2);
-          const isAnnual = quota.correctionIndex.endsWith('_12');
+      // REGRA DE DEFASAGEM DE ÍNDICE:
+      let indexEndDate: Date;
+      if (quota.indexReferenceMonth) {
+          const targetMonth = quota.indexReferenceMonth - 1; // 0-11
+          const targetYear = targetMonth >= nextAdjustmentDate.getMonth() ? nextAdjustmentDate.getFullYear() - 1 : nextAdjustmentDate.getFullYear();
+          indexEndDate = new Date(targetYear, targetMonth, 1);
+      } else {
+          indexEndDate = addMonths(nextAdjustmentDate, -2);
+      }
+      
+      const isAnnual = quota.correctionIndex.endsWith('_12');
+      
+      let accumulatedMultiplier = 1;
+      let hasAnyIndex = false;
+      
+      if (isAnnual) {
+          const year = indexEndDate.getFullYear();
+          const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
+          const indexLookupStr = `${year}-${month}-01`;
+          const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
           
-          let accumulatedMultiplier = 1;
-          let hasAnyIndex = false;
-          
-          if (isAnnual) {
-              const year = indexEndDate.getFullYear();
-              const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
+          if (monthlyIndex && monthlyIndex.rate !== 0) {
+              accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
+              hasAnyIndex = true;
+          }
+      } else {
+          const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
+          for (let m = 0; m < 12; m++) {
+              const currentMonthDate = addMonths(indexStartDate, m);
+              const year = currentMonthDate.getFullYear();
+              const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
               const indexLookupStr = `${year}-${month}-01`;
+              
               const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
               
               if (monthlyIndex && monthlyIndex.rate !== 0) {
-                  accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
+                  accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
                   hasAnyIndex = true;
               }
-          } else {
-              const indexStartDate = addMonths(indexEndDate, -11); // 12 months total: from M-13 to M-2
-              for (let m = 0; m < 12; m++) {
-                  const currentMonthDate = addMonths(indexStartDate, m);
-                  const year = currentMonthDate.getFullYear();
-                  const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
-                  const indexLookupStr = `${year}-${month}-01`;
-                  
-                  const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
-                  
-                  if (monthlyIndex && monthlyIndex.rate !== 0) {
-                      accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
-                      hasAnyIndex = true;
-                  }
-              }
           }
-          
-          if (hasAnyIndex) {
-              let appliedRate = (accumulatedMultiplier - 1) * 100;
-              if (quota.correctionRateCap && quota.correctionRateCap > 0) {
-                  appliedRate = Math.min(appliedRate, quota.correctionRateCap);
-              }
-              currentCreditValue = currentCreditValue * (1 + (appliedRate / 100));
+      }
+      
+      if (hasAnyIndex) {
+          let appliedRate = (accumulatedMultiplier - 1) * 100;
+          if (quota.correctionRateCap && quota.correctionRateCap > 0) {
+              appliedRate = Math.min(appliedRate, quota.correctionRateCap);
           }
+          currentCreditValue = currentCreditValue * (1 + (appliedRate / 100));
       }
       
       anniversaryCount++;
@@ -156,11 +149,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
   
   const firstDueDate = createLocalDate(quota.firstDueDate);
   
-  // REGRA DE CORREÇÃO: Prioridade para Data da 1ª Assembleia -> Data Adesão -> 1º Vencimento
-  // Esta data define quando ocorre o "Aniversário" da cota para aplicar o índice
-  const correctionAnchorDate = createLocalDate(quota.firstAssemblyDate || quota.adhesionDate || quota.firstDueDate);
-  correctionAnchorDate.setDate(1); 
-  correctionAnchorDate.setHours(0,0,0,0);
+  // REGRA DE OURO (Prompt Usuário): Trava na 1ª Assembleia
+  // NUNCA iniciar o contador de reajuste anual com base na Data_Adesao ou data de pagamento da primeira parcela.
+  const firstAssemblyStr = quota.firstAssemblyDate;
+  const firstAssemblyDate = firstAssemblyStr ? createLocalDate(firstAssemblyStr) : null;
   
   const termMonths = Number(quota.termMonths) || 1;
   const originalCredit = Number(quota.creditValue) || 1;
@@ -196,20 +188,78 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
   let deferredTA_Reais = 0;
   let deferredFR_Reais = 0;
 
-  let lastCorrectionYear = correctionAnchorDate.getFullYear();
+  let anniversaryCount = 1;
+  let correctionAmountFC = 0, correctionAmountTA = 0, correctionAmountFR = 0, correctionAmountTotal = 0;
+
+  // Sort manual transactions by date
+  const manualTransactions = [...(quota.manualTransactions || [])].sort((a, b) => a.date.localeCompare(b.date));
+  let manualTxIndex = 0;
 
   for (let i = startInstallment; i <= termMonths; i++) {
-    let currentDate: Date;
-    if (i === 1) {
-      currentDate = new Date(firstDueDate);
-    } else {
-      const tempDate = addMonths(firstDueDate, i - 1);
-      currentDate = new Date(tempDate.getFullYear(), tempDate.getMonth(), dueDay);
-    }
+    const tempDate = i === 1 ? new Date(firstDueDate) : addMonths(firstDueDate, i - 1);
+    const currentDate = i === 1 ? tempDate : new Date(tempDate.getFullYear(), tempDate.getMonth(), dueDay);
     
+    // Process manual transactions that occur before this installment's due date
+    while (manualTxIndex < manualTransactions.length) {
+      const tx = manualTransactions[manualTxIndex];
+      const txDate = createLocalDate(tx.date);
+      
+      if (txDate < currentDate) {
+        // Apply transaction
+        const fc = tx.fc !== undefined && tx.fc !== null ? tx.fc : (tx.type === ManualTransactionType.EXTRA_PAYMENT ? tx.amount : 0);
+        const fr = tx.fr || 0;
+        const ta = tx.ta || 0;
+        
+        balanceFC_Reais -= fc;
+        balanceFR_Reais -= fr;
+        balanceTA_Reais -= ta;
+        
+        // Add to schedule
+        schedule.push({
+          installmentNumber: 0, // "000"
+          dueDate: tx.date,
+          commonFund: fc,
+          reserveFund: fr,
+          adminFee: ta,
+          insurance: tx.insurance || 0,
+          amortization: tx.amortization || 0,
+          totalInstallment: tx.amount,
+          realAmountPaid: tx.amount,
+          isPaid: true,
+          status: PaymentStatus.PAGO,
+          paymentDate: tx.date,
+          balanceFC: Math.max(0, balanceFC_Reais),
+          balanceFR: Math.max(0, balanceFR_Reais),
+          balanceTA: Math.max(0, balanceTA_Reais),
+          balanceTotal: Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais),
+          percentBalanceFC: Math.max(0, (balanceFC_Reais / currentCreditValue) * 100),
+          percentBalanceFR: Math.max(0, (balanceFR_Reais / currentCreditValue) * 100),
+          percentBalanceTA: Math.max(0, (balanceTA_Reais / currentCreditValue) * 100),
+          percentBalanceTotal: Math.max(0, ((balanceFC_Reais + balanceTA_Reais + balanceFR_Reais) / currentCreditValue) * 100),
+          isManualTransaction: true,
+          manualTransactionId: tx.id,
+          manualTransactionType: tx.type,
+          manualTransactionDescription: tx.description,
+          manualEarnings: tx.type === ManualTransactionType.EARNING ? tx.amount : 0,
+          manualFine: tx.fine,
+          manualInterest: tx.interest,
+          tag: tx.type === ManualTransactionType.EARNING ? '[Rendimento]' : '[Aporte Extra]'
+        });
+        
+        manualTxIndex++;
+      } else {
+        break;
+      }
+    }
+
     const finalDueDate = getNextBusinessDay(currentDate);
     const dueDateStr = finalDueDate.toISOString();
     const monthsLeft = termMonths - i + 1;
+
+    // Identificação de Fase (Status da Cota)
+    // SE Data_Adesao estiver preenchida E Data_1a_Assembleia for nula (ou data futura): Definir Status_Cota = "Pré-Grupo"
+    const isPreGroup = !firstAssemblyDate || (firstAssemblyDate && finalDueDate < firstAssemblyDate);
+    const tag = isPreGroup ? '[Pré-Grupo]' : undefined;
 
     // A correção anual acontece ANTES de processar o lance do mês para que o lance use a base atualizada
     let correctionApplied = false;
@@ -217,69 +267,112 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let correctionIndexName: string | undefined = undefined;
     let correctionCapApplied = false;
     let correctionRealRate = 0;
+    let correctionBalanceFC = 0, correctionBalanceTA = 0, correctionBalanceFR = 0, correctionBalanceTotal = 0;
+    let correctionPercentBalanceFC = 0, correctionPercentBalanceTA = 0, correctionPercentBalanceFR = 0, correctionPercentBalanceTotal = 0;
     
-    // NOVA REGRA:
-    // Ocorre quando o mês da parcela atual for igual ao mês da data âncora (1ª assembleia)
-    // E o ano da parcela for maior que o ano da última correção (ou da data âncora)
-    if (i > 1 && finalDueDate.getMonth() === correctionAnchorDate.getMonth() && finalDueDate.getFullYear() > lastCorrectionYear) {
-        // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
-        // Ex: Aniversário em Novembro -> Busca índice de Setembro
-        const indexEndDate = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth() - 2, 1);
-        const isAnnual = quota.correctionIndex.endsWith('_12');
+    // TRAVA DO GATILHO DE REAJUSTE (A Regra de Ouro):
+    // Data_Proximo_Reajuste DEVE obrigatoriamente ser calculada como: Data_1a_Assembleia + 12 meses.
+    if (firstAssemblyDate) {
+        const monthsToNextAdjustment = quota.anticipateCorrectionMonth ? (anniversaryCount * 12 - 1) : (anniversaryCount * 12);
+        const nextAdjustmentDate = addMonths(firstAssemblyDate, monthsToNextAdjustment);
+        
+        // Comparação robusta baseada no mês e ano para evitar problemas com o dia do vencimento vs dia da assembleia
+        const nextAdjMonth = new Date(nextAdjustmentDate.getFullYear(), nextAdjustmentDate.getMonth(), 1);
+        const currentMonth = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth(), 1);
 
-        if (indexEndDate <= today) {
-            let accumulatedMultiplier = 1;
-            let hasAnyIndex = false;
-            
-            if (isAnnual) {
-                const year = indexEndDate.getFullYear();
-                const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
-                const indexLookupStr = `${year}-${month}-01`;
-                const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
-                
-                if (monthlyIndex && monthlyIndex.rate !== 0) {
-                    accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
-                    hasAnyIndex = true;
-                }
+        if (currentMonth >= nextAdjMonth) {
+            // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
+            let indexEndDate: Date;
+            if (quota.indexReferenceMonth) {
+                const targetMonth = quota.indexReferenceMonth - 1; // 0-11
+                const targetYear = targetMonth >= nextAdjustmentDate.getMonth() ? nextAdjustmentDate.getFullYear() - 1 : nextAdjustmentDate.getFullYear();
+                indexEndDate = new Date(targetYear, targetMonth, 1);
             } else {
-                const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
-                for (let m = 0; m < 12; m++) {
-                    const currentMonthDate = addMonths(indexStartDate, m);
-                    const year = currentMonthDate.getFullYear();
-                    const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+                indexEndDate = addMonths(nextAdjustmentDate, -2);
+            }
+            
+            const isAnnual = quota.correctionIndex.endsWith('_12');
+
+            if (indexEndDate <= today) {
+                let accumulatedMultiplier = 1;
+                let hasAnyIndex = false;
+                
+                if (isAnnual) {
+                    const year = indexEndDate.getFullYear();
+                    const month = String(indexEndDate.getMonth() + 1).padStart(2, '0');
                     const indexLookupStr = `${year}-${month}-01`;
-                    
                     const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
                     
                     if (monthlyIndex && monthlyIndex.rate !== 0) {
-                        accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                        accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
                         hasAnyIndex = true;
                     }
+                } else {
+                    const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
+                    for (let m = 0; m < 12; m++) {
+                        const currentMonthDate = addMonths(indexStartDate, m);
+                        const year = currentMonthDate.getFullYear();
+                        const month = String(currentMonthDate.getMonth() + 1).padStart(2, '0');
+                        const indexLookupStr = `${year}-${month}-01`;
+                        
+                        const monthlyIndex = indices.find(idx => idx.type === quota.correctionIndex && idx.date === indexLookupStr);
+                        
+                        if (monthlyIndex && monthlyIndex.rate !== 0) {
+                            accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                            hasAnyIndex = true;
+                        }
+                    }
+                }
+                
+                if (hasAnyIndex) {
+                    correctionApplied = true;
+                    let appliedRate = (accumulatedMultiplier - 1) * 100;
+                    correctionRealRate = appliedRate;
+                    if (quota.correctionRateCap && quota.correctionRateCap > 0 && appliedRate > quota.correctionRateCap) {
+                        appliedRate = quota.correctionRateCap;
+                        correctionCapApplied = true;
+                    }
+                    correctionFactor = appliedRate / 100;
+                    correctionIndexName = quota.correctionIndex;
+                    
+                    const deltaFC = balanceFC_Reais * correctionFactor;
+                    const deltaTA = balanceTA_Reais * correctionFactor;
+                    const deltaFR = balanceFR_Reais * correctionFactor;
+                    const deltaTotal = deltaFC + deltaTA + deltaFR;
+
+                    currentCreditValue *= (1 + correctionFactor);
+                    balanceFC_Reais *= (1 + correctionFactor);
+                    balanceTA_Reais *= (1 + correctionFactor);
+                    balanceFR_Reais *= (1 + correctionFactor);
+                    deferredFC_Reais *= (1 + correctionFactor);
+                    deferredTA_Reais *= (1 + correctionFactor);
+                    deferredFR_Reais *= (1 + correctionFactor);
+
+                    correctionBalanceFC = balanceFC_Reais;
+                    correctionBalanceTA = balanceTA_Reais;
+                    correctionBalanceFR = balanceFR_Reais;
+                    correctionBalanceTotal = balanceFC_Reais + balanceTA_Reais + balanceFR_Reais;
+                    correctionPercentBalanceFC = (balanceFC_Reais / currentCreditValue) * 100;
+                    correctionPercentBalanceTA = (balanceTA_Reais / currentCreditValue) * 100;
+                    correctionPercentBalanceFR = (balanceFR_Reais / currentCreditValue) * 100;
+                    correctionPercentBalanceTotal = (correctionBalanceTotal / currentCreditValue) * 100;
+
+                    // Store deltas
+                    correctionAmountFC = deltaFC;
+                    correctionAmountTA = deltaTA;
+                    correctionAmountFR = deltaFR;
+                    correctionAmountTotal = deltaTotal;
                 }
             }
             
-            if (hasAnyIndex) {
-                correctionApplied = true;
-                let appliedRate = (accumulatedMultiplier - 1) * 100;
-                correctionRealRate = appliedRate;
-                if (quota.correctionRateCap && quota.correctionRateCap > 0 && appliedRate > quota.correctionRateCap) {
-                    appliedRate = quota.correctionRateCap;
-                    correctionCapApplied = true;
-                }
-                correctionFactor = appliedRate / 100;
-                correctionIndexName = quota.correctionIndex;
-                
-                currentCreditValue *= (1 + correctionFactor);
-                balanceFC_Reais *= (1 + correctionFactor);
-                balanceTA_Reais *= (1 + correctionFactor);
-                balanceFR_Reais *= (1 + correctionFactor);
-                deferredFC_Reais *= (1 + correctionFactor);
-                deferredTA_Reais *= (1 + correctionFactor);
-                deferredFR_Reais *= (1 + correctionFactor);
-            }
+            anniversaryCount++;
         }
-        
-        lastCorrectionYear = finalDueDate.getFullYear();
+    } else {
+        // Reset deltas if no correction this month
+        correctionAmountFC = 0;
+        correctionAmountTA = 0;
+        correctionAmountFR = 0;
+        correctionAmountTotal = 0;
     }
 
     // Base de Cálculo Monetária ATUALIZADA para o Percentual do Lance
@@ -291,6 +384,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let bidDateApplied: string | undefined = undefined;
     let bidEmbeddedApplied = 0, bidEmbeddedPercent = 0, bidEmbeddedAbatementFC = 0, bidEmbeddedPercentFC = 0, bidEmbeddedAbatementFR = 0, bidEmbeddedPercentFR = 0, bidEmbeddedAbatementTA = 0, bidEmbeddedPercentTA = 0;
     let bidFreeApplied = 0, bidFreePercent = 0, bidFreeAbatementFC = 0, bidFreePercentFC = 0, bidFreeAbatementFR = 0, bidFreePercentFR = 0, bidFreeAbatementTA = 0, bidFreePercentTA = 0;
+    let bidEmbeddedBalanceFC = 0, bidEmbeddedBalanceTA = 0, bidEmbeddedBalanceFR = 0, bidEmbeddedBalanceTotal = 0;
+    let bidEmbeddedPercentBalanceFC = 0, bidEmbeddedPercentBalanceTA = 0, bidEmbeddedPercentBalanceFR = 0, bidEmbeddedPercentBalanceTotal = 0;
+    let bidFreeBalanceFC = 0, bidFreeBalanceTA = 0, bidFreeBalanceFR = 0, bidFreeBalanceTotal = 0;
+    let bidFreePercentBalanceFC = 0, bidFreePercentBalanceTA = 0, bidFreePercentBalanceFR = 0, bidFreePercentBalanceTotal = 0;
 
     if (quota.isContemplated && quota.contemplationDate && !bidProcessed) {
         const bidDate = createLocalDate(quota.contemplationDate);
@@ -299,15 +396,28 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
              bidDateApplied = quota.contemplationDate;
              bidAmountApplied = quota.bidTotal || 0;
 
-             const distributeBid = (amount: number) => {
-                 const totalRemainingReais = Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais);
-                 const weightFC = totalRemainingReais > 0 ? Math.max(0, balanceFC_Reais) / totalRemainingReais : 0;
-                 const weightTA = totalRemainingReais > 0 ? Math.max(0, balanceTA_Reais) / totalRemainingReais : 0;
-                 const weightFR = totalRemainingReais > 0 ? Math.max(0, balanceFR_Reais) / totalRemainingReais : 0;
+             const isBidPaid = payments[0]?.status === 'PAGO';
 
-                 const mFC = parseFloat((amount * weightFC).toFixed(2));
-                 const mTA = parseFloat((amount * weightTA).toFixed(2));
-                 const mFR = parseFloat((amount - mFC - mTA).toFixed(2));
+             const distributeBid = (amount: number) => {
+                 let mFC = 0, mTA = 0, mFR = 0;
+
+                 if (quota.prioritizeFeesInBid) {
+                     // Prioritize TA and FR
+                     mTA = parseFloat(Math.min(amount, Math.max(0, balanceTA_Reais)).toFixed(2));
+                     let remaining = amount - mTA;
+                     mFR = parseFloat(Math.min(remaining, Math.max(0, balanceFR_Reais)).toFixed(2));
+                     remaining -= mFR;
+                     mFC = parseFloat(remaining.toFixed(2));
+                 } else {
+                     const totalRemainingReais = Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais);
+                     const weightFC = totalRemainingReais > 0 ? Math.max(0, balanceFC_Reais) / totalRemainingReais : 0;
+                     const weightTA = totalRemainingReais > 0 ? Math.max(0, balanceTA_Reais) / totalRemainingReais : 0;
+                     const weightFR = totalRemainingReais > 0 ? Math.max(0, balanceFR_Reais) / totalRemainingReais : 0;
+
+                     mFC = parseFloat((amount * weightFC).toFixed(2));
+                     mTA = parseFloat((amount * weightTA).toFixed(2));
+                     mFR = parseFloat((amount - mFC - mTA).toFixed(2));
+                 }
 
                  // REGRAS SOLICITADAS: O % do valor pago deve ser (Valor / Crédito Base Atualizado) * 100
                  // pTotal: Percentual do lance sobre a base atualizada (Crédito ou Total Projeto)
@@ -318,9 +428,11 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                  const pTA = (mTA / currentCreditValue) * 100;
                  const pFR = (mFR / currentCreditValue) * 100;
 
-                 balanceFC_Reais -= mFC;
-                 balanceTA_Reais -= mTA;
-                 balanceFR_Reais -= mFR;
+                 if (isBidPaid) {
+                    balanceFC_Reais -= mFC;
+                    balanceTA_Reais -= mTA;
+                    balanceFR_Reais -= mFR;
+                 }
 
                  return { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
              };
@@ -330,13 +442,55 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                  const res = distributeBid(bidEmbeddedApplied);
                  bidEmbeddedAbatementFC = res.mFC; bidEmbeddedAbatementTA = res.mTA; bidEmbeddedAbatementFR = res.mFR;
                  bidEmbeddedPercent = res.pTotal; bidEmbeddedPercentFC = res.pFC; bidEmbeddedPercentTA = res.pTA; bidEmbeddedPercentFR = res.pFR;
+
+                  bidEmbeddedBalanceFC = balanceFC_Reais;
+                  bidEmbeddedBalanceTA = balanceTA_Reais;
+                  bidEmbeddedBalanceFR = balanceFR_Reais;
+                  bidEmbeddedBalanceTotal = balanceFC_Reais + balanceTA_Reais + balanceFR_Reais;
+                  bidEmbeddedPercentBalanceFC = (balanceFC_Reais / currentCreditValue) * 100;
+                  bidEmbeddedPercentBalanceTA = (balanceTA_Reais / currentCreditValue) * 100;
+                  bidEmbeddedPercentBalanceFR = (balanceFR_Reais / currentCreditValue) * 100;
+                  bidEmbeddedPercentBalanceTotal = (bidEmbeddedBalanceTotal / currentCreditValue) * 100;
              }
              if (quota.bidFree && quota.bidFree > 0) {
-                 bidFreeApplied = quota.bidFree;
-                 const res = distributeBid(bidFreeApplied);
+                 const bidPayment = payments[0];
+                 bidFreeApplied = (bidPayment && bidPayment.amount !== null) ? bidPayment.amount : quota.bidFree;
+                 
+                 let res;
+                 if (bidPayment && (typeof bidPayment.manualFC === 'number' || typeof bidPayment.manualTA === 'number' || typeof bidPayment.manualFR === 'number')) {
+                     const mFC = bidPayment.manualFC ?? 0;
+                     const mTA = bidPayment.manualTA ?? 0;
+                     const mFR = bidPayment.manualFR ?? 0;
+                     const pTotalAbatido = (bidFreeApplied / currentBidCalcBase) * 100;
+                     const pFC = (mFC / currentCreditValue) * 100;
+                     const pTA = (mTA / currentCreditValue) * 100;
+                     const pFR = (mFR / currentCreditValue) * 100;
+                     
+                     if (isBidPaid) {
+                        balanceFC_Reais -= mFC;
+                        balanceTA_Reais -= mTA;
+                        balanceFR_Reais -= mFR;
+                     }
+                     
+                     res = { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
+                 } else {
+                     res = distributeBid(bidFreeApplied);
+                 }
+                 
                  bidFreeAbatementFC = res.mFC; bidFreeAbatementTA = res.mTA; bidFreeAbatementFR = res.mFR;
                  bidFreePercent = res.pTotal; bidFreePercentFC = res.pFC; bidFreePercentTA = res.pTA; bidFreePercentFR = res.pFR;
+
+                  bidFreeBalanceFC = balanceFC_Reais;
+                  bidFreeBalanceTA = balanceTA_Reais;
+                  bidFreeBalanceFR = balanceFR_Reais;
+                  bidFreeBalanceTotal = balanceFC_Reais + balanceTA_Reais + balanceFR_Reais;
+                  bidFreePercentBalanceFC = (balanceFC_Reais / currentCreditValue) * 100;
+                  bidFreePercentBalanceTA = (balanceTA_Reais / currentCreditValue) * 100;
+                  bidFreePercentBalanceFR = (balanceFR_Reais / currentCreditValue) * 100;
+                  bidFreePercentBalanceTotal = (bidFreeBalanceTotal / currentCreditValue) * 100;
              }
+             
+             bidAmountApplied = bidEmbeddedApplied + bidFreeApplied;
         }
     }
 
@@ -424,6 +578,11 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         realAmountPaid = payment.amount ?? null;
         paymentDate = payment.paymentDate || null;
         status = payment.status || 'PREVISTO';
+
+        // Apply manual earnings (reduces balance)
+        if (payment.manualEarnings && typeof payment.manualEarnings === 'number') {
+            balanceFC_Reais -= payment.manualEarnings;
+        }
     }
 
     // Calculate actual rates used (for display purposes)
@@ -431,7 +590,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let actualRateTA = (installmentTA / currentCreditValue) * 100;
     let actualRateFR = (installmentFR / currentCreditValue) * 100;
 
-    // Deduct from remaining balance in Reais
+    // Deduct from remaining balance in Reais to maintain continuous projection
     balanceFC_Reais -= installmentFC;
     balanceTA_Reais -= installmentTA;
     balanceFR_Reais -= installmentFR;
@@ -461,12 +620,41 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       bidAmountApplied, bidDate: bidDateApplied,
       bidEmbeddedApplied, bidEmbeddedPercent, bidEmbeddedAbatementFC, bidEmbeddedPercentFC, bidEmbeddedAbatementFR, bidEmbeddedPercentFR, bidEmbeddedAbatementTA, bidEmbeddedPercentTA,
       bidFreeApplied, bidFreePercent, bidFreeAbatementFC, bidFreePercentFC, bidFreeAbatementFR, bidFreePercentFR, bidFreeAbatementTA, bidFreePercentTA,
+      bidEmbeddedBalanceFC: parseFloat(bidEmbeddedBalanceFC.toFixed(2)),
+      bidEmbeddedBalanceTA: parseFloat(bidEmbeddedBalanceTA.toFixed(2)),
+      bidEmbeddedBalanceFR: parseFloat(bidEmbeddedBalanceFR.toFixed(2)),
+      bidEmbeddedBalanceTotal: parseFloat(bidEmbeddedBalanceTotal.toFixed(2)),
+      bidEmbeddedPercentBalanceFC,
+      bidEmbeddedPercentBalanceTA,
+      bidEmbeddedPercentBalanceFR,
+      bidEmbeddedPercentBalanceTotal,
+      bidFreeBalanceFC: parseFloat(bidFreeBalanceFC.toFixed(2)),
+      bidFreeBalanceTA: parseFloat(bidFreeBalanceTA.toFixed(2)),
+      bidFreeBalanceFR: parseFloat(bidFreeBalanceFR.toFixed(2)),
+      bidFreeBalanceTotal: parseFloat(bidFreeBalanceTotal.toFixed(2)),
+      bidFreePercentBalanceFC,
+      bidFreePercentBalanceTA,
+      bidFreePercentBalanceFR,
+      bidFreePercentBalanceTotal,
       bidAbatementFC: bidEmbeddedAbatementFC + bidFreeAbatementFC, bidAbatementFR: bidEmbeddedAbatementFR + bidFreeAbatementFR, bidAbatementTA: bidEmbeddedAbatementTA + bidFreeAbatementTA,
       correctionApplied, correctionFactor, correctedCreditValue: currentCreditValue, correctionIndexName, correctionCapApplied, correctionRealRate,
+      correctionBalanceFC: parseFloat(correctionBalanceFC.toFixed(2)),
+      correctionBalanceTA: parseFloat(correctionBalanceTA.toFixed(2)),
+      correctionBalanceFR: parseFloat(correctionBalanceFR.toFixed(2)),
+      correctionBalanceTotal: parseFloat(correctionBalanceTotal.toFixed(2)),
+      correctionPercentBalanceFC,
+      correctionPercentBalanceTA,
+      correctionPercentBalanceFR,
+      correctionPercentBalanceTotal,
+      correctionAmountFC,
+      correctionAmountTA,
+      correctionAmountFR,
+      correctionAmountTotal,
       realAmountPaid, 
       isPaid: status === 'PAGO',
       status: status as PaymentStatus,
       paymentDate,
+      tag,
       manualFC: payment?.manualFC,
       manualFR: payment?.manualFR,
       manualTA: payment?.manualTA,
@@ -474,7 +662,46 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       manualInterest: payment?.manualInterest,
       manualInsurance: payment?.manualInsurance,
       manualAmortization: payment?.manualAmortization,
+      manualEarnings: payment?.manualEarnings,
     });
   }
+
+  // Process any remaining manual transactions after the last installment
+  while (manualTxIndex < manualTransactions.length) {
+    const tx = manualTransactions[manualTxIndex];
+    balanceFC_Reais -= tx.amount;
+    
+    schedule.push({
+      installmentNumber: 0,
+      dueDate: tx.date,
+      commonFund: 0,
+      reserveFund: 0,
+      adminFee: 0,
+      insurance: 0,
+      amortization: 0,
+      totalInstallment: 0,
+      realAmountPaid: tx.amount,
+      isPaid: true,
+      status: PaymentStatus.PAGO,
+      paymentDate: tx.date,
+      balanceFC: Math.max(0, balanceFC_Reais),
+      balanceFR: Math.max(0, balanceFR_Reais),
+      balanceTA: Math.max(0, balanceTA_Reais),
+      balanceTotal: Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais),
+      percentBalanceFC: Math.max(0, (balanceFC_Reais / currentCreditValue) * 100),
+      percentBalanceFR: Math.max(0, (balanceFR_Reais / currentCreditValue) * 100),
+      percentBalanceTA: Math.max(0, (balanceTA_Reais / currentCreditValue) * 100),
+      percentBalanceTotal: Math.max(0, ((balanceFC_Reais + balanceTA_Reais + balanceFR_Reais) / currentCreditValue) * 100),
+      isManualTransaction: true,
+      manualTransactionId: tx.id,
+      manualTransactionType: tx.type,
+      manualTransactionDescription: tx.description,
+      manualEarnings: tx.type === ManualTransactionType.EARNING ? tx.amount : 0,
+      tag: tx.type === ManualTransactionType.EARNING ? '[Rendimento]' : '[Aporte Extra]'
+    });
+    
+    manualTxIndex++;
+  }
+
   return schedule;
 };
