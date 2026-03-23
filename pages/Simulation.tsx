@@ -64,7 +64,7 @@ const Simulation = () => {
     if (isBid) {
       const bidPayment = payments[0] || {};
       setPaymentFormData({
-        status: bidPayment.status || PaymentStatus.PAGO,
+        status: PaymentStatus.PAGO,
         paymentDate: bidPayment.paymentDate ? bidPayment.paymentDate.split('T')[0] : (inst.bidDate ? inst.bidDate.split('T')[0] : getTodayStr()),
         amount: toStr(bidPayment.amount || (inst.bidFreeApplied || 0)),
         fc: toStr(bidPayment.manualFC || (inst.bidFreeAbatementFC || 0)),
@@ -78,7 +78,7 @@ const Simulation = () => {
       });
     } else {
       setPaymentFormData({
-        status: inst.status || PaymentStatus.PAGO,
+        status: PaymentStatus.PAGO,
         paymentDate: inst.paymentDate ? inst.paymentDate.split('T')[0] : (inst.dueDate ? inst.dueDate.split('T')[0] : getTodayStr()),
         amount: toStr((inst.realAmountPaid !== null && inst.realAmountPaid !== undefined) ? inst.realAmountPaid : (inst.totalInstallment || 0)),
         fc: toStr((inst.manualFC !== undefined && inst.manualFC !== null) ? inst.manualFC : (inst.commonFund || 0)),
@@ -1267,12 +1267,17 @@ const Simulation = () => {
                   {((inst.bidEmbeddedApplied ?? 0) > 0 || (inst.bidFreeApplied ?? 0) > 0) && (
                     <React.Fragment>
                       {inst.bidEmbeddedApplied! > 0 && (
-                        <tr className="bg-amber-50 border-y border-amber-100/50">
-                            <td className="p-2 text-center font-bold text-amber-700 sticky left-0 bg-amber-50 z-10"><Gavel size={14} className="mx-auto" /></td>
+                        <tr className={`bg-amber-50 border-y border-amber-100/50 ${payments[0]?.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
+                            <td className="p-2 text-center font-bold text-amber-700 sticky left-0 bg-amber-50 z-10">
+                                <div className="flex flex-col items-center">
+                                    <Gavel size={14} className="mx-auto" />
+                                    {payments[0]?.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
+                                </div>
+                            </td>
                             <td className="p-2 text-left font-bold text-amber-800 text-[9px] uppercase whitespace-nowrap">
                                 <div>LANCE EMBUTIDO</div>
                                 <div className="text-[8px] text-amber-600 font-medium flex items-center gap-0.5 mt-0.5">
-                                    <Calendar size={8} /> {formatDate(inst.bidDate || '')}
+                                    <Calendar size={8} /> {formatDate(payments[0]?.paymentDate || inst.bidDate || '')}
                                 </div>
                             </td>
                             <td></td>
@@ -1285,7 +1290,16 @@ const Simulation = () => {
                             <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceTA?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceFR?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/50 border-l border-amber-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercentBalanceTotal?.toFixed(4)}%</span></div></td>
-                            <td></td>
+                            <td className="p-2 text-center border-l border-amber-200 print:hidden">
+                                <button 
+                                    onClick={() => openPaymentModal(inst, true)}
+                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
+                                    title="Efetivar Lance"
+                                >
+                                    {payments[0]?.status === 'PAGO' ? <Edit3 size={12} /> : <CheckCircle size={12} />}
+                                    {payments[0]?.status === 'PAGO' ? 'Editar' : 'Efetivar'}
+                                </button>
+                            </td>
                         </tr>
                       )}
                       {inst.bidFreeApplied! > 0 && (

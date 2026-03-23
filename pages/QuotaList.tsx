@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy } from 'lucide-react';
 import { ProductType } from '../types';
 import { calculateCurrentCreditValue, generateSchedule, calculateIRR } from '../services/calculationService';
 
@@ -332,6 +332,13 @@ const QuotaList = () => {
                           title="Editar"
                         >
                           <Pencil size={18} />
+                        </button>
+                        <button 
+                          onClick={() => navigate(`/new?replicate=${quota.id}`)}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-200"
+                          title="Replicar"
+                        >
+                          <Copy size={18} />
                         </button>
                         <button 
                           onClick={() => handleSimulate(quota)}

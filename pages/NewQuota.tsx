@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType, CalculationMethod, IndexTableEntry } from '../types';
 import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Trash2 } from 'lucide-react';
@@ -9,6 +9,8 @@ import { formatCurrency, calculateIndexReferenceMonth, getTodayStr } from '../ut
 const NewQuota = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const replicateId = searchParams.get('replicate');
   const { addQuota, updateQuota, getQuotaById, setCurrentQuota, administrators, companies, quotas } = useConsortium();
   const [isSaving, setIsSaving] = useState(false);
   const [displayCreditValue, setDisplayCreditValue] = useState('');
@@ -43,10 +45,11 @@ const NewQuota = () => {
   });
 
   useEffect(() => {
-    if (id) {
-      const existingQuota = getQuotaById(id);
+    const targetId = id || replicateId;
+    if (targetId) {
+      const existingQuota = getQuotaById(targetId);
       if (existingQuota) {
-        setFormData({
+        const dataToSet: Partial<Quota> = {
             ...existingQuota,
             bidBase: existingQuota.bidBase || BidBaseType.CREDIT_ONLY,
             dueDay: existingQuota.dueDay || 25,
@@ -56,11 +59,21 @@ const NewQuota = () => {
             recalculateBalanceAfterHalfOrContemplation: existingQuota.recalculateBalanceAfterHalfOrContemplation || false,
             anticipateCorrectionMonth: existingQuota.anticipateCorrectionMonth || false,
             prioritizeFeesInBid: existingQuota.prioritizeFeesInBid || false
-        });
+        };
+
+        if (replicateId && !id) {
+          // Limpar campos únicos ao replicar
+          delete dataToSet.id;
+          dataToSet.group = '';
+          dataToSet.quotaNumber = '';
+          dataToSet.contractNumber = '';
+        }
+
+        setFormData(dataToSet);
         if (existingQuota.creditValue) {
            setDisplayCreditValue(existingQuota.creditValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
-        // Se já existe no banco, marcamos como manual para não sobrescrever com o cálculo automático
+        // Se já existe no banco (ou estamos replicando de um), marcamos como manual para não sobrescrever com o cálculo automático
         if (existingQuota.indexReferenceMonth !== undefined && existingQuota.indexReferenceMonth !== null) {
           setIsManualMonth(true);
         }
@@ -68,7 +81,7 @@ const NewQuota = () => {
         navigate('/quotas');
       }
     }
-  }, [id, getQuotaById, navigate]);
+  }, [id, replicateId, getQuotaById, navigate]);
 
   useEffect(() => {
     const free = Number(formData.bidFree || 0);
@@ -299,7 +312,9 @@ const NewQuota = () => {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">{id ? 'Editar Cota' : 'Cadastro de Nova Cota'}</h1>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {id ? 'Editar Cota' : replicateId ? 'Replicar Cota' : 'Cadastro de Nova Cota'}
+        </h1>
         <button onClick={() => navigate(-1)} className="text-slate-500 hover:text-slate-800 flex items-center gap-1">
           <ArrowLeft size={16} /> Voltar
         </button>
