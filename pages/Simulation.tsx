@@ -624,7 +624,7 @@ const Simulation = () => {
 
         return {
             fc: acc.fc + inst.commonFund + bFC + manualFCContribution,
-            fcPct: acc.fcPct + (inst.monthlyRateFC || 0) + bFCP + manualFCPct,
+            fcPct: acc.fcPct + (inst.monthlyRateFC || 0) + bFCP,
             ta: acc.ta + inst.adminFee + bTA,
             taPct: acc.taPct + (inst.monthlyRateTA || 0) + bTAP,
             fr: acc.fr + inst.reserveFund + bFR,

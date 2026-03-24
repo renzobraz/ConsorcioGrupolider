@@ -99,7 +99,7 @@ const Reports = () => {
                   const interest = paymentData?.manualInterest || inst.manualInterest || 0;
                   const insurance = paymentData?.manualInsurance || inst.insurance || 0;
                   const amortization = paymentData?.manualAmortization || inst.amortization || 0;
-                  sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization + fine + interest;
+                  sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization + fine + interest + (inst.manualEarnings || 0);
                   
                   // Deduct paid percentages
                   totalPercentRemaining -= (inst.monthlyRateFC || 0) + (inst.monthlyRateFR || 0) + (inst.monthlyRateTA || 0);

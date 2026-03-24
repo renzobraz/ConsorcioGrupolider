@@ -232,7 +232,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
           balanceFR: Math.max(0, balanceFR_Reais),
           balanceTA: Math.max(0, balanceTA_Reais),
           balanceTotal: Math.max(0, balanceFC_Reais + balanceTA_Reais + balanceFR_Reais),
-          monthlyRateFC: (fc / currentCreditValue) * 100,
+          monthlyRateFC: ((fc + (tx.type === ManualTransactionType.EARNING ? tx.amount : 0)) / currentCreditValue) * 100,
           monthlyRateTA: (ta / currentCreditValue) * 100,
           monthlyRateFR: (fr / currentCreditValue) * 100,
           percentBalanceFC: Math.max(0, (balanceFC_Reais / currentCreditValue) * 100),
@@ -399,8 +399,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
              bidDateApplied = quota.contemplationDate;
              bidAmountApplied = quota.bidTotal || 0;
 
-             const isBidPaid = payments[0]?.status === 'PAGO';
-
+             // O lance será sempre abatido para que a simulação reflita o contrato (100%)
              const distributeBid = (amount: number) => {
                  let mFC = 0, mTA = 0, mFR = 0;
 
@@ -431,11 +430,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                  const pTA = (mTA / currentCreditValue) * 100;
                  const pFR = (mFR / currentCreditValue) * 100;
 
-                 if (isBidPaid) {
-                    balanceFC_Reais -= mFC;
-                    balanceTA_Reais -= mTA;
-                    balanceFR_Reais -= mFR;
-                 }
+                 // SEMPRE abater do saldo para que a simulação reflita o contrato (100%)
+                 balanceFC_Reais -= mFC;
+                 balanceTA_Reais -= mTA;
+                 balanceFR_Reais -= mFR;
 
                  return { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
              };
@@ -469,11 +467,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                      const pTA = (mTA / currentCreditValue) * 100;
                      const pFR = (mFR / currentCreditValue) * 100;
                      
-                     if (isBidPaid) {
-                        balanceFC_Reais -= mFC;
-                        balanceTA_Reais -= mTA;
-                        balanceFR_Reais -= mFR;
-                     }
+                     // SEMPRE abater do saldo para que a simulação reflita o contrato (100%)
+                     balanceFC_Reais -= mFC;
+                     balanceTA_Reais -= mTA;
+                     balanceFR_Reais -= mFR;
                      
                      res = { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
                  } else {
@@ -514,9 +511,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     if (useIndexTable) {
         const entry = quota.indexTable!.find(e => i >= e.startInstallment && i <= e.endInstallment);
         if (entry) {
-            installmentFC = parseFloat(((entry.rateFC / 100) * currentCreditValue).toFixed(2));
-            installmentTA = parseFloat(((entry.rateTA / 100) * currentCreditValue).toFixed(2));
-            installmentFR = parseFloat(((entry.rateFR / 100) * currentCreditValue).toFixed(2));
+            installmentFC = parseFloat(Math.min(Math.max(0, balanceFC_Reais), (entry.rateFC / 100) * currentCreditValue).toFixed(2));
+            installmentTA = parseFloat(Math.min(Math.max(0, balanceTA_Reais), (entry.rateTA / 100) * currentCreditValue).toFixed(2));
+            installmentFR = parseFloat(Math.min(Math.max(0, balanceFR_Reais), (entry.rateFR / 100) * currentCreditValue).toFixed(2));
         }
     } else if (i === termMonths) {
         installmentFC = parseFloat(Math.max(0, balanceFC_Reais).toFixed(2));
@@ -589,7 +586,8 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     }
 
     // Calculate actual rates used (for display purposes)
-    let actualRateFC = (installmentFC / currentCreditValue) * 100;
+    // Include manual earnings in the FC rate to ensure the total sum reflects all contributions
+    let actualRateFC = ((installmentFC + (payment?.manualEarnings || 0)) / currentCreditValue) * 100;
     let actualRateTA = (installmentTA / currentCreditValue) * 100;
     let actualRateFR = (installmentFR / currentCreditValue) * 100;
 
