@@ -2,8 +2,11 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue } from '../services/calculationService';
 import { db } from '../services/database';
-import { getTodayStr } from '../utils/formatters';
-import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer } from 'lucide-react';
+import { getTodayStr, formatNumber } from '../utils/formatters';
+import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface ReportRow {
   id: string;
@@ -14,6 +17,7 @@ interface ReportRow {
   contemplationDate?: string;
   administratorId?: string;
   companyId?: string;
+  productType?: string;
 
   saldoAVencer: number; 
   percentAVencer: number;
@@ -48,8 +52,6 @@ const Reports = () => {
   const [referenceDate, setReferenceDate] = useState(getTodayStr());
   const [sortConfig, setSortConfig] = useState<{ key: keyof ReportRow, direction: 'asc' | 'desc' } | null>(null);
 
-  const formatNumber = (val: number) => val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   useEffect(() => {
     const buildReport = async () => {
       setLoading(true);
@@ -57,9 +59,15 @@ const Reports = () => {
       const refDate = new Date(refDateStr + 'T23:59:59');
 
       try {
-        const allPayments = await db.getAllPaymentsDictionary();
+        const [allPayments, allManualTransactions] = await Promise.all([
+          db.getAllPaymentsDictionary(),
+          db.getAllManualTransactions()
+        ]);
+        
         const rows = quotas.map(quota => {
-          const schedule = generateSchedule(quota, indices);
+          const quotaPayments = allPayments[quota.id] || {};
+          const quotaManualTransactions = allManualTransactions.filter(t => t.quotaId === quota.id);
+          const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
           
           let vlrCartaAtual = quota.creditValue;
           if (schedule.length > 0) {
@@ -69,15 +77,22 @@ const Reports = () => {
 
           let sumVencido = 0;
           let sumAVencer = 0;
-          const paymentMap = allPayments[quota.id] || {};
+          const totalPercentContract = 100 + (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
+          let totalPercentRemaining = totalPercentContract;
+          
+          const bidPaymentData = quotaPayments[0];
+          const isBidPaid = !!bidPaymentData && 
+                           (bidPaymentData.status === 'PAGO' || bidPaymentData.isPaid === true) && 
+                           !!bidPaymentData.paymentDate &&
+                           bidPaymentData.paymentDate.split('T')[0] <= refDateStr;
 
           schedule.forEach(inst => {
-              const instDateStr = inst.dueDate.split('T')[0];
-              const paymentData = paymentMap[inst.installmentNumber];
-              // Strict check: must have status 'PAGO' and a payment date
+              const paymentData = quotaPayments[inst.installmentNumber];
+              // Strict check: must have status 'PAGO' and a payment date <= referenceDate
               const isActuallyPaid = !!paymentData && 
                                     (paymentData.status === 'PAGO' || paymentData.isPaid === true) && 
-                                    !!paymentData.paymentDate;
+                                    !!paymentData.paymentDate &&
+                                    paymentData.paymentDate.split('T')[0] <= refDateStr;
 
               if (isActuallyPaid) {
                   const fine = paymentData?.manualFine || inst.manualFine || 0;
@@ -85,18 +100,33 @@ const Reports = () => {
                   const insurance = paymentData?.manualInsurance || inst.insurance || 0;
                   const amortization = paymentData?.manualAmortization || inst.amortization || 0;
                   sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization + fine + interest;
+                  
+                  // Deduct paid percentages
+                  totalPercentRemaining -= (inst.monthlyRateFC || 0) + (inst.monthlyRateFR || 0) + (inst.monthlyRateTA || 0);
               } else {
+                  // For unpaid items, we sum pending insurance and amortization
                   const insurance = paymentData?.manualInsurance || inst.insurance || 0;
                   const amortization = paymentData?.manualAmortization || inst.amortization || 0;
-                  sumAVencer += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization;
+                  sumAVencer += insurance + amortization;
               }
 
-              if (isActuallyPaid && inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+              // Bid logic: If bid was applied in this installment AND if bid was paid
+              if (inst.bidAmountApplied && inst.bidAmountApplied > 0 && isBidPaid) {
                   sumVencido += (inst.bidAbatementFC || 0) + (inst.bidAbatementFR || 0) + (inst.bidAbatementTA || 0);
+                  
+                  // Deduct bid percentages from remaining debt
+                  totalPercentRemaining -= (inst.bidEmbeddedPercentFC || 0) + (inst.bidEmbeddedPercentTA || 0) + (inst.bidEmbeddedPercentFR || 0);
+                  totalPercentRemaining -= (inst.bidFreePercentFC || 0) + (inst.bidFreePercentTA || 0) + (inst.bidFreePercentFR || 0);
               }
           });
 
+          // Saldo Devedor = (Remaining % * Current Credit) + Pending Insurance/Amortization
+          sumAVencer += Math.max(0, totalPercentRemaining * vlrCartaAtual) / 100;
+
           const totalContractValue = sumVencido + sumAVencer || 1;
+          const percentAVencer = (Math.max(0, totalPercentRemaining) / totalPercentContract) * 100;
+          const percentVencido = 100 - percentAVencer;
+          
           const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices);
           
           const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate);
@@ -117,10 +147,11 @@ const Reports = () => {
             contemplationDate: quota.contemplationDate,
             administratorId: quota.administratorId,
             companyId: quota.companyId,
+            productType: quota.productType,
             saldoAVencer: sumAVencer,
-            percentAVencer: (sumAVencer / totalContractValue) * 100,
+            percentAVencer: percentAVencer,
             saldoVencido: sumVencido,
-            percentVencido: (sumVencido / totalContractValue) * 100,
+            percentVencido: percentVencido,
             bidTotal: quota.bidTotal || 0,
             percentBidTotal: vlrCartaAtual > 0 ? ((quota.bidTotal || 0) / vlrCartaAtual) * 100 : 0,
             bidFree: quota.bidFree || 0,
@@ -144,22 +175,44 @@ const Reports = () => {
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
-    const normalizedValue = editValue.replace(/\./g, '').replace(',', '.');
-    const newVal = parseFloat(normalizedValue);
-    if (isNaN(newVal)) { setEditingId(null); return; }
+    const normalizedValue = editValue.trim().replace(/\./g, '').replace(',', '.');
+    
+    // If empty, assume 0
+    const newVal = normalizedValue === '' ? 0 : parseFloat(normalizedValue);
+    
+    if (isNaN(newVal)) { 
+      setEditingId(null); 
+      return; 
+    }
+    
     const quota = quotas.find(q => q.id === editingId.id);
     if (quota) {
       try {
-        await updateQuota({ ...quota, creditManualAdjustment: newVal });
+        const updatedData = { ...quota };
+        if (editingId.field === 'credit') {
+          updatedData.creditManualAdjustment = newVal;
+        } else if (editingId.field === 'correction') {
+          updatedData.bidFreeCorrection = newVal;
+        }
+        
+        await updateQuota(updatedData);
         setEditingId(null);
-      } catch (error) { setSaveError("Erro ao salvar."); }
+      } catch (error) { 
+        setSaveError("Erro ao salvar."); 
+      }
     }
   };
 
   const filteredData = reportData.filter(row => {
     const matchAdmin = !globalFilters.administratorId || row.administratorId === globalFilters.administratorId;
     const matchComp = !globalFilters.companyId || row.companyId === globalFilters.companyId;
-    const matchProduct = !globalFilters.productType || row.productType === globalFilters.productType;
+    
+    // Robust product type matching (handles legacy 'VEHICLE'/'REAL_ESTATE' keys if they exist)
+    let rowProduct = row.productType;
+    if (rowProduct === 'VEHICLE') rowProduct = 'VEICULO';
+    if (rowProduct === 'REAL_ESTATE') rowProduct = 'IMOVEL';
+    
+    const matchProduct = !globalFilters.productType || rowProduct === globalFilters.productType;
     let matchStatus = true;
     if (globalFilters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
     else if (globalFilters.status === 'ACTIVE') matchStatus = !row.isContemplated;
@@ -188,6 +241,7 @@ const Reports = () => {
   }, [filteredData, sortConfig]);
 
   const totals = sortedData.reduce((acc, row) => ({
+    creditValue: acc.creditValue + row.creditValue,
     saldoAVencer: acc.saldoAVencer + row.saldoAVencer,
     saldoVencido: acc.saldoVencido + row.saldoVencido,
     bidTotal: acc.bidTotal + row.bidTotal,
@@ -200,7 +254,7 @@ const Reports = () => {
     saldoDisponivel: acc.saldoDisponivel + row.saldoDisponivel,
     creditManualAdjustment: acc.creditManualAdjustment + row.creditManualAdjustment,
     bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection
-  }), { saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0 });
+  }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0 });
 
   const SortHeader = ({ label, sortKey, align = 'right', className = '' }: { label: string, sortKey: keyof ReportRow, align?: 'left'|'right', className?: string }) => (
       <th className={`px-2 py-3 cursor-pointer hover:bg-slate-800 transition-colors group select-none ${className} ${align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => setSortConfig({ key: sortKey, direction: sortConfig?.key === sortKey && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -212,6 +266,88 @@ const Reports = () => {
     window.print();
   };
 
+  const exportToExcel = () => {
+    if (!sortedData.length) return;
+
+    const exportRows = sortedData.map(row => ({
+      'Grupo': row.group,
+      'Cota': row.quotaNumber,
+      'Vlr Carta': row.creditValue,
+      'Valor Pago': row.saldoVencido,
+      'Valor a Pagar': row.saldoAVencer,
+      'Lance Tot.': row.bidTotal,
+      '% Lance': row.percentBidTotal,
+      'Lance Livre': row.bidFree,
+      '% Liv': row.percentBidFree,
+      'Crédito': row.creditAtContemplation,
+      'Lance Emb.': row.bidEmbedded,
+      '% Emb': row.percentBidEmbedded,
+      'Vlr Líquido': row.valorRealCarta,
+      'Aplicação financeira': row.creditManualAdjustment,
+      '92% CDI': row.bidFreeCorrection,
+      'Crédito Corrigido': row.creditoTotal,
+      'Utilizado': row.creditoUtilizado,
+      'Saldo Disp.': row.saldoDisponivel,
+      'Data Contemplação': row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatório por Cota');
+    XLSX.writeFile(wb, `Relatorio_por_Cota_${referenceDate}.xlsx`);
+  };
+
+  const exportToPDF = () => {
+    if (!sortedData.length) return;
+
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const title = `Relatório por Cota - Referência: ${referenceDate}`;
+    
+    doc.setFontSize(16);
+    doc.text(title, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 14, 22);
+
+    const tableColumn = [
+      "Grupo", "Cota", "Vlr Carta", "Valor Pago", "Valor a Pagar", "Lance Tot.", "% Lance", 
+      "Lance Livre", "% Liv", "Crédito", "Lance Emb.", "% Emb", "Vlr Líquido", "Aplicação", "92% CDI", 
+      "Corrigido", "Utilizado", "Saldo Disp.", "Contemplação"
+    ];
+    
+    const tableRows = sortedData.map(row => [
+      row.group,
+      row.quotaNumber,
+      formatNumber(row.creditValue),
+      formatNumber(row.saldoVencido),
+      formatNumber(row.saldoAVencer),
+      formatNumber(row.bidTotal),
+      `${row.percentBidTotal.toFixed(2)}%`,
+      formatNumber(row.bidFree),
+      `${row.percentBidFree.toFixed(2)}%`,
+      formatNumber(row.creditAtContemplation),
+      formatNumber(row.bidEmbedded),
+      `${row.percentBidEmbedded.toFixed(2)}%`,
+      formatNumber(row.valorRealCarta),
+      formatNumber(row.creditManualAdjustment),
+      formatNumber(row.bidFreeCorrection),
+      formatNumber(row.creditoTotal),
+      formatNumber(row.creditoUtilizado),
+      formatNumber(row.saldoDisponivel),
+      row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 30,
+      theme: 'grid',
+      styles: { fontSize: 5, cellPadding: 0.5 },
+      headStyles: { fillColor: [30, 41, 59] },
+    });
+
+    doc.save(`Relatorio_por_Cota_${referenceDate}.pdf`);
+  };
+
   return (
     <div className="space-y-6 pb-10 print:p-0 print:space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -219,9 +355,29 @@ const Reports = () => {
            <h1 className="text-2xl font-bold text-slate-800 print:text-xl">Relatório por Cota</h1>
            <p className="text-slate-500 print:text-xs">Acompanhamento de saldos, lances e créditos disponíveis em {referenceDate}.</p>
         </div>
-        <button onClick={handlePrint} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium print:hidden flex items-center gap-2">
-           <Printer size={18} /> Imprimir Relatório
-        </button>
+        <div className="flex items-center gap-2 print:hidden">
+          <button 
+            onClick={exportToExcel}
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+            title="Exportar para Excel"
+          >
+            <Download size={20} />
+          </button>
+          <button 
+            onClick={exportToPDF}
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+            title="Exportar para PDF"
+          >
+            <FileText size={20} />
+          </button>
+          <button 
+            onClick={handlePrint}
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+            title="Imprimir"
+          >
+            <Printer size={20} />
+          </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 print:hidden">
@@ -294,7 +450,7 @@ const Reports = () => {
                     <td className="p-2 text-right text-orange-500">{row.percentBidEmbedded.toFixed(2)}%</td>
                     <td className="p-2 text-right font-bold text-blue-700 bg-blue-50/30 print:bg-transparent">{formatNumber(row.valorRealCarta)}</td>
                     <td className="p-2 text-right text-blue-600 cursor-pointer print:cursor-default" onClick={() => { setEditingId({id: row.id, field: 'credit'}); setEditValue(row.creditManualAdjustment.toString().replace('.',',')); }}>{formatNumber(row.creditManualAdjustment)}</td>
-                    <td className="p-2 text-right text-violet-600">{formatNumber(row.bidFreeCorrection)}</td>
+                    <td className="p-2 text-right text-violet-600 cursor-pointer print:cursor-default" onClick={() => { setEditingId({id: row.id, field: 'correction'}); setEditValue(row.bidFreeCorrection.toString().replace('.',',')); }}>{formatNumber(row.bidFreeCorrection)}</td>
                     <td className="p-2 text-right font-bold bg-slate-50 print:bg-transparent">{formatNumber(row.creditoTotal)}</td>
                     <td className="p-2 text-right text-amber-700">{formatNumber(row.creditoUtilizado)}</td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50 border-l border-emerald-100 print:bg-transparent">{formatNumber(row.saldoDisponivel)}</td>
@@ -305,7 +461,7 @@ const Reports = () => {
               <tfoot className="bg-slate-900 text-white font-bold text-[9px] uppercase print:bg-slate-900">
                   <tr>
                       <td className="p-2 sticky left-0 bg-slate-900 border-r border-slate-700 print:static print:bg-transparent" colSpan={2}>Totais ({sortedData.length})</td>
-                      <td className="p-2 text-right"></td>
+                      <td className="p-2 text-right">{formatNumber(totals.creditValue)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.saldoVencido)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.saldoAVencer)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidTotal)}</td>

@@ -2,7 +2,7 @@
 // Fix React import from named to default export
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
-import { formatCurrency, formatPercent, formatDate, getTodayStr } from '../utils/formatters';
+import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr } from '../utils/formatters';
 import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PaymentStatus, ManualTransactionType } from '../types';
@@ -408,17 +408,17 @@ const Simulation = () => {
         tableRows.push([
           "CORR",
           inst.correctionIndexName || "REAJUSTE",
-          formatCurrency(inst.correctedCreditValue),
-          formatCurrency(inst.correctionAmountFC),
-          formatCurrency(inst.correctionAmountTA),
-          formatCurrency(inst.correctionAmountFR),
+          formatNumber(inst.correctedCreditValue),
+          formatNumber(inst.correctionAmountFC),
+          formatNumber(inst.correctionAmountTA),
+          formatNumber(inst.correctionAmountFR),
           "-", "-", "-", "-", "-", "-", "-", "-",
-          formatCurrency(inst.correctionAmountTotal),
+          formatNumber(inst.correctionAmountTotal),
           "-", "-", "AJUSTE",
-          formatCurrency(inst.correctionBalanceFC),
-          formatCurrency(inst.correctionBalanceTA),
-          formatCurrency(inst.correctionBalanceFR),
-          formatCurrency(inst.correctionBalanceTotal)
+          formatNumber(inst.correctionBalanceFC),
+          formatNumber(inst.correctionBalanceTA),
+          formatNumber(inst.correctionBalanceFR),
+          formatNumber(inst.correctionBalanceTotal)
         ]);
       }
 
@@ -427,19 +427,19 @@ const Simulation = () => {
         tableRows.push([
           "LANCE",
           "EMBUTIDO",
-          formatCurrency(inst.correctedCreditValue),
-          `(${formatCurrency(inst.bidEmbeddedAbatementFC)})`,
-          `(${formatCurrency(inst.bidEmbeddedAbatementTA)})`,
-          `(${formatCurrency(inst.bidEmbeddedAbatementFR)})`,
+          formatNumber(inst.correctedCreditValue),
+          `(${formatNumber(inst.bidEmbeddedAbatementFC)})`,
+          `(${formatNumber(inst.bidEmbeddedAbatementTA)})`,
+          `(${formatNumber(inst.bidEmbeddedAbatementFR)})`,
           "-", "-", "-", "-", "-", "-",
-          formatCurrency(inst.bidEmbeddedApplied),
-          formatCurrency(inst.bidEmbeddedAbatementFC),
-          `(${formatCurrency(inst.bidEmbeddedApplied)})`,
+          formatNumber(inst.bidEmbeddedApplied),
+          formatNumber(inst.bidEmbeddedAbatementFC),
+          `(${formatNumber(inst.bidEmbeddedApplied)})`,
           "-", "-", "LANCE",
-          formatCurrency(inst.bidEmbeddedBalanceFC),
-          formatCurrency(inst.bidEmbeddedBalanceTA),
-          formatCurrency(inst.bidEmbeddedBalanceFR),
-          formatCurrency(inst.bidEmbeddedBalanceTotal)
+          formatNumber(inst.bidEmbeddedBalanceFC),
+          formatNumber(inst.bidEmbeddedBalanceTA),
+          formatNumber(inst.bidEmbeddedBalanceFR),
+          formatNumber(inst.bidEmbeddedBalanceTotal)
         ]);
       }
 
@@ -449,22 +449,22 @@ const Simulation = () => {
         tableRows.push([
           "LANCE",
           "LIVRE",
-          formatCurrency(inst.correctedCreditValue),
-          `(${formatCurrency(inst.bidFreeAbatementFC)})`,
-          `(${formatCurrency(inst.bidFreeAbatementTA)})`,
-          `(${formatCurrency(inst.bidFreeAbatementFR)})`,
+          formatNumber(inst.correctedCreditValue),
+          `(${formatNumber(inst.bidFreeAbatementFC)})`,
+          `(${formatNumber(inst.bidFreeAbatementTA)})`,
+          `(${formatNumber(inst.bidFreeAbatementFR)})`,
           "-", "-", "-", "-", "-",
-          formatCurrency(inst.bidFreeApplied),
+          formatNumber(inst.bidFreeApplied),
           "-",
-          formatCurrency(inst.bidFreeAbatementFC),
-          `(${formatCurrency(inst.bidFreeApplied)})`,
-          bidPayment?.status === 'PAGO' ? formatCurrency(inst.bidFreeApplied) : "-",
+          formatNumber(inst.bidFreeAbatementFC),
+          `(${formatNumber(inst.bidFreeApplied)})`,
+          bidPayment?.status === 'PAGO' ? formatNumber(inst.bidFreeApplied) : "-",
           formatDate(bidPayment?.paymentDate || inst.bidDate),
           bidPayment?.status || "LANCE",
-          formatCurrency(inst.bidFreeBalanceFC),
-          formatCurrency(inst.bidFreeBalanceTA),
-          formatCurrency(inst.bidFreeBalanceFR),
-          formatCurrency(inst.bidFreeBalanceTotal)
+          formatNumber(inst.bidFreeBalanceFC),
+          formatNumber(inst.bidFreeBalanceTA),
+          formatNumber(inst.bidFreeBalanceFR),
+          formatNumber(inst.bidFreeBalanceTotal)
         ]);
       }
 
@@ -472,24 +472,24 @@ const Simulation = () => {
       tableRows.push([
         inst.installmentNumber === 0 ? "000" : inst.installmentNumber,
         formatDate(inst.dueDate),
-        formatCurrency(inst.correctedCreditValue),
-        formatCurrency(inst.commonFund),
-        formatCurrency(inst.adminFee),
-        formatCurrency(inst.reserveFund),
-        formatCurrency(inst.insurance),
-        formatCurrency(inst.amortization),
-        formatCurrency(inst.manualFine || 0),
-        formatCurrency(inst.manualInterest || 0),
-        formatCurrency(inst.manualEarnings || 0),
+        formatNumber(inst.correctedCreditValue),
+        formatNumber(inst.commonFund),
+        formatNumber(inst.adminFee),
+        formatNumber(inst.reserveFund),
+        formatNumber(inst.insurance),
+        formatNumber(inst.amortization),
+        formatNumber(inst.manualFine || 0),
+        formatNumber(inst.manualInterest || 0),
+        formatNumber(inst.manualEarnings || 0),
         "-", "-", "-",
-        formatCurrency(inst.totalInstallment),
-        formatCurrency(inst.realAmountPaid || 0),
+        formatNumber(inst.totalInstallment),
+        formatNumber(inst.realAmountPaid || 0),
         formatDate(inst.paymentDate),
         inst.status,
-        formatCurrency(inst.balanceFC),
-        formatCurrency(inst.balanceTA),
-        formatCurrency(inst.balanceFR),
-        formatCurrency(inst.balanceTotal)
+        formatNumber(inst.balanceFC),
+        formatNumber(inst.balanceTA),
+        formatNumber(inst.balanceFR),
+        formatNumber(inst.balanceTotal)
       ]);
     });
 
@@ -669,7 +669,7 @@ const Simulation = () => {
   const renderEditableCell = (inst: any, field: string, value: number, isManual: boolean, rate?: number) => {
     const isEditing = editingCell?.id === inst.installmentNumber && editingCell?.field === field;
     if (isEditing) return (<td className="p-2 text-right"><input autoFocus type="text" className="w-full p-1 border border-blue-400 rounded text-right text-xs" value={editValue} onChange={(e) => setEditValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(inst.installmentNumber); if (e.key === 'Escape') setEditingCell(null); }} onBlur={() => handleSaveEdit(inst.installmentNumber)} /></td>);
-    return (<td className={`p-2 text-right text-xs cursor-pointer hover:bg-slate-50 ${isManual ? 'text-blue-600 font-bold' : ''}`} onClick={() => handleEditClick(inst.installmentNumber, field, value)}><div className="flex flex-col items-end"><span>{formatCurrency(value)}</span><span className="text-[9px] text-slate-400">{rate ? rate.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + '%' : ''}</span></div></td>);
+    return (<td className={`p-2 text-right text-xs cursor-pointer hover:bg-slate-50 ${isManual ? 'text-blue-600 font-bold' : ''}`} onClick={() => handleEditClick(inst.installmentNumber, field, value)}><div className="flex flex-col items-end"><span>{formatNumber(value)}</span><span className="text-[9px] text-slate-400">{rate ? rate.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + '%' : ''}</span></div></td>);
   };
 
   return (
@@ -724,47 +724,44 @@ const Simulation = () => {
                 <div className="space-y-4">
                   <h4 className="text-sm font-semibold text-slate-700 border-b border-slate-200 pb-2 mb-3">Valores Principais</h4>
                   
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Fundo Comum (FC)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
-                      <input
-                        type="text"
-                        name="fc"
-                        value={paymentFormData.fc}
-                        onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                      />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Fundo Comum (FC)</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="fc"
+                          value={paymentFormData.fc}
+                          onChange={handlePaymentFormChange}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Taxa de Administração (TA)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
-                      <input
-                        type="text"
-                        name="ta"
-                        value={paymentFormData.ta}
-                        onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                      />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Taxa de Administração (TA)</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="ta"
+                          value={paymentFormData.ta}
+                          onChange={handlePaymentFormChange}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Fundo de Reserva (FR)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
-                      <input
-                        type="text"
-                        name="fr"
-                        value={paymentFormData.fr}
-                        onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                      />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Fundo de Reserva (FR)</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="fr"
+                          value={paymentFormData.fr}
+                          onChange={handlePaymentFormChange}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
                     </div>
-                  </div>
                 </div>
 
                 {/* Additional Values */}
@@ -774,13 +771,12 @@ const Simulation = () => {
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Seguro</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                       <input
                         type="text"
                         name="insurance"
                         value={paymentFormData.insurance}
                         onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                       />
                     </div>
                   </div>
@@ -788,13 +784,12 @@ const Simulation = () => {
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Amortização</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                       <input
                         type="text"
                         name="amortization"
                         value={paymentFormData.amortization}
                         onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                       />
                     </div>
                   </div>
@@ -803,26 +798,24 @@ const Simulation = () => {
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Multa</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                         <input
                           type="text"
                           name="fine"
                           value={paymentFormData.fine}
                           onChange={handlePaymentFormChange}
-                          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                         />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Juros</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                         <input
                           type="text"
                           name="interest"
                           value={paymentFormData.interest}
                           onChange={handlePaymentFormChange}
-                          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                         />
                       </div>
                     </div>
@@ -831,13 +824,12 @@ const Simulation = () => {
                     <div className="pt-4 mt-2 border-t border-slate-200">
                     <label className="block text-xs font-medium text-slate-600 mb-1">Rendimentos Manuais (Abate Saldo FC)</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                       <input
                         type="text"
                         name="manualEarnings"
                         value={paymentFormData.manualEarnings}
                         onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                       />
                     </div>
                   </div>
@@ -845,13 +837,12 @@ const Simulation = () => {
                   <div className="pt-4 mt-2 border-t border-slate-200">
                     <label className="block text-xs font-bold text-slate-800 mb-1">Valor Total Pago</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600 font-bold text-sm">R$</span>
                       <input
                         type="text"
                         name="amount"
                         value={paymentFormData.amount}
                         onChange={handlePaymentFormChange}
-                        className="w-full pl-9 pr-3 py-2 border-2 border-emerald-200 bg-emerald-50 rounded-md text-emerald-900 font-bold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        className="w-full px-3 py-2 border-2 border-emerald-200 bg-emerald-50 rounded-md text-emerald-900 font-bold focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                       />
                     </div>
                   </div>
@@ -1015,13 +1006,12 @@ const Simulation = () => {
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1 font-bold">Total Pago</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
                     <input
                       type="text"
                       name="amount"
                       value={manualTxFormData.amount}
                       onChange={handleManualTxFormChange}
-                      className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm font-bold bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-bold bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -1254,18 +1244,18 @@ const Simulation = () => {
                                 )}
                               </div>
                               <div className="flex gap-4 mt-1 font-normal opacity-75 text-[9px]">
-                                <span>Crédito Base: {formatCurrency(inst.correctedCreditValue || 0)}</span>
-                                <span>Ajuste FC: +{formatCurrency(inst.correctionAmountFC || 0)}</span>
-                                <span>Ajuste TA: +{formatCurrency(inst.correctionAmountTA || 0)}</span>
-                                <span>Ajuste FR: +{formatCurrency(inst.correctionAmountFR || 0)}</span>
-                                <span className="font-bold">Total Ajuste: +{formatCurrency(inst.correctionAmountTotal || 0)}</span>
+                                <span>Crédito Base: {formatNumber(inst.correctedCreditValue || 0)}</span>
+                                <span>Ajuste FC: +{formatNumber(inst.correctionAmountFC || 0)}</span>
+                                <span>Ajuste TA: +{formatNumber(inst.correctionAmountTA || 0)}</span>
+                                <span>Ajuste FR: +{formatNumber(inst.correctionAmountFR || 0)}</span>
+                                <span className="font-bold">Total Ajuste: +{formatNumber(inst.correctionAmountTotal || 0)}</span>
                               </div>
                             </div>
                          </td>
-                         <td className="p-2 text-right border-l border-blue-200 text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.correctionBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceFC?.toFixed(4)}%</span></div></td>
-                         <td className="p-2 text-right text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.correctionBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceTA?.toFixed(4)}%</span></div></td>
-                         <td className="p-2 text-right text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.correctionBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceFR?.toFixed(4)}%</span></div></td>
-                         <td className="p-2 text-right font-bold text-blue-900 bg-blue-100/50 border-l border-blue-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.correctionBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.correctionPercentBalanceTotal?.toFixed(4)}%</span></div></td>
+                         <td className="p-2 text-right border-l border-blue-200 text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.correctionBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceFC?.toFixed(4)}%</span></div></td>
+                         <td className="p-2 text-right text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.correctionBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceTA?.toFixed(4)}%</span></div></td>
+                         <td className="p-2 text-right text-blue-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.correctionBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.correctionPercentBalanceFR?.toFixed(4)}%</span></div></td>
+                         <td className="p-2 text-right font-bold text-blue-900 bg-blue-100/50 border-l border-blue-200"><div className="flex flex-col items-end"><span>{formatNumber(inst.correctionBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.correctionPercentBalanceTotal?.toFixed(4)}%</span></div></td>
                          <td></td>
                       </tr>
                   )}
@@ -1286,15 +1276,15 @@ const Simulation = () => {
                                 </div>
                             </td>
                             <td></td>
-                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentTA?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFR?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidEmbeddedAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFC?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidEmbeddedAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidEmbeddedAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentFR?.toFixed(4)}%</span></div></td>
                             <td colSpan={5}></td>
-                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidEmbeddedApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercent?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right border-l border-amber-200 text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceTA?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceFR?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/50 border-l border-amber-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidEmbeddedBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercentBalanceTotal?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/30"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidEmbeddedApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercent?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right border-l border-amber-200 text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidEmbeddedBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceFC?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidEmbeddedBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-amber-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidEmbeddedBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidEmbeddedPercentBalanceFR?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right font-bold text-amber-900 bg-amber-100/50 border-l border-amber-200"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidEmbeddedBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidEmbeddedPercentBalanceTotal?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-center border-l border-amber-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, true)}
@@ -1322,15 +1312,15 @@ const Simulation = () => {
                                 </div>
                             </td>
                             <td></td>
-                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentTA?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFR?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidFreeAbatementFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFC?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidFreeAbatementTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-700 font-semibold text-[10px]"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidFreeAbatementFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentFR?.toFixed(4)}%</span></div></td>
                             <td colSpan={5}></td>
-                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/30"><div className="flex flex-col items-end"><span>-{formatCurrency(inst.bidFreeApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercent?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right border-l border-orange-200 text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidFreeBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceFC?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidFreeBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceTA?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidFreeBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceFR?.toFixed(4)}%</span></div></td>
-                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/50 border-l border-orange-200"><div className="flex flex-col items-end"><span>{formatCurrency(inst.bidFreeBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercentBalanceTotal?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/30"><div className="flex flex-col items-end"><span>-{formatNumber(inst.bidFreeApplied || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercent?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right border-l border-orange-200 text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidFreeBalanceFC || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceFC?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidFreeBalanceTA || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceTA?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right text-orange-800 font-medium text-[10px]"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidFreeBalanceFR || 0)}</span><span className="text-[8px] font-normal">{inst.bidFreePercentBalanceFR?.toFixed(4)}%</span></div></td>
+                            <td className="p-2 text-right font-bold text-orange-900 bg-orange-100/50 border-l border-orange-200"><div className="flex flex-col items-end"><span>{formatNumber(inst.bidFreeBalanceTotal || 0)}</span><span className="text-[9px] font-black">{inst.bidFreePercentBalanceTotal?.toFixed(4)}%</span></div></td>
                             <td className="p-2 text-center border-l border-orange-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, false)}
@@ -1365,7 +1355,7 @@ const Simulation = () => {
                         <div className="text-[8px] text-emerald-600 font-medium">Pago: {formatDate(inst.paymentDate)}</div>
                       )}
                     </td>
-                    <td className="p-2 text-right text-slate-500">{formatCurrency(inst.correctedCreditValue || 0)}</td>
+                    <td className="p-2 text-right text-slate-500">{formatNumber(inst.correctedCreditValue || 0)}</td>
                     {renderEditableCell(inst, 'fc', inst.commonFund, inst.manualFC !== undefined && inst.manualFC !== null, inst.monthlyRateFC)}
                     {renderEditableCell(inst, 'ta', inst.adminFee, inst.manualTA !== undefined && inst.manualTA !== null, inst.monthlyRateTA)}
                     {renderEditableCell(inst, 'fr', inst.reserveFund, inst.manualFR !== undefined && inst.manualFR !== null, inst.monthlyRateFR)}
@@ -1374,20 +1364,20 @@ const Simulation = () => {
                     {renderEditableCell(inst, 'fine', inst.manualFine || 0, inst.manualFine !== undefined && inst.manualFine !== null)}
                     {renderEditableCell(inst, 'interest', inst.manualInterest || 0, inst.manualInterest !== undefined && inst.manualInterest !== null)}
                     <td className={`p-2 text-right text-xs font-medium ${inst.manualEarnings ? 'text-blue-600 bg-blue-50/30' : 'text-slate-400'}`}>
-                      {inst.manualEarnings ? formatCurrency(inst.manualEarnings) : '-'}
+                      {inst.manualEarnings ? formatNumber(inst.manualEarnings) : '-'}
                     </td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/20">
                       <div className="flex flex-col items-end">
-                        <span>{formatCurrency((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
+                        <span>{formatNumber((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
                         <span className="text-[8px] text-slate-400">
                           {((((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0)) / (inst.correctedCreditValue || 1)) * 100).toFixed(4)}%
                         </span>
                       </div>
                     </td>
-                    <td className="p-2 text-right border-l border-slate-100"><span>{formatCurrency(inst.balanceFC)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFC.toFixed(4)}%</span></td>
-                    <td className="p-2 text-right"><span>{formatCurrency(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
-                    <td className="p-2 text-right"><span>{formatCurrency(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
-                    <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatCurrency(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right border-l border-slate-100"><span>{formatNumber(inst.balanceFC)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFC.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right"><span>{formatNumber(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right"><span>{formatNumber(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatNumber(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
                     <td className="p-2 text-center border-l border-slate-200 print:hidden">
                       {inst.isManualTransaction ? (
                         <button 
@@ -1414,15 +1404,15 @@ const Simulation = () => {
               <tfoot className="bg-slate-200 text-slate-800 font-bold text-[10px] uppercase border-t-2 border-slate-300 sticky bottom-0 z-20">
                 <tr>
                   <td className="p-2 text-center bg-slate-300 sticky left-0 z-30" colSpan={3}>Soma Final</td>
-                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fc)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.fcPct.toFixed(4)}%</span></div></td>
-                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.ta)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.taPct.toFixed(4)}%</span></div></td>
-                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.fr)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.frPct.toFixed(4)}%</span></div></td>
-                  <td className="p-2 text-right text-slate-700">{formatCurrency(footerTotals.insurance)}</td>
-                  <td className="p-2 text-right text-slate-700">{formatCurrency(footerTotals.amortization)}</td>
-                  <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.fine)}</td>
-                  <td className="p-2 text-right text-red-700">{formatCurrency(footerTotals.interest)}</td>
-                  <td className="p-2 text-right text-blue-800 bg-blue-100/50">{formatCurrency(footerTotals.manualEarnings)}</td>
-                  <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatCurrency(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>
+                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.fc)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.fcPct.toFixed(4)}%</span></div></td>
+                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.ta)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.taPct.toFixed(4)}%</span></div></td>
+                  <td className="p-2 text-right"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.fr)}</span><span className="text-emerald-700 text-[10px]">{footerTotals.frPct.toFixed(4)}%</span></div></td>
+                  <td className="p-2 text-right text-slate-700">{formatNumber(footerTotals.insurance)}</td>
+                  <td className="p-2 text-right text-slate-700">{formatNumber(footerTotals.amortization)}</td>
+                  <td className="p-2 text-right text-red-700">{formatNumber(footerTotals.fine)}</td>
+                  <td className="p-2 text-right text-red-700">{formatNumber(footerTotals.interest)}</td>
+                  <td className="p-2 text-right text-blue-800 bg-blue-100/50">{formatNumber(footerTotals.manualEarnings)}</td>
+                  <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>
                   <td colSpan={5} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
                 </tr>
               </tfoot>

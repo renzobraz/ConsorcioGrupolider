@@ -40,7 +40,13 @@ const QuotaList = () => {
 
     const matchesAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
     const matchesCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
-    const matchesProduct = !globalFilters.productType || q.productType === globalFilters.productType;
+    
+    // Robust product type matching (handles legacy 'VEHICLE'/'REAL_ESTATE' keys if they exist)
+    let qProduct = q.productType;
+    if (qProduct === 'VEHICLE') qProduct = ProductType.VEHICLE;
+    if (qProduct === 'REAL_ESTATE') qProduct = ProductType.REAL_ESTATE;
+    
+    const matchesProduct = !globalFilters.productType || qProduct === globalFilters.productType;
 
     let matchesStatus = true;
     if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;

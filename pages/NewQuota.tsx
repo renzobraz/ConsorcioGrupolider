@@ -41,7 +41,9 @@ const NewQuota = () => {
     recalculateBalanceAfterHalfOrContemplation: false,
     anticipateCorrectionMonth: false,
     prioritizeFeesInBid: false,
-    indexReferenceMonth: 1
+    indexReferenceMonth: 1,
+    creditManualAdjustment: 0,
+    bidFreeCorrection: 0
   });
 
   useEffect(() => {
@@ -238,6 +240,8 @@ const NewQuota = () => {
       bidEmbedded: Number(formData.bidEmbedded || 0),
       bidTotal: Number(formData.bidTotal || 0),
       bidBase: formData.bidBase as BidBaseType,
+      creditManualAdjustment: Number(formData.creditManualAdjustment || 0),
+      bidFreeCorrection: Number(formData.bidFreeCorrection || 0),
       administratorId: formData.administratorId || undefined,
       companyId: formData.companyId || undefined,
       correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
@@ -296,6 +300,8 @@ const NewQuota = () => {
         bidEmbedded: Number(formData.bidEmbedded || 0),
         bidTotal: Number(formData.bidTotal || 0),
         bidBase: formData.bidBase as BidBaseType,
+        creditManualAdjustment: Number(formData.creditManualAdjustment || 0),
+        bidFreeCorrection: Number(formData.bidFreeCorrection || 0),
         administratorId: formData.administratorId,
         companyId: formData.companyId,
         correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
