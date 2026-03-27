@@ -43,7 +43,9 @@ const NewQuota = () => {
     prioritizeFeesInBid: false,
     indexReferenceMonth: 1,
     creditManualAdjustment: 0,
-    bidFreeCorrection: 0
+    bidFreeCorrection: 0,
+    isDrawContemplation: false,
+    stopCreditCorrection: true // Padrão é parar a correção após contemplação
   });
 
   useEffect(() => {
@@ -60,7 +62,9 @@ const NewQuota = () => {
             indexTable: existingQuota.indexTable || [],
             recalculateBalanceAfterHalfOrContemplation: existingQuota.recalculateBalanceAfterHalfOrContemplation || false,
             anticipateCorrectionMonth: existingQuota.anticipateCorrectionMonth || false,
-            prioritizeFeesInBid: existingQuota.prioritizeFeesInBid || false
+            prioritizeFeesInBid: existingQuota.prioritizeFeesInBid || false,
+            isDrawContemplation: existingQuota.isDrawContemplation || false,
+            stopCreditCorrection: existingQuota.stopCreditCorrection !== undefined ? existingQuota.stopCreditCorrection : true
         };
 
         if (replicateId && !id) {
@@ -84,6 +88,12 @@ const NewQuota = () => {
       }
     }
   }, [id, replicateId, getQuotaById, navigate]);
+
+  useEffect(() => {
+    if (formData.isDrawContemplation) {
+      setFormData(prev => ({ ...prev, bidFree: 0, bidEmbedded: 0, bidTotal: 0 }));
+    }
+  }, [formData.isDrawContemplation]);
 
   useEffect(() => {
     const free = Number(formData.bidFree || 0);
@@ -562,6 +572,18 @@ const NewQuota = () => {
                 <span className="ms-3 text-sm font-medium text-slate-900">Cota Contemplada?</span>
               </label>
 
+              <label className="inline-flex items-center cursor-pointer">
+                <input type="checkbox" name="isDrawContemplation" checked={formData.isDrawContemplation} onChange={handleChange} className="sr-only peer" />
+                <div className="relative w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                <span className="ms-3 text-sm font-medium text-slate-900">Lance por Sorteio?</span>
+              </label>
+
+              <label className="inline-flex items-center cursor-pointer">
+                <input type="checkbox" name="stopCreditCorrection" checked={formData.stopCreditCorrection} onChange={handleChange} className="sr-only peer" />
+                <div className="relative w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                <span className="ms-3 text-sm font-medium text-slate-900">Parar Reajuste após Contemplação?</span>
+              </label>
+
               <div className="flex-1">
                   <label className="block text-xs font-bold text-emerald-700 uppercase mb-1 flex items-center gap-1">
                       Base de Cálculo do Percentual do Lance
@@ -592,11 +614,11 @@ const NewQuota = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Livre (R$)</label>
-              <input name="bidFree" type="number" step="0.01" value={formData.bidFree ?? ''} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidFree" type="number" step="0.01" value={formData.bidFree ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Embutido (R$)</label>
-              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded ?? ''} disabled={!formData.isContemplated} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
             </div>
             <div>
                <label className="block text-sm font-medium text-slate-700 mb-1">Valor Total Lance</label>

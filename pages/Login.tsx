@@ -89,7 +89,7 @@ const Login = () => {
         
         <div className="mt-8 text-center">
           <p className="text-xs text-slate-400">
-            Acesso inicial: renzo.amaral@gmail.com
+            Acesso inicial: renzo.amaral@gmail.com / Senha: 123
           </p>
         </div>
       </div>

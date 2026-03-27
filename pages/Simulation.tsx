@@ -2,25 +2,28 @@
 // Fix React import from named to default export
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
-import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr } from '../utils/formatters';
+import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr, safeParseNumber, generateUUID } from '../utils/formatters';
 import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PaymentStatus, ManualTransactionType } from '../types';
+import { calculateScheduleSummary } from '../services/calculationService';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const Simulation = () => {
-  const { quotas, currentQuota, setCurrentQuota, installments, payments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters, addManualTransaction, deleteManualTransaction } = useConsortium();
+  const { quotas, currentQuota, setCurrentQuota, installments, payments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters, manualTransactions, addManualTransaction, updateManualTransaction, deleteManualTransaction } = useConsortium();
   const navigate = useNavigate();
   
   const [searchText, setSearchText] = useState('');
   const [editingCell, setEditingCell] = useState<{ id: number, field: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [isBidModal, setIsBidModal] = useState(false);
+  const [isEmbeddedBidModal, setIsEmbeddedBidModal] = useState(false);
 
   // Manual Transaction Modal State
   const [isManualTxModalOpen, setIsManualTxModalOpen] = useState(false);
+  const [editingManualTxId, setEditingManualTxId] = useState<string | null>(null);
   const [manualTxFormData, setManualTxFormData] = useState({
     date: getTodayStr(),
     amount: '0',
@@ -55,6 +58,7 @@ const Simulation = () => {
   const openPaymentModal = (inst: any, isBid: boolean = false, isEmbedded: boolean = false) => {
     setSelectedInstallment(inst);
     setIsBidModal(isBid);
+    setIsEmbeddedBidModal(isEmbedded);
     
     const toStr = (val: any) => {
       if (val === undefined || val === null) return '0';
@@ -62,7 +66,7 @@ const Simulation = () => {
     };
 
     if (isBid) {
-      const bidPayment = payments[0] || {};
+      const bidPayment = isEmbedded ? (payments[-1] || {}) : (payments[0] || {});
       const amount = isEmbedded ? (inst.bidEmbeddedApplied || 0) : (inst.bidFreeApplied || 0);
       const fc = isEmbedded ? (inst.bidEmbeddedAbatementFC || 0) : (inst.bidFreeAbatementFC || 0);
       const fr = isEmbedded ? (inst.bidEmbeddedAbatementFR || 0) : (inst.bidFreeAbatementFR || 0);
@@ -127,7 +131,10 @@ const Simulation = () => {
     if (!selectedInstallment && !isBidModal) return;
     
     try {
-      const installmentNumber = isBidModal ? 0 : selectedInstallment.installmentNumber;
+      let installmentNumber = selectedInstallment?.installmentNumber;
+      if (isBidModal) {
+        installmentNumber = isEmbeddedBidModal ? -1 : 0;
+      }
       const parse = (v: string) => parseFloat(v.replace(',', '.')) || 0;
       
       await updateInstallmentPayment(installmentNumber, {
@@ -179,10 +186,13 @@ const Simulation = () => {
   const handleManualTxSubmit = async () => {
     if (!currentQuota) return;
     try {
-      const parse = (v: string) => parseFloat(v.replace(',', '.')) || 0;
+      const parse = (v: string) => {
+        if (typeof v !== 'string') return v || 0;
+        return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
+      };
       
-      await addManualTransaction({
-        id: crypto.randomUUID(),
+      const transaction = {
+        id: editingManualTxId || generateUUID(),
         quotaId: currentQuota.id,
         date: manualTxFormData.date,
         type: manualTxFormData.type,
@@ -195,9 +205,16 @@ const Simulation = () => {
         amortization: parse(manualTxFormData.amortization),
         fine: parse(manualTxFormData.fine),
         interest: parse(manualTxFormData.interest)
-      });
+      };
+
+      if (editingManualTxId) {
+        await updateManualTransaction(transaction);
+      } else {
+        await addManualTransaction(transaction);
+      }
       
       setIsManualTxModalOpen(false);
+      setEditingManualTxId(null);
       setManualTxFormData({
         date: getTodayStr(),
         amount: '0',
@@ -212,9 +229,30 @@ const Simulation = () => {
         interest: '0'
       });
     } catch (error: any) {
-      console.error("Error adding manual transaction:", error);
-      alert(error.message || "Erro ao adicionar transação manual. Verifique sua conexão.");
+      console.error("Error saving manual transaction:", error);
+      alert(error.message || "Erro ao salvar transação manual. Verifique sua conexão.");
     }
+  };
+
+  const handleEditManualTx = (txId: string) => {
+    const tx = manualTransactions.find(t => t.id === txId);
+    if (!tx) return;
+
+    setManualTxFormData({
+      date: tx.date,
+      amount: (tx.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      type: tx.type,
+      description: tx.description || '',
+      fc: (tx.fc || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      fr: (tx.fr || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      ta: (tx.ta || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      insurance: (tx.insurance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      amortization: (tx.amortization || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      fine: (tx.fine || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+      interest: (tx.interest || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+    });
+    setEditingManualTxId(txId);
+    setIsManualTxModalOpen(true);
   };
 
   const exportToExcel = () => {
@@ -263,6 +301,7 @@ const Simulation = () => {
 
       // 2. Embedded Bid Row
       if ((inst.bidEmbeddedApplied || 0) > 0) {
+        const bidPayment = payments[-1];
         rows.push({
           'P': 'LANCE',
           'Vencimento': 'EMBUTIDO',
@@ -284,11 +323,11 @@ const Simulation = () => {
           'Abat. FC': inst.bidEmbeddedAbatementFC,
           'Abat. FR': inst.bidEmbeddedAbatementFR,
           'Abat. TA': inst.bidEmbeddedAbatementTA,
-          'Data Lance': formatDate(inst.bidDate),
+          'Data Lance': formatDate(bidPayment?.paymentDate || inst.bidDate),
           'Total': -inst.bidEmbeddedApplied,
-          'Vlr Pago': 0,
-          'Data Pagto': '',
-          'Status': 'LANCE',
+          'Vlr Pago': bidPayment?.status === 'PAGO' ? inst.bidEmbeddedApplied : 0,
+          'Data Pagto': formatDate(bidPayment?.paymentDate),
+          'Status': bidPayment?.status || 'LANCE',
           'Saldo FC': inst.bidEmbeddedBalanceFC,
           '% Saldo FC': inst.bidEmbeddedPercentBalanceFC,
           'Saldo TA': inst.bidEmbeddedBalanceTA,
@@ -398,7 +437,7 @@ const Simulation = () => {
 
     const tableColumn = [
       "P", "Vencimento", "Crédito", "FC", "TA", "FR", "Seguro", "Amort.", 
-      "Multa", "Juros", "Extra", "L. Livre", "L. Emb", "Abat. FC", "Total", "Vlr Pago", "Data Pagto", "Status", 
+      "Multa", "Juros", "Extra", "L. Livre", "L. Emb", "Abat. FC", "Abat. FR", "Abat. TA", "Total", "Vlr Pago", "Data Pagto", "Status", 
       "Saldo FC", "Saldo TA", "Saldo FR", "Saldo Dev"
     ];
     const tableRows: any[] = [];
@@ -412,7 +451,7 @@ const Simulation = () => {
           formatNumber(inst.correctionAmountFC),
           formatNumber(inst.correctionAmountTA),
           formatNumber(inst.correctionAmountFR),
-          "-", "-", "-", "-", "-", "-", "-", "-",
+          "-", "-", "-", "-", "-", "-", "-", "-", "-", "-",
           formatNumber(inst.correctionAmountTotal),
           "-", "-", "AJUSTE",
           formatNumber(inst.correctionBalanceFC),
@@ -424,6 +463,7 @@ const Simulation = () => {
 
       // 2. Embedded Bid Row
       if ((inst.bidEmbeddedApplied || 0) > 0) {
+        const bidPayment = payments[-1];
         tableRows.push([
           "LANCE",
           "EMBUTIDO",
@@ -434,8 +474,12 @@ const Simulation = () => {
           "-", "-", "-", "-", "-", "-",
           formatNumber(inst.bidEmbeddedApplied),
           formatNumber(inst.bidEmbeddedAbatementFC),
+          formatNumber(inst.bidEmbeddedAbatementFR),
+          formatNumber(inst.bidEmbeddedAbatementTA),
           `(${formatNumber(inst.bidEmbeddedApplied)})`,
-          "-", "-", "LANCE",
+          bidPayment?.status === 'PAGO' ? formatNumber(inst.bidEmbeddedApplied) : "-",
+          formatDate(bidPayment?.paymentDate),
+          bidPayment?.status || "LANCE",
           formatNumber(inst.bidEmbeddedBalanceFC),
           formatNumber(inst.bidEmbeddedBalanceTA),
           formatNumber(inst.bidEmbeddedBalanceFR),
@@ -457,9 +501,11 @@ const Simulation = () => {
           formatNumber(inst.bidFreeApplied),
           "-",
           formatNumber(inst.bidFreeAbatementFC),
+          formatNumber(inst.bidFreeAbatementFR),
+          formatNumber(inst.bidFreeAbatementTA),
           `(${formatNumber(inst.bidFreeApplied)})`,
           bidPayment?.status === 'PAGO' ? formatNumber(inst.bidFreeApplied) : "-",
-          formatDate(bidPayment?.paymentDate || inst.bidDate),
+          formatDate(bidPayment?.paymentDate),
           bidPayment?.status || "LANCE",
           formatNumber(inst.bidFreeBalanceFC),
           formatNumber(inst.bidFreeBalanceTA),
@@ -481,7 +527,7 @@ const Simulation = () => {
         formatNumber(inst.manualFine || 0),
         formatNumber(inst.manualInterest || 0),
         formatNumber(inst.manualEarnings || 0),
-        "-", "-", "-",
+        "-", "-", "-", "-", "-",
         formatNumber(inst.totalInstallment),
         formatNumber(inst.realAmountPaid || 0),
         formatDate(inst.paymentDate),
@@ -542,11 +588,20 @@ const Simulation = () => {
   const todayStr = getTodayStr();
 
   const currentDisplayCredit = useMemo(() => {
-    if (currentQuota && installments.length > 0) {
-        const pastOrPresent = installments.filter(i => i.dueDate.split('T')[0] <= todayStr);
-        return pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || currentQuota.creditValue : installments[0].correctedCreditValue || currentQuota.creditValue;
+    if (!currentQuota) return 0;
+    if (installments.length === 0) return currentQuota.creditValue;
+
+    const pastOrPresent = installments.filter(i => {
+      if (!i.dueDate) return false;
+      return i.dueDate.split('T')[0] <= todayStr;
+    });
+
+    if (pastOrPresent.length > 0) {
+      const lastPast = pastOrPresent[pastOrPresent.length - 1];
+      return lastPast.correctedCreditValue || currentQuota.creditValue;
     }
-    return currentQuota?.creditValue || 0;
+
+    return installments[0].correctedCreditValue || currentQuota.creditValue;
   }, [currentQuota, installments, todayStr]);
 
   const quotaStatus = useMemo(() => {
@@ -564,47 +619,20 @@ const Simulation = () => {
   }, [currentQuota]);
 
   const detailedSummary = useMemo(() => {
-    const stats = {
+    if (!currentQuota) return {
         paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
-        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
+        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, total: 0 },
         counts: { total: 0 }
     };
-    if (!currentQuota) return stats;
 
-    installments.forEach(inst => {
-        if (inst.isPaid) {
-            stats.paid.fc += inst.commonFund + (inst.manualEarnings || 0);
-            stats.paid.fr += inst.reserveFund; 
-            stats.paid.ta += inst.adminFee;
-            stats.paid.insurance += (inst.insurance || 0); 
-            stats.paid.amortization += (inst.amortization || 0);
-            stats.paid.fine += (inst.manualFine || 0); 
-            stats.paid.interest += (inst.manualInterest || 0);
-        } else {
-            stats.toPay.fc += inst.commonFund; 
-            stats.toPay.fr += inst.reserveFund; 
-            stats.toPay.ta += inst.adminFee;
-            stats.toPay.insurance += (inst.insurance || 0); 
-            stats.toPay.amortization += (inst.amortization || 0);
-            stats.counts.total++;
-        }
-        if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
-            const isBidPaid = payments[0]?.status === 'PAGO';
-            if (isBidPaid) {
-                stats.paid.fc += (inst.bidAbatementFC || 0); 
-                stats.paid.fr += (inst.bidAbatementFR || 0); 
-                stats.paid.ta += (inst.bidAbatementTA || 0);
-            } else {
-                stats.toPay.fc += (inst.bidAbatementFC || 0); 
-                stats.toPay.fr += (inst.bidAbatementFR || 0); 
-                stats.toPay.ta += (inst.bidAbatementTA || 0);
-            }
-        }
-    });
-    stats.paid.total = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.insurance + stats.paid.amortization + stats.paid.fine + stats.paid.interest;
-    stats.toPay.total = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization;
-    return stats;
-  }, [currentQuota, installments, todayStr]);
+    const summary = calculateScheduleSummary(currentQuota, installments, payments);
+    return {
+      ...summary,
+      counts: {
+        total: installments.filter(i => !i.isPaid && i.installmentNumber > 0).length
+      }
+    };
+  }, [currentQuota, installments, payments]);
 
   const footerTotals = useMemo(() => {
     const totals = installments.reduce((acc, inst) => {
@@ -634,13 +662,15 @@ const Simulation = () => {
             fine: acc.fine + (inst.manualFine || 0),
             interest: acc.interest + (inst.manualInterest || 0),
             manualEarnings: acc.manualEarnings + (inst.manualEarnings || 0),
-            total: acc.total + totalLineValue
+            total: acc.total + totalLineValue,
+            paidTotal: acc.paidTotal + (inst.isPaid ? (inst.realAmountPaid || 0) : 0)
         };
-    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, manualEarnings: 0, total: 0 });
+    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, manualEarnings: 0, total: 0, paidTotal: 0 });
 
     return {
         ...totals,
-        totalPct: totals.fcPct + totals.taPct + totals.frPct
+        totalPct: totals.fcPct + totals.taPct + totals.frPct,
+        paidTotalPct: currentDisplayCredit > 0 ? (totals.paidTotal / currentDisplayCredit) * 100 : 0
     };
   }, [installments, currentDisplayCredit]);
 
@@ -651,7 +681,7 @@ const Simulation = () => {
 
   const handleSaveEdit = (installmentNum: number) => {
     if (!editingCell) return;
-    const val = parseFloat(editValue.replace(',', '.'));
+    const val = safeParseNumber(editValue);
     if (!isNaN(val)) {
         const update: any = {};
         if (editingCell.field === 'fc') update.fc = val;
@@ -697,15 +727,18 @@ const Simulation = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
-                      <select
-                        name="status"
-                        value={paymentFormData.status}
-                        onChange={handlePaymentFormChange}
-                        className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                      >
-                        <option value={PaymentStatus.PREVISTO}>Previsto</option>
-                        <option value={PaymentStatus.PAGO}>Pago</option>
-                      </select>
+                        <select
+                          name="status"
+                          value={paymentFormData.status}
+                          onChange={handlePaymentFormChange}
+                          className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        >
+                          <option value={PaymentStatus.PREVISTO}>Previsto</option>
+                          <option value={PaymentStatus.PAGO}>Pago</option>
+                          <option value={PaymentStatus.CONCILIADO}>Conciliado</option>
+                          <option value={PaymentStatus.EFETIVADO}>Efetivado</option>
+                          <option value={PaymentStatus.QUITADO}>Quitado</option>
+                        </select>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Data do Pagamento</label>
@@ -876,10 +909,10 @@ const Simulation = () => {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Plus className="text-blue-600" size={20} />
-                Nova Transação Manual
+                {editingManualTxId ? <Edit3 className="text-blue-600" size={20} /> : <Plus className="text-blue-600" size={20} />}
+                {editingManualTxId ? 'Editar Transação Manual' : 'Nova Transação Manual'}
               </h3>
-              <button onClick={() => setIsManualTxModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors">
+              <button onClick={() => { setIsManualTxModalOpen(false); setEditingManualTxId(null); }} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors">
                 <X size={20} />
               </button>
             </div>
@@ -1020,7 +1053,7 @@ const Simulation = () => {
             
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
               <button
-                onClick={() => setIsManualTxModalOpen(false)}
+                onClick={() => { setIsManualTxModalOpen(false); setEditingManualTxId(null); }}
                 className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
               >
                 Cancelar
@@ -1029,8 +1062,8 @@ const Simulation = () => {
                 onClick={handleManualTxSubmit}
                 className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors flex items-center gap-2"
               >
-                <Plus size={16} />
-                Adicionar Transação
+                {editingManualTxId ? <Edit3 size={16} /> : <Plus size={16} />}
+                {editingManualTxId ? 'Salvar Alterações' : 'Adicionar Transação'}
               </button>
             </div>
           </div>
@@ -1194,9 +1227,20 @@ const Simulation = () => {
 
       {currentQuota && (
         <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex items-center justify-between text-sm text-emerald-800">
-          <div className="flex items-center gap-2">
-            <Calendar size={18} />
-            <span>Mês de Referência do Índice: <strong>{currentQuota.indexReferenceMonth || 'Não definido'}</strong></span>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Calendar size={18} />
+              <span>Mês de Referência do Índice: <strong>{currentQuota.indexReferenceMonth || 'Não definido'}</strong></span>
+            </div>
+            {currentQuota.isContemplated && currentQuota.contemplationDate && (
+              <div className="flex items-center gap-2 border-l border-emerald-200 pl-6">
+                <CheckCircle size={18} className="text-emerald-600" />
+                <span>Data de Contemplação: <strong>{formatDate(currentQuota.contemplationDate)}</strong></span>
+                {currentQuota.isDrawContemplation && (
+                  <span className="ml-2 px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-full text-[10px] font-bold uppercase">Sorteio</span>
+                )}
+              </div>
+            )}
           </div>
           <span className="text-xs opacity-75 italic">Utilizado para o cálculo de correção anual (M-2)</span>
         </div>
@@ -1219,18 +1263,24 @@ const Simulation = () => {
                   <th className="p-2 text-right">Multa</th>
                   <th className="p-2 text-right">Juros</th>
                   <th className="p-2 text-right text-blue-700 bg-blue-50/30">Extra/Rend.</th>
-                  <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Pago (%)</th>
+                  <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Previsto (%)</th>
                   <th className="p-2 text-right border-l border-slate-200 bg-slate-50/80">Saldo FC (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo TA (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo FR (%)</th>
                   <th className="p-2 text-right font-bold bg-slate-100 border-l border-slate-200">Saldo Total (%)</th>
+                  <th className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/50 border-l border-slate-200">Vlr Efetivado</th>
                   <th className="p-2 text-center bg-slate-100 border-l border-slate-200 w-12 print:hidden">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {installments.map((inst, idx) => (
-                  <React.Fragment key={inst.isManualTransaction ? `manual-${inst.manualTransactionId || idx}` : `inst-${inst.installmentNumber}`}>
-                  {inst.correctionApplied && (
+                {installments.map((inst, idx) => {
+                  const uniqueKey = inst.isManualTransaction 
+                    ? `manual-${inst.manualTransactionId}-${idx}` 
+                    : `inst-${inst.installmentNumber}-${idx}`;
+                  
+                  return (
+                    <React.Fragment key={uniqueKey}>
+                    {inst.correctionApplied && (
                       <tr className="bg-blue-50 border-y border-blue-100">
                          <td className="p-2 text-center text-blue-600 sticky left-0 bg-blue-50 z-10"><TrendingUp size={12} className="mx-auto"/></td>
                          <td colSpan={11} className="p-2 text-blue-800 text-[10px] font-bold uppercase tracking-wide">
@@ -1262,17 +1312,17 @@ const Simulation = () => {
                   {((inst.bidEmbeddedApplied ?? 0) > 0 || (inst.bidFreeApplied ?? 0) > 0) && (
                     <React.Fragment>
                       {inst.bidEmbeddedApplied! > 0 && (
-                        <tr className={`bg-amber-50 border-y border-amber-100/50 ${payments[0]?.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
+                        <tr className={`bg-amber-50 border-y border-amber-100/50 ${payments[-1]?.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
                             <td className="p-2 text-center font-bold text-amber-700 sticky left-0 bg-amber-50 z-10">
                                 <div className="flex flex-col items-center">
                                     <Gavel size={14} className="mx-auto" />
-                                    {payments[0]?.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
+                                    {payments[-1]?.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
                                 </div>
                             </td>
                             <td className="p-2 text-left font-bold text-amber-800 text-[9px] uppercase whitespace-nowrap">
                                 <div>LANCE EMBUTIDO</div>
                                 <div className="text-[8px] text-amber-600 font-medium flex items-center gap-0.5 mt-0.5">
-                                    <Calendar size={8} /> {formatDate(payments[0]?.paymentDate || inst.bidDate || '')}
+                                    <Calendar size={8} /> {formatDate(payments[-1]?.paymentDate || inst.bidDate || '')}
                                 </div>
                             </td>
                             <td></td>
@@ -1288,11 +1338,11 @@ const Simulation = () => {
                             <td className="p-2 text-center border-l border-amber-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, true)}
-                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
+                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
                                     title="Efetivar Lance"
                                 >
-                                    {payments[0]?.status === 'PAGO' ? <Edit3 size={12} /> : <CheckCircle size={12} />}
-                                    {payments[0]?.status === 'PAGO' ? 'Editar' : 'Efetivar'}
+                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? <Edit3 size={12} /> : <CheckCircle size={12} />}
+                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? 'Editar' : 'Efetivar'}
                                 </button>
                             </td>
                         </tr>
@@ -1324,24 +1374,24 @@ const Simulation = () => {
                             <td className="p-2 text-center border-l border-orange-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, false)}
-                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-orange-700 bg-orange-100 hover:bg-orange-200'}`}
+                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-orange-700 bg-orange-100 hover:bg-orange-200'}`}
                                     title="Efetivar Lance"
                                 >
-                                    {payments[0]?.status === 'PAGO' ? <Edit3 size={12} /> : <CheckCircle size={12} />}
-                                    {payments[0]?.status === 'PAGO' ? 'Editar' : 'Efetivar'}
+                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? <Edit3 size={12} /> : <CheckCircle size={12} />}
+                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? 'Editar' : 'Efetivar'}
                                 </button>
                             </td>
                         </tr>
                       )}
                     </React.Fragment>
                   )}
-                  <tr className={`hover:bg-slate-50 transition-colors ${inst.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
+                  <tr className={`hover:bg-slate-50 transition-colors ${inst.isPaid ? 'bg-emerald-50/30' : ''}`}>
                     <td className="p-2 text-center font-medium sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100">
                       <div className="flex flex-col items-center">
-                        <span className={`text-[9px] ${inst.status === 'PAGO' ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                        <span className={`text-[9px] ${inst.isPaid ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
                           {inst.installmentNumber === 0 ? '000' : inst.installmentNumber}
                         </span>
-                        {inst.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
+                        {inst.isPaid && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
                         {inst.tag && (
                           <span className="text-[8px] font-black text-blue-600 uppercase mt-0.5 bg-blue-50 px-1 rounded border border-blue-100">
                             {inst.tag}
@@ -1351,7 +1401,7 @@ const Simulation = () => {
                     </td>
                     <td className="p-2 text-slate-500">
                       {formatDate(inst.dueDate)}
-                      {inst.status === 'PAGO' && inst.paymentDate && (
+                      {inst.isPaid && inst.paymentDate && (
                         <div className="text-[8px] text-emerald-600 font-medium">Pago: {formatDate(inst.paymentDate)}</div>
                       )}
                     </td>
@@ -1368,9 +1418,9 @@ const Simulation = () => {
                     </td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/20">
                       <div className="flex flex-col items-end">
-                        <span>{formatNumber((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
+                        <span>{formatNumber((inst.isManualTransaction ? (inst.totalInstallment || 0) : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
                         <span className="text-[8px] text-slate-400">
-                          {((((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0)) / (inst.correctedCreditValue || 1)) * 100).toFixed(4)}%
+                          {((((inst.isManualTransaction ? (inst.totalInstallment || 0) : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0)) / (inst.correctedCreditValue || 1)) * 100).toFixed(4)}%
                         </span>
                       </div>
                     </td>
@@ -1378,28 +1428,47 @@ const Simulation = () => {
                     <td className="p-2 text-right"><span>{formatNumber(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
                     <td className="p-2 text-right"><span>{formatNumber(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
                     <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatNumber(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
+                    <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/30 border-l border-slate-200">
+                      <div className="flex flex-col items-end">
+                        <span>{inst.isPaid ? formatNumber(inst.realAmountPaid || 0) : '-'}</span>
+                        {inst.isPaid && (
+                          <span className="text-[8px] text-emerald-600 font-black">
+                            {((inst.realAmountPaid || 0) / (inst.correctedCreditValue || 1) * 100).toFixed(4)}%
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-2 text-center border-l border-slate-200 print:hidden">
                       {inst.isManualTransaction ? (
-                        <button 
-                          onClick={() => handleDeleteManualTx(inst.manualTransactionId || '')}
-                          className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-red-700 bg-red-50 hover:bg-red-100"
-                          title="Excluir Transação"
-                        >
-                          <Trash2 size={12} /> Excluir
-                        </button>
+                        <div className="flex flex-col gap-1">
+                          <button 
+                            onClick={() => handleEditManualTx(inst.manualTransactionId || '')}
+                            className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-blue-700 bg-blue-50 hover:bg-blue-100"
+                            title="Editar Transação"
+                          >
+                            <Edit3 size={12} /> Editar
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteManualTx(inst.manualTransactionId || '')}
+                            className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-red-700 bg-red-50 hover:bg-red-100"
+                            title="Excluir Transação"
+                          >
+                            <Trash2 size={12} /> Excluir
+                          </button>
+                        </div>
                       ) : (
                         <button 
                           onClick={() => openPaymentModal(inst)}
-                          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${inst.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}
-                          title={inst.status === 'PAGO' ? 'Editar Pagamento' : 'Efetivar Parcela'}
+                          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${inst.isPaid ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}
+                          title={inst.isPaid ? 'Editar Pagamento' : 'Efetivar Parcela'}
                         >
-                          {inst.status === 'PAGO' ? <><Edit3 size={12} /> Editar</> : <><CheckCircle size={12} /> Efetivar</>}
+                          {inst.isPaid ? <><Edit3 size={12} /> Editar</> : <><CheckCircle size={12} /> Efetivar</>}
                         </button>
                       )}
                     </td>
                   </tr>
                   </React.Fragment>
-                ))}
+                ); })}
               </tbody>
               <tfoot className="bg-slate-200 text-slate-800 font-bold text-[10px] uppercase border-t-2 border-slate-300 sticky bottom-0 z-20">
                 <tr>
@@ -1413,7 +1482,9 @@ const Simulation = () => {
                   <td className="p-2 text-right text-red-700">{formatNumber(footerTotals.interest)}</td>
                   <td className="p-2 text-right text-blue-800 bg-blue-100/50">{formatNumber(footerTotals.manualEarnings)}</td>
                   <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>
-                  <td colSpan={5} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
+                  <td colSpan={4} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
+                  <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900 border-l border-slate-200"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.paidTotal)}</span><span className="text-[10px]">{footerTotals.paidTotalPct.toFixed(4)}%</span></div></td>
+                  <td className="p-2 print:hidden"></td>
                 </tr>
               </tfoot>
             </table>

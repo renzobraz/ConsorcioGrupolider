@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction } from '../types';
+import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { useAuth } from './AuthContext';
@@ -54,7 +54,12 @@ interface ConsortiumContextType {
   
   manualTransactions: ManualTransaction[];
   addManualTransaction: (transaction: ManualTransaction) => Promise<void>;
+  updateManualTransaction: (transaction: ManualTransaction) => Promise<void>;
   deleteManualTransaction: (id: string) => Promise<void>;
+  
+  allCreditUpdates: CreditUpdate[];
+  addCreditUpdate: (update: CreditUpdate) => Promise<void>;
+  deleteCreditUpdate: (id: string) => Promise<void>;
   
   refreshData: () => Promise<void>;
 
@@ -91,6 +96,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
   const [payments, setPayments] = useState<Record<number, any>>({});
   const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
+  const [allCreditUpdates, setAllCreditUpdates] = useState<CreditUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -174,6 +180,9 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          
          const usages = await db.getAllCreditUsages();
          setAllCreditUsages(usages);
+         
+         const updates = await db.getAllCreditUpdates();
+         setAllCreditUpdates(updates);
       } catch (err: any) {
          console.warn("Failed to load auxiliary tables:", err);
       }
@@ -468,6 +477,25 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [currentQuota, manualTransactions, indices, payments]);
 
+  const updateManualTransaction = useCallback(async (transaction: ManualTransaction) => {
+    if (!currentQuota) return;
+    
+    const updatedManualTransactions = manualTransactions.map(t => t.id === transaction.id ? transaction : t);
+    setManualTransactions(updatedManualTransactions);
+    
+    try {
+      await db.saveManualTransaction(transaction);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      setInstallments(schedule);
+    } catch (err: any) {
+      console.error("Failed to update manual transaction", err);
+      const original = await db.getManualTransactions(currentQuota.id);
+      setManualTransactions(original);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, [currentQuota, manualTransactions, indices, payments]);
+
   const deleteManualTransaction = useCallback(async (id: string) => {
     if (!currentQuota) return;
     
@@ -487,6 +515,36 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw err;
     }
   }, [currentQuota, manualTransactions, indices, payments]);
+
+  const addCreditUpdate = useCallback(async (update: CreditUpdate) => {
+    try {
+      await db.saveCreditUpdate(update);
+      setAllCreditUpdates(prev => {
+        const idx = prev.findIndex(u => u.id === update.id);
+        if (idx >= 0) {
+          const newArr = [...prev];
+          newArr[idx] = update;
+          return newArr;
+        }
+        return [...prev, update];
+      });
+    } catch (err: any) {
+      console.error("Failed to save credit update", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const deleteCreditUpdate = useCallback(async (id: string) => {
+    try {
+      await db.deleteCreditUpdate(id);
+      setAllCreditUpdates(prev => prev.filter(u => u.id !== id));
+    } catch (err: any) {
+      console.error("Failed to delete credit update", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
 
   const filteredQuotas = React.useMemo(() => {
     if (!user) return [];
@@ -526,7 +584,11 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteCreditUsage,
       manualTransactions,
       addManualTransaction,
+      updateManualTransaction,
       deleteManualTransaction,
+      allCreditUpdates,
+      addCreditUpdate,
+      deleteCreditUpdate,
       refreshData,
       globalFilters,
       setGlobalFilters

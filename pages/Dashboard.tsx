@@ -11,7 +11,7 @@ import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader
 // (Movido para calculationService.ts)
 
 const Dashboard = () => {
-  const { quotas, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
+  const { quotas, companies, administrators, indices, allCreditUpdates, globalFilters, setGlobalFilters } = useConsortium();
   
   // Filters State
   // selectedQuotaId remains local as it is specific to this view's interaction
@@ -65,6 +65,7 @@ const Dashboard = () => {
 
       try {
         const allUsages = await db.getAllCreditUsages();
+        const allUpdates = await db.getAllCreditUpdates();
 
         const filteredQuotas = quotas.filter(q => {
           const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
@@ -96,6 +97,8 @@ const Dashboard = () => {
         let accTotalReserveFund = 0;
         let accCreditUsed = 0;
         let accAvailableContemplatedOnly = 0;
+        let accCreditAtContemplation = 0;
+        let accCorrectedCredit = 0;
 
         let accGlobalPaid = 0;
         let accGlobalToPay = 0;
@@ -117,7 +120,14 @@ const Dashboard = () => {
           
           const embeddedBid = quota.bidEmbedded || 0;
           const netCredit = baseCreditValue - embeddedBid;
-          const manualAdj = (quota.creditManualAdjustment || 0);
+          
+          // Get Latest Credit Update (Financial Application)
+          const quotaUpdates = allUpdates.filter(u => u.quotaId === quota.id);
+          const latestUpdateValue = quotaUpdates.length > 0 
+            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+            : 0;
+
+          const manualAdj = (quota.creditManualAdjustment || 0) + latestUpdateValue;
 
           const quotaUsages = allUsages.filter(u => u.quotaId === quota.id);
           const usageSum = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
@@ -138,6 +148,8 @@ const Dashboard = () => {
           accBidEmbedded += embeddedBid;
           accCreditUpdate += manualAdj;
           accCreditUsed += usageSum;
+          accCreditAtContemplation += baseCreditValue;
+          accCorrectedCredit += (baseCreditValue + manualAdj);
 
           if (quota.isContemplated && baseCreditValue > 0 && quota.bidTotal && quota.bidTotal > 0) {
               const totalPct = (quota.bidTotal / baseCreditValue) * 100;
@@ -248,6 +260,8 @@ const Dashboard = () => {
           totalCreditUpdate: accCreditUpdate,
           totalReserveFund: accTotalReserveFund,
           totalCreditUsed: accCreditUsed,
+          totalCreditAtContemplation: accCreditAtContemplation,
+          totalCorrectedCredit: accCorrectedCredit,
           totalAvailableCredit: totalAvailable,
           totalAvailableContemplatedOnly: accAvailableContemplatedOnly,
           globalTotalPaid: accGlobalPaid,
@@ -310,7 +324,7 @@ const Dashboard = () => {
       icon: <DollarSign size={20} className="text-slate-600"/>,
       cards: [
         {
-          title: "Crédito Disponível (Contempladas)",
+          title: "Créditos Disponível Utilização",
           value: totals.totalAvailableContemplatedOnly,
           icon: <BadgeCheck size={24} className="text-indigo-600" />,
           bg: "bg-indigo-50 border-indigo-200",
@@ -320,7 +334,16 @@ const Dashboard = () => {
           description: "Saldo liberado e pronto para uso"
         },
         {
-          title: "Crédito Líquido Total",
+          title: "Crédito total Bruto",
+          value: totals.totalCreditAtContemplation,
+          icon: <DollarSign size={24} className="text-slate-600" />,
+          bg: "bg-white",
+          border: "border-slate-200",
+          textColor: "text-slate-800",
+          isCurrency: true
+        },
+        {
+          title: "Crédito Total Líquido",
           value: totals.totalCredit,
           icon: <DollarSign size={24} className="text-slate-600" />,
           bg: "bg-white",
@@ -329,7 +352,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Total Atualização (+)",
+          title: "Aplicação financeira",
           value: totals.totalCreditUpdate,
           icon: <TrendingUp size={24} className="text-blue-600" />,
           bg: "bg-blue-50",
@@ -338,7 +361,16 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Crédito Utilizado (Total)",
+          title: "Crédito Total Com Aplicação",
+          value: totals.totalCorrectedCredit,
+          icon: <TrendingUp size={24} className="text-blue-600" />,
+          bg: "bg-blue-50",
+          border: "border-blue-100",
+          textColor: "text-blue-700",
+          isCurrency: true
+        },
+        {
+          title: "Crédito Utilizado",
           value: totals.totalCreditUsed,
           icon: <ShoppingBag size={24} className="text-amber-600" />,
           bg: "bg-amber-50",
@@ -347,7 +379,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Saldo Disponível (Total)",
+          title: "Crédito Total Disponível",
           value: totals.totalAvailableCredit,
           icon: <Wallet size={24} className="text-emerald-600" />,
           bg: "bg-emerald-50",

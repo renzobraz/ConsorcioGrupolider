@@ -67,15 +67,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password?: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password?.trim() || '';
+    
     const users = await db.getUsers();
-    const foundUser = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.isActive);
+    const foundUser = users.find(u => u.email.toLowerCase() === cleanEmail && u.isActive);
     
     if (!foundUser) {
       throw new Error('Usuário não encontrado ou inativo.');
     }
 
-    if (foundUser.password && foundUser.password !== password) {
-      throw new Error('Senha incorreta.');
+    // Se o usuário tem senha definida, precisamos validar
+    if (foundUser.password) {
+      if (foundUser.password !== cleanPassword) {
+        throw new Error('Senha incorreta.');
+      }
+    } else if (cleanPassword !== '') {
+      // Se o usuário não tem senha mas tentou entrar com uma, podemos permitir ou não.
+      // Por segurança, se não tem senha, só entra se a senha enviada for vazia.
+      // Mas para facilitar, vamos permitir entrar se não houver senha no banco.
     }
 
     setUser(foundUser);

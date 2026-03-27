@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
-import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue } from '../services/calculationService';
+import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue, calculateScheduleSummary } from '../services/calculationService';
 import { db } from '../services/database';
 import { getTodayStr, formatNumber } from '../utils/formatters';
-import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText } from 'lucide-react';
+import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -41,10 +41,11 @@ interface ReportRow {
 }
 
 const Reports = () => {
-  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
+  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, allCreditUpdates, addCreditUpdate, deleteCreditUpdate, globalFilters, setGlobalFilters } = useConsortium();
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<{ id: string, field: 'credit' } | null>(null);
+  const [editingId, setEditingId] = useState<{ id: string, field: string } | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -59,14 +60,12 @@ const Reports = () => {
       const refDate = new Date(refDateStr + 'T23:59:59');
 
       try {
-        const [allPayments, allManualTransactions] = await Promise.all([
-          db.getAllPaymentsDictionary(),
-          db.getAllManualTransactions()
-        ]);
-        
-        const rows = quotas.map(quota => {
-          const quotaPayments = allPayments[quota.id] || {};
-          const quotaManualTransactions = allManualTransactions.filter(t => t.quotaId === quota.id);
+        const rows = await Promise.all(quotas.map(async (quota) => {
+          const [quotaPayments, quotaManualTransactions] = await Promise.all([
+            db.getPayments(quota.id),
+            db.getManualTransactions(quota.id)
+          ]);
+
           const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
           
           let vlrCartaAtual = quota.creditValue;
@@ -75,65 +74,26 @@ const Reports = () => {
              vlrCartaAtual = pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue : quota.creditValue;
           }
 
-          let sumVencido = 0;
-          let sumAVencer = 0;
-          const totalPercentContract = 100 + (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
-          let totalPercentRemaining = totalPercentContract;
+          const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
           
-          const bidPaymentData = quotaPayments[0];
-          const isBidPaid = !!bidPaymentData && 
-                           (bidPaymentData.status === 'PAGO' || bidPaymentData.isPaid === true) && 
-                           !!bidPaymentData.paymentDate &&
-                           bidPaymentData.paymentDate.split('T')[0] <= refDateStr;
-
-          schedule.forEach(inst => {
-              const paymentData = quotaPayments[inst.installmentNumber];
-              // Strict check: must have status 'PAGO' and a payment date <= referenceDate
-              const isActuallyPaid = !!paymentData && 
-                                    (paymentData.status === 'PAGO' || paymentData.isPaid === true) && 
-                                    !!paymentData.paymentDate &&
-                                    paymentData.paymentDate.split('T')[0] <= refDateStr;
-
-              if (isActuallyPaid) {
-                  const fine = paymentData?.manualFine || inst.manualFine || 0;
-                  const interest = paymentData?.manualInterest || inst.manualInterest || 0;
-                  const insurance = paymentData?.manualInsurance || inst.insurance || 0;
-                  const amortization = paymentData?.manualAmortization || inst.amortization || 0;
-                  sumVencido += inst.commonFund + inst.reserveFund + inst.adminFee + insurance + amortization + fine + interest + (inst.manualEarnings || 0);
-                  
-                  // Deduct paid percentages
-                  totalPercentRemaining -= (inst.monthlyRateFC || 0) + (inst.monthlyRateFR || 0) + (inst.monthlyRateTA || 0);
-              } else {
-                  // For unpaid items, we sum pending insurance and amortization
-                  const insurance = paymentData?.manualInsurance || inst.insurance || 0;
-                  const amortization = paymentData?.manualAmortization || inst.amortization || 0;
-                  sumAVencer += insurance + amortization;
-              }
-
-              // Bid logic: If bid was applied in this installment AND if bid was paid
-              if (inst.bidAmountApplied && inst.bidAmountApplied > 0 && isBidPaid) {
-                  sumVencido += (inst.bidAbatementFC || 0) + (inst.bidAbatementFR || 0) + (inst.bidAbatementTA || 0);
-                  
-                  // Deduct bid percentages from remaining debt
-                  totalPercentRemaining -= (inst.bidEmbeddedPercentFC || 0) + (inst.bidEmbeddedPercentTA || 0) + (inst.bidEmbeddedPercentFR || 0);
-                  totalPercentRemaining -= (inst.bidFreePercentFC || 0) + (inst.bidFreePercentTA || 0) + (inst.bidFreePercentFR || 0);
-              }
-          });
-
-          // Saldo Devedor = (Remaining % * Current Credit) + Pending Insurance/Amortization
-          sumAVencer += Math.max(0, totalPercentRemaining * vlrCartaAtual) / 100;
-
-          const totalContractValue = sumVencido + sumAVencer || 1;
-          const percentAVencer = (Math.max(0, totalPercentRemaining) / totalPercentContract) * 100;
-          const percentVencido = 100 - percentAVencer;
+          const sumVencido = summary.paid.total;
+          const sumAVencer = summary.toPay.total;
+          const percentVencido = summary.paid.percent;
+          const percentAVencer = summary.toPay.percent;
           
-          const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices);
+          const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices, refDateStr);
           
           const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate);
           
           const bidEmbedded = quota.bidEmbedded || 0;
           const valorLiquido = creditAtContemplation - bidEmbedded;
-          const creditoTotal = valorLiquido + (quota.creditManualAdjustment || 0);
+          
+          const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+          const latestUpdateValue = quotaUpdates.length > 0 
+            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+            : 0;
+          
+          const creditoTotal = valorLiquido + latestUpdateValue;
           
           const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id && u.date <= refDateStr);
           const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
@@ -160,18 +120,18 @@ const Reports = () => {
             percentBidEmbedded: vlrCartaAtual > 0 ? (bidEmbedded / vlrCartaAtual) * 100 : 0,
             creditAtContemplation: creditAtContemplation,
             valorRealCarta: valorLiquido,
-            creditManualAdjustment: quota.creditManualAdjustment || 0,
+            creditManualAdjustment: latestUpdateValue,
             creditoTotal: creditoTotal,
             bidFreeCorrection: correction92CDI,
             creditoUtilizado,
             saldoDisponivel: creditoTotal - creditoUtilizado
           };
-        });
+        }));
         setReportData(rows);
       } catch (err) { console.error(err); } finally { setLoading(false); }
     };
     buildReport();
-  }, [quotas, indices, allCreditUsages, referenceDate]);
+  }, [quotas, indices, allCreditUsages, allCreditUpdates, referenceDate]);
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
@@ -189,11 +149,7 @@ const Reports = () => {
     if (quota) {
       try {
         const updatedData = { ...quota };
-        if (editingId.field === 'credit') {
-          updatedData.creditManualAdjustment = newVal;
-        } else if (editingId.field === 'correction') {
-          updatedData.bidFreeCorrection = newVal;
-        }
+        // Manual editing for correction removed as it is now automatic
         
         await updateQuota(updatedData);
         setEditingId(null);
@@ -253,8 +209,9 @@ const Reports = () => {
     creditoUtilizado: acc.creditoUtilizado + row.creditoUtilizado,
     saldoDisponivel: acc.saldoDisponivel + row.saldoDisponivel,
     creditManualAdjustment: acc.creditManualAdjustment + row.creditManualAdjustment,
-    bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection
-  }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0 });
+    bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection,
+    contemplatedAvailableCredit: acc.contemplatedAvailableCredit + (row.isContemplated ? row.saldoDisponivel : 0)
+  }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0, contemplatedAvailableCredit: 0 });
 
   const SortHeader = ({ label, sortKey, align = 'right', className = '' }: { label: string, sortKey: keyof ReportRow, align?: 'left'|'right', className?: string }) => (
       <th className={`px-2 py-3 cursor-pointer hover:bg-slate-800 transition-colors group select-none ${className} ${align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => setSortConfig({ key: sortKey, direction: sortConfig?.key === sortKey && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -279,15 +236,15 @@ const Reports = () => {
       '% Lance': row.percentBidTotal,
       'Lance Livre': row.bidFree,
       '% Liv': row.percentBidFree,
-      'Crédito': row.creditAtContemplation,
+      'Crédito total Bruto': row.creditAtContemplation,
       'Lance Emb.': row.bidEmbedded,
       '% Emb': row.percentBidEmbedded,
-      'Vlr Líquido': row.valorRealCarta,
+      'Crédito Total Líquido': row.valorRealCarta,
       'Aplicação financeira': row.creditManualAdjustment,
       '92% CDI': row.bidFreeCorrection,
-      'Crédito Corrigido': row.creditoTotal,
-      'Utilizado': row.creditoUtilizado,
-      'Saldo Disp.': row.saldoDisponivel,
+      'Crédito Total Com Aplicação': row.creditoTotal,
+      'Crédito Utilizado': row.creditoUtilizado,
+      'Crédito Total Disponível': row.saldoDisponivel,
       'Data Contemplação': row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''
     }));
 
@@ -310,8 +267,8 @@ const Reports = () => {
 
     const tableColumn = [
       "Grupo", "Cota", "Vlr Carta", "Valor Pago", "Valor a Pagar", "Lance Tot.", "% Lance", 
-      "Lance Livre", "% Liv", "Crédito", "Lance Emb.", "% Emb", "Vlr Líquido", "Aplicação", "92% CDI", 
-      "Corrigido", "Utilizado", "Saldo Disp.", "Contemplação"
+      "Lance Livre", "% Liv", "Crédito total Bruto", "Lance Emb.", "% Emb", "Crédito Total Líquido", "Aplicação", "92% CDI", 
+      "Corrigido", "Crédito Utilizado", "Crédito Total Disponível", "Contemplação"
     ];
     
     const tableRows = sortedData.map(row => [
@@ -388,20 +345,24 @@ const Reports = () => {
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-5 xl:grid-cols-10 gap-3">
           {[
-              { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50' },
-              { label: 'Valor a Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50' },
-              { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50' },
-              { label: 'Crédito Contemp.', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50' },
-              { label: 'Vlr Carta Líq.', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50' },
-              { label: 'Crédito Corrigido', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100' },
-              { label: 'Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50' },
-              { label: 'Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-100 border-emerald-200' },
+              { label: 'Cotas', value: sortedData.length, color: 'text-slate-700', bg: 'bg-white', isCurrency: false },
+              { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50', isCurrency: true },
+              { label: 'Valor a Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50', isCurrency: true },
+              { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50', isCurrency: true },
+              { label: 'Crédito total Bruto', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50', isCurrency: true },
+              { label: 'Crédito Total Líquido', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50', isCurrency: true },
+              { label: 'Crédito Total Com Aplicação', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100', isCurrency: true },
+              { label: 'Crédito Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50', isCurrency: true },
+              { label: 'Crédito Total Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-50', isCurrency: true },
+              { label: 'Créditos Disponível Utilização', value: totals.contemplatedAvailableCredit, color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200', isCurrency: true },
           ].map((t, i) => (
-              <div key={i} className={`${t.bg} border border-slate-200/60 p-3 rounded-lg shadow-sm print:shadow-none print:border print:border-slate-300`}>
-                  <p className="text-[9px] font-bold text-slate-500 uppercase mb-1">{t.label}</p>
-                  <p className={`text-sm font-black ${t.color}`}>{formatNumber(t.value)}</p>
+              <div key={i} className={`${t.bg} border border-slate-200/60 p-3 rounded-lg shadow-sm print:shadow-none print:border print:border-slate-300 flex flex-col justify-between`}>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase mb-1 leading-tight">{t.label}</p>
+                  <p className={`text-sm font-black ${t.color}`}>
+                    {t.isCurrency ? formatNumber(t.value) : t.value}
+                  </p>
               </div>
           ))}
       </div>
@@ -420,15 +381,15 @@ const Reports = () => {
                   <th className="px-2 py-3 text-right bg-amber-900/20 text-[8px] font-bold">% Lance</th>
                   <SortHeader label="Lance Livre" sortKey="bidFree" />
                   <th className="px-2 py-3 text-right text-[8px] font-bold">% Liv</th>
-                  <SortHeader label="Crédito" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
+                  <SortHeader label="Crédito total Bruto" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
                   <SortHeader label="Lance Emb." sortKey="bidEmbedded" />
                   <th className="px-2 py-3 text-right text-[8px] font-bold">% Emb</th>
-                  <SortHeader label="Vlr Líquido" sortKey="valorRealCarta" className="font-bold" />
+                  <SortHeader label="Crédito Total Líquido" sortKey="valorRealCarta" className="font-bold" />
                   <SortHeader label="Aplicação financeira" sortKey="creditManualAdjustment" />
                   <SortHeader label="92% CDI" sortKey="bidFreeCorrection" />
-                  <SortHeader label="Crédito Corrigido" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />
-                  <SortHeader label="Utilizado" sortKey="creditoUtilizado" />
-                  <SortHeader label="Saldo Disp." sortKey="saldoDisponivel" className="bg-emerald-900 border-l border-emerald-700 font-bold print:bg-emerald-900" />
+                  <SortHeader label="Crédito Total Com Aplicação" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />
+                  <SortHeader label="Crédito Utilizado" sortKey="creditoUtilizado" />
+                  <SortHeader label="Crédito Total Disponível" sortKey="saldoDisponivel" className="bg-emerald-900 border-l border-emerald-700 font-bold print:bg-emerald-900" />
                   <SortHeader label="Data Contemplação" sortKey="contemplationDate" />
                 </tr>
               </thead>
@@ -449,8 +410,8 @@ const Reports = () => {
                     <td className="p-2 text-right text-orange-600">{formatNumber(row.bidEmbedded)}</td>
                     <td className="p-2 text-right text-orange-500">{row.percentBidEmbedded.toFixed(2)}%</td>
                     <td className="p-2 text-right font-bold text-blue-700 bg-blue-50/30 print:bg-transparent">{formatNumber(row.valorRealCarta)}</td>
-                    <td className="p-2 text-right text-blue-600 cursor-pointer print:cursor-default" onClick={() => { setEditingId({id: row.id, field: 'credit'}); setEditValue(row.creditManualAdjustment.toString().replace('.',',')); }}>{formatNumber(row.creditManualAdjustment)}</td>
-                    <td className="p-2 text-right text-violet-600 cursor-pointer print:cursor-default" onClick={() => { setEditingId({id: row.id, field: 'correction'}); setEditValue(row.bidFreeCorrection.toString().replace('.',',')); }}>{formatNumber(row.bidFreeCorrection)}</td>
+                    <td className="p-2 text-right text-blue-600 cursor-pointer print:cursor-default" onClick={() => setShowUpdateModal(row.id)}>{formatNumber(row.creditManualAdjustment)}</td>
+                    <td className="p-2 text-right text-violet-600">{formatNumber(row.bidFreeCorrection)}</td>
                     <td className="p-2 text-right font-bold bg-slate-50 print:bg-transparent">{formatNumber(row.creditoTotal)}</td>
                     <td className="p-2 text-right text-amber-700">{formatNumber(row.creditoUtilizado)}</td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50 border-l border-emerald-100 print:bg-transparent">{formatNumber(row.saldoDisponivel)}</td>
@@ -486,7 +447,7 @@ const Reports = () => {
       {editingId && (
           <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 p-4 print:hidden">
               <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-sm:max-w-sm">
-                  <h3 className="font-bold mb-4">Ajuste Manual de Crédito</h3>
+                  <h3 className="font-bold mb-4">Editar Campo</h3>
                   <input autoFocus type="text" value={editValue} onChange={e => setEditValue(e.target.value)} className="w-full border p-2 rounded mb-4" placeholder="0,00" />
                   <div className="flex gap-2">
                       <button onClick={() => setEditingId(null)} className="flex-1 p-2 border rounded">Cancelar</button>
@@ -495,6 +456,124 @@ const Reports = () => {
               </div>
           </div>
       )}
+
+      {showUpdateModal && (
+        <CreditUpdateModal 
+          quotaId={showUpdateModal} 
+          onClose={() => setShowUpdateModal(null)} 
+        />
+      )}
+    </div>
+  );
+};
+
+const CreditUpdateModal = ({ quotaId, onClose }: { quotaId: string, onClose: () => void }) => {
+  const { allCreditUpdates, addCreditUpdate, deleteCreditUpdate, quotas } = useConsortium();
+  const [date, setDate] = useState(getTodayStr());
+  const [value, setValue] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const quota = quotas.find(q => q.id === quotaId);
+  const updates = allCreditUpdates
+    .filter(u => u.quotaId === quotaId)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const handleAdd = async () => {
+    const numVal = parseFloat(value.replace(/\./g, '').replace(',', '.'));
+    if (isNaN(numVal)) return;
+
+    setIsSaving(true);
+    try {
+      await addCreditUpdate({
+        id: crypto.randomUUID(),
+        quotaId,
+        date,
+        value: numVal
+      });
+      setValue('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Histórico de Aplicação Financeira</h3>
+            <p className="text-xs text-slate-500">Cota: {quota?.group} / {quota?.quotaNumber}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="p-6 border-b border-slate-100 bg-white">
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data da Atualização</label>
+              <input 
+                type="date" 
+                value={date} 
+                onChange={e => setDate(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Valor da Atualização</label>
+              <input 
+                type="text" 
+                value={value} 
+                onChange={e => setValue(e.target.value)}
+                placeholder="0,00"
+                className="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              />
+            </div>
+          </div>
+          <button 
+            onClick={handleAdd}
+            disabled={isSaving || !value}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            {isSaving ? <Loader size={16} className="animate-spin" /> : <DollarSign size={16} />}
+            Adicionar Atualização
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+          <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-3">Lançamentos Anteriores</h4>
+          {updates.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 italic text-sm">Nenhum lançamento encontrado.</div>
+          ) : (
+            <div className="space-y-2">
+              {updates.map((u, idx) => (
+                <div key={u.id} className={`flex items-center justify-between p-3 rounded-xl border ${idx === 0 ? 'bg-emerald-50 border-emerald-100 ring-1 ring-emerald-500/20' : 'bg-white border-slate-200'}`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-slate-800">{formatNumber(u.value)}</p>
+                      {idx === 0 && <span className="text-[8px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">Atual</span>}
+                    </div>
+                    <p className="text-[10px] text-slate-500">{new Date(u.date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                  </div>
+                  <button 
+                    onClick={() => deleteCreditUpdate(u.id)}
+                    className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-4 bg-slate-100 border-t border-slate-200 text-center">
+          <button onClick={onClose} className="text-sm font-bold text-slate-600 hover:text-slate-800">Fechar</button>
+        </div>
+      </div>
     </div>
   );
 };

@@ -6,7 +6,8 @@ import {
   List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp, 
   AlertCircle, FileBarChart, Building2, Briefcase, BookOpen, 
   ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays,
-  Activity 
+  CalendarClock,
+  Activity, Loader, CheckCircle 
 } from 'lucide-react';
 
 // Components
@@ -27,10 +28,12 @@ import CalculatorTool from './pages/CalculatorTool';
 import CreditUsage from './pages/CreditUsage'; 
 import CreditManagement from './pages/CreditManagement';
 import CreditUsageReport from './pages/CreditUsageReport';
+import AccountsPayable from './pages/AccountsPayable';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
 import { ConsortiumProvider, useConsortium } from './store/ConsortiumContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
+import { db } from './services/database';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -57,6 +60,7 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
     { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('canViewReports') },
     { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
     { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('canViewReports') },
+    { to: "/accounts-payable", icon: <CalendarClock size={20} />, label: "Contas a Pagar", show: hasPermission('canViewReports') },
     { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
   ].filter(item => item.show);
 
@@ -203,10 +207,124 @@ const ConnectionStatus = () => {
   );
 };
 
+const SupabaseSyncWarning = () => {
+  const [isVisible, setIsVisible] = useState(true);
+  const [isChecking, setIsChecking] = useState(false);
+  const [missingItems, setMissingItems] = useState<string[]>([]);
+  const isCloud = db.isCloudEnabled();
+
+  // Initial check to hide if already exists
+  useEffect(() => {
+    if (isCloud) {
+      const checkAll = async () => {
+        const missing = [];
+        const hasColumn = await db.checkColumnExists('quotas', 'is_draw_contemplation');
+        if (!hasColumn) missing.push('column_is_draw');
+        
+        const hasTable = await db.checkTableExists('manual_transactions');
+        if (!hasTable) missing.push('table_manual_tx');
+        
+        setMissingItems(missing);
+        if (missing.length === 0) setIsVisible(false);
+      };
+      checkAll();
+    }
+  }, [isCloud]);
+
+  if (!isCloud || !isVisible || missingItems.length === 0) return null;
+
+  const handleCheck = async () => {
+    setIsChecking(true);
+    try {
+      const missing = [];
+      const hasColumn = await db.checkColumnExists('quotas', 'is_draw_contemplation');
+      if (!hasColumn) missing.push('column_is_draw');
+      
+      const hasTable = await db.checkTableExists('manual_transactions');
+      if (!hasTable) missing.push('table_manual_tx');
+      
+      setMissingItems(missing);
+      if (missing.length === 0) {
+        alert('Tudo verificado com sucesso! O banco está sincronizado.');
+        setIsVisible(false);
+      } else {
+        alert('Alguns itens ainda não foram encontrados. Certifique-se de executar os comandos SQL no Supabase.');
+      }
+    } catch (err) {
+      alert('Erro ao verificar. Tente novamente.');
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  return (
+    <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center justify-between gap-4 print:hidden">
+      <div className="flex items-center gap-3 text-amber-800">
+        <AlertCircle size={20} className="shrink-0" />
+        <div className="text-xs">
+          <p className="font-bold uppercase tracking-wider mb-1">Sincronização Supabase Necessária</p>
+          <p className="mb-2">Para habilitar todas as funcionalidades, execute os comandos abaixo no SQL Editor do Supabase:</p>
+          
+          <div className="space-y-2">
+            {missingItems.includes('column_is_draw') && (
+              <div>
+                <p className="font-semibold text-[10px] text-amber-700 mb-1">1. Habilitar Lance por Sorteio:</p>
+                <code className="bg-amber-100 px-2 py-1 rounded block font-mono text-[10px] border border-amber-200 select-all">
+                  ALTER TABLE quotas ADD COLUMN IF NOT EXISTS is_draw_contemplation BOOLEAN DEFAULT FALSE;
+                </code>
+              </div>
+            )}
+            
+            {missingItems.includes('table_manual_tx') && (
+              <div>
+                <p className="font-semibold text-[10px] text-amber-700 mb-1">2. Criar Tabela de Transações Manuais:</p>
+                <code className="bg-amber-100 px-2 py-1 rounded block font-mono text-[10px] border border-amber-200 select-all whitespace-pre-wrap">
+                  {`CREATE TABLE IF NOT EXISTS manual_transactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  amount DECIMAL(15,2) NOT NULL,
+  type TEXT NOT NULL,
+  description TEXT,
+  fc DECIMAL(15,2) DEFAULT 0,
+  fr DECIMAL(15,2) DEFAULT 0,
+  ta DECIMAL(15,2) DEFAULT 0,
+  insurance DECIMAL(15,2) DEFAULT 0,
+  amortization DECIMAL(15,2) DEFAULT 0,
+  fine DECIMAL(15,2) DEFAULT 0,
+  interest DECIMAL(15,2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
+);`}
+                </code>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-2">
+        <button 
+          onClick={handleCheck}
+          disabled={isChecking}
+          className="px-4 py-1.5 bg-amber-200 hover:bg-amber-300 text-amber-900 text-[10px] font-bold uppercase rounded border border-amber-300 transition-colors flex items-center gap-1 disabled:opacity-50 shadow-sm"
+        >
+          {isChecking ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+          Verificar Sincronização
+        </button>
+        <button 
+          onClick={() => setIsVisible(false)}
+          className="text-amber-400 hover:text-amber-600 p-1 rounded-md hover:bg-amber-100 transition-colors flex items-center gap-1 text-[10px]"
+        >
+          <X size={14} /> Ignorar por agora
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
 
   // Auto-collapse on smaller screens but not mobile
   useEffect(() => {
@@ -222,6 +340,17 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-medium">Carregando sistema...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return <Login />;
@@ -258,6 +387,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </header>
         
+        <SupabaseSyncWarning />
+        
         <main className="p-4 md:p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible custom-scrollbar">
           {children}
         </main>
@@ -293,6 +424,7 @@ const App = () => {
               <Route path="/reports/monthly" element={<ProtectedRoute permission="canViewReports"><MonthlyPaidReport /></ProtectedRoute>} />
               <Route path="/reports/monthly/:monthYear" element={<ProtectedRoute permission="canViewReports"><MonthlyDetailReport /></ProtectedRoute>} />
               <Route path="/reports/usage" element={<ProtectedRoute permission="canViewReports"><CreditUsageReport /></ProtectedRoute>} />
+              <Route path="/accounts-payable" element={<ProtectedRoute permission="canViewReports"><AccountsPayable /></ProtectedRoute>} />
               <Route path="/indices" element={<ProtectedRoute permission="canManageSettings"><CorrectionIndices /></ProtectedRoute>} />
               <Route path="/administrators" element={<ProtectedRoute permission="canManageSettings"><Administrators /></ProtectedRoute>} />
               <Route path="/companies" element={<ProtectedRoute permission="canManageSettings"><Companies /></ProtectedRoute>} />

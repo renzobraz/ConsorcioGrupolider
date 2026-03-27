@@ -1,11 +1,12 @@
 
 import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus, ManualTransactionType } from '../types';
-import { addMonths, getNextBusinessDay, createLocalDate } from '../utils/formatters';
+import { addMonths, getNextBusinessDay, createLocalDate, safeParseNumber } from '../utils/formatters';
 
 // Removed local createLocalDate definition
 
+// Removed local safeParseNumber definition
+
 // Função para calcular a TIR (Taxa Interna de Retorno) / IRR
-// Método de Newton-Raphson
 export const calculateIRR = (cashFlows: number[], guess = 0.01): number | null => {
   const maxIter = 1000;
   const precision = 1e-7;
@@ -70,7 +71,7 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   let cutoffDate = customCutoff || new Date();
   cutoffDate.setHours(23,59,59,999);
 
-  if (quota.isContemplated && quota.contemplationDate) {
+  if (quota.isContemplated && quota.contemplationDate && quota.stopCreditCorrection) {
       const contDate = createLocalDate(quota.contemplationDate);
       contDate.setHours(23,59,59,999);
       if (contDate < cutoffDate) {
@@ -142,6 +143,129 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   }
   return currentCreditValue;
 };
+
+export interface ScheduleSummary {
+  paid: {
+    fc: number;
+    fr: number;
+    ta: number;
+    insurance: number;
+    amortization: number;
+    fine: number;
+    interest: number;
+    total: number;
+    percent: number;
+  };
+  toPay: {
+    fc: number;
+    fr: number;
+    ta: number;
+    insurance: number;
+    amortization: number;
+    total: number;
+    percent: number;
+  };
+  total: {
+    fc: number;
+    fr: number;
+    ta: number;
+    insurance: number;
+    amortization: number;
+    total: number;
+  };
+}
+
+export function calculateScheduleSummary(
+  quota: Quota,
+  schedule: PaymentInstallment[],
+  payments: Record<number, any>
+): ScheduleSummary {
+  const stats = {
+    paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0 },
+    toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, percent: 0 },
+  };
+
+  const totalPercentContract = 100 + (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
+
+  schedule.forEach(inst => {
+    // monthlyRateFC already includes manualEarnings in calculationService.ts
+    const instPct = (inst.monthlyRateFC || 0) + (inst.monthlyRateFR || 0) + (inst.monthlyRateTA || 0);
+
+    if (inst.isPaid) {
+      stats.paid.fc += inst.commonFund + (inst.manualEarnings || 0);
+      stats.paid.fr += inst.reserveFund;
+      stats.paid.ta += inst.adminFee;
+      stats.paid.insurance += (inst.insurance || 0);
+      stats.paid.amortization += (inst.amortization || 0);
+      stats.paid.fine += (inst.manualFine || 0);
+      stats.paid.interest += (inst.manualInterest || 0);
+      stats.paid.percent += instPct;
+    } else {
+      stats.toPay.fc += inst.commonFund;
+      stats.toPay.fr += inst.reserveFund;
+      stats.toPay.ta += inst.adminFee;
+      stats.toPay.insurance += (inst.insurance || 0);
+      stats.toPay.amortization += (inst.amortization || 0);
+      stats.toPay.percent += instPct;
+    }
+
+    if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+      const isFreeBidPaid = payments[0]?.status === 'PAGO';
+      const isEmbeddedBidPaid = payments[-1]?.status === 'PAGO';
+
+      const freeBidPct = (inst.bidFreePercentFC || 0) + (inst.bidFreePercentFR || 0) + (inst.bidFreePercentTA || 0);
+      const embeddedBidPct = (inst.bidEmbeddedPercentFC || 0) + (inst.bidEmbeddedPercentFR || 0) + (inst.bidEmbeddedPercentTA || 0);
+
+      if (isFreeBidPaid) {
+        stats.paid.fc += (inst.bidFreeAbatementFC || 0);
+        stats.paid.fr += (inst.bidFreeAbatementFR || 0);
+        stats.paid.ta += (inst.bidFreeAbatementTA || 0);
+        stats.paid.percent += freeBidPct;
+      } else {
+        stats.toPay.fc += (inst.bidFreeAbatementFC || 0);
+        stats.toPay.fr += (inst.bidFreeAbatementFR || 0);
+        stats.toPay.ta += (inst.bidFreeAbatementTA || 0);
+        stats.toPay.percent += freeBidPct;
+      }
+
+      if (isEmbeddedBidPaid) {
+        stats.paid.fc += (inst.bidEmbeddedAbatementFC || 0);
+        stats.paid.fr += (inst.bidEmbeddedAbatementFR || 0);
+        stats.paid.ta += (inst.bidEmbeddedAbatementTA || 0);
+        stats.paid.percent += embeddedBidPct;
+      } else {
+        stats.toPay.fc += (inst.bidEmbeddedAbatementFC || 0);
+        stats.toPay.fr += (inst.bidEmbeddedAbatementFR || 0);
+        stats.toPay.ta += (inst.bidEmbeddedAbatementTA || 0);
+        stats.toPay.percent += embeddedBidPct;
+      }
+    }
+  });
+
+  const paidTotal = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.insurance + stats.paid.amortization + stats.paid.fine + stats.paid.interest;
+  const toPayTotal = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization;
+
+  return {
+    paid: {
+      ...stats.paid,
+      total: paidTotal,
+      percent: totalPercentContract > 0 ? (stats.paid.percent / totalPercentContract) * 100 : 0
+    },
+    toPay: {
+      ...stats.toPay,
+      total: toPayTotal,
+      percent: totalPercentContract > 0 ? (stats.toPay.percent / totalPercentContract) * 100 : 0
+    },
+    total: {
+      fc: stats.paid.fc + stats.toPay.fc,
+      fr: stats.paid.fr + stats.toPay.fr,
+      ta: stats.paid.ta + stats.toPay.ta,
+      insurance: stats.paid.insurance + stats.toPay.insurance,
+      amortization: stats.paid.amortization + stats.toPay.amortization,
+      total: paidTotal + toPayTotal
+    }
+  };
+}
 
 export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}): PaymentInstallment[] => {
   const schedule: PaymentInstallment[] = [];
@@ -284,6 +408,16 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         const currentMonth = new Date(finalDueDate.getFullYear(), finalDueDate.getMonth(), 1);
 
         if (currentMonth >= nextAdjMonth) {
+            // REGRA: Se a cota estiver contemplada E o usuário marcou para parar a correção, 
+            // verificamos se a data de contemplação é anterior à data do reajuste.
+            let shouldApply = true;
+            if (quota.isContemplated && quota.contemplationDate && quota.stopCreditCorrection) {
+                const contemplationDate = createLocalDate(quota.contemplationDate);
+                if (contemplationDate < nextAdjustmentDate) {
+                    shouldApply = false;
+                }
+            }
+
             // REGRA DE DEFASAGEM: Busca índice de 2 meses antes da data de aniversário
             let indexEndDate: Date;
             if (quota.indexReferenceMonth) {
@@ -296,7 +430,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
             
             const isAnnual = quota.correctionIndex.endsWith('_12');
 
-            if (indexEndDate <= today) {
+            if (shouldApply && indexEndDate <= today) {
                 let accumulatedMultiplier = 1;
                 let hasAnyIndex = false;
                 
@@ -383,30 +517,40 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         ? currentCreditValue * (1 + (adminFeeRateTotal + reserveFundRateTotal) / 100)
         : currentCreditValue;
 
+    // Ensure currentBidCalcBase is a valid number
+    const safeBidCalcBase = isNaN(currentBidCalcBase) || currentBidCalcBase <= 0 ? currentCreditValue : currentBidCalcBase;
+
     let bidAmountApplied = 0; 
     let bidDateApplied: string | undefined = undefined;
     let bidEmbeddedApplied = 0, bidEmbeddedPercent = 0, bidEmbeddedAbatementFC = 0, bidEmbeddedPercentFC = 0, bidEmbeddedAbatementFR = 0, bidEmbeddedPercentFR = 0, bidEmbeddedAbatementTA = 0, bidEmbeddedPercentTA = 0;
     let bidFreeApplied = 0, bidFreePercent = 0, bidFreeAbatementFC = 0, bidFreePercentFC = 0, bidFreeAbatementFR = 0, bidFreePercentFR = 0, bidFreeAbatementTA = 0, bidFreePercentTA = 0;
+    
+    let bidEmbeddedBalanceBeforeFC = 0, bidEmbeddedBalanceBeforeTA = 0, bidEmbeddedBalanceBeforeFR = 0, bidEmbeddedBalanceBeforeTotal = 0;
+    let bidEmbeddedPercentBalanceBeforeFC = 0, bidEmbeddedPercentBalanceBeforeTA = 0, bidEmbeddedPercentBalanceBeforeFR = 0, bidEmbeddedPercentBalanceBeforeTotal = 0;
+    let bidFreeBalanceBeforeFC = 0, bidFreeBalanceBeforeTA = 0, bidFreeBalanceBeforeFR = 0, bidFreeBalanceBeforeTotal = 0;
+    let bidFreePercentBalanceBeforeFC = 0, bidFreePercentBalanceBeforeTA = 0, bidFreePercentBalanceBeforeFR = 0, bidFreePercentBalanceBeforeTotal = 0;
+
     let bidEmbeddedBalanceFC = 0, bidEmbeddedBalanceTA = 0, bidEmbeddedBalanceFR = 0, bidEmbeddedBalanceTotal = 0;
     let bidEmbeddedPercentBalanceFC = 0, bidEmbeddedPercentBalanceTA = 0, bidEmbeddedPercentBalanceFR = 0, bidEmbeddedPercentBalanceTotal = 0;
     let bidFreeBalanceFC = 0, bidFreeBalanceTA = 0, bidFreeBalanceFR = 0, bidFreeBalanceTotal = 0;
     let bidFreePercentBalanceFC = 0, bidFreePercentBalanceTA = 0, bidFreePercentBalanceFR = 0, bidFreePercentBalanceTotal = 0;
 
-    if (quota.isContemplated && quota.contemplationDate && !bidProcessed) {
-        const bidDate = createLocalDate(quota.contemplationDate);
-        if (bidDate <= finalDueDate) {
-             bidProcessed = true;
-             bidDateApplied = quota.contemplationDate;
-             bidAmountApplied = quota.bidTotal || 0;
+    // Apply bid if contemplated. If date is missing, apply on the first possible installment.
+    const bidDateToCompare = quota.contemplationDate ? createLocalDate(quota.contemplationDate) : firstDueDate;
+    if (quota.isContemplated && !bidProcessed && bidDateToCompare <= finalDueDate) {
+         bidProcessed = true;
+         bidDateApplied = quota.contemplationDate || quota.firstDueDate;
+         bidAmountApplied = safeParseNumber(quota.bidTotal);
 
              // O lance será sempre abatido para que a simulação reflita o contrato (100%)
              const distributeBid = (amount: number) => {
                  let mFC = 0, mTA = 0, mFR = 0;
+                 const safeAmount = safeParseNumber(amount);
 
                  if (quota.prioritizeFeesInBid) {
                      // Prioritize TA and FR
-                     mTA = parseFloat(Math.min(amount, Math.max(0, balanceTA_Reais)).toFixed(2));
-                     let remaining = amount - mTA;
+                     mTA = parseFloat(Math.min(safeAmount, Math.max(0, balanceTA_Reais)).toFixed(2));
+                     let remaining = safeAmount - mTA;
                      mFR = parseFloat(Math.min(remaining, Math.max(0, balanceFR_Reais)).toFixed(2));
                      remaining -= mFR;
                      mFC = parseFloat(remaining.toFixed(2));
@@ -416,31 +560,62 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                      const weightTA = totalRemainingReais > 0 ? Math.max(0, balanceTA_Reais) / totalRemainingReais : 0;
                      const weightFR = totalRemainingReais > 0 ? Math.max(0, balanceFR_Reais) / totalRemainingReais : 0;
 
-                     mFC = parseFloat((amount * weightFC).toFixed(2));
-                     mTA = parseFloat((amount * weightTA).toFixed(2));
-                     mFR = parseFloat((amount - mFC - mTA).toFixed(2));
+                     mFC = parseFloat((safeAmount * weightFC).toFixed(2));
+                     mTA = parseFloat((safeAmount * weightTA).toFixed(2));
+                     mFR = parseFloat((safeAmount - mFC - mTA).toFixed(2));
                  }
 
                  // REGRAS SOLICITADAS: O % do valor pago deve ser (Valor / Crédito Base Atualizado) * 100
                  // pTotal: Percentual do lance sobre a base atualizada (Crédito ou Total Projeto)
-                 const pTotalAbatido = (amount / currentBidCalcBase) * 100;
+                 const pTotalAbatido = safeBidCalcBase > 0 ? (safeAmount / safeBidCalcBase) * 100 : 0;
                  
                  // pFC/pTA/pFR: Representam o impacto desse abatimento no Saldo Devedor em relação ao Crédito Base (100%)
-                 const pFC = (mFC / currentCreditValue) * 100;
-                 const pTA = (mTA / currentCreditValue) * 100;
-                 const pFR = (mFR / currentCreditValue) * 100;
+                 const pFC = currentCreditValue > 0 ? (mFC / currentCreditValue) * 100 : 0;
+                 const pTA = currentCreditValue > 0 ? (mTA / currentCreditValue) * 100 : 0;
+                 const pFR = currentCreditValue > 0 ? (mFR / currentCreditValue) * 100 : 0;
 
                  // SEMPRE abater do saldo para que a simulação reflita o contrato (100%)
-                 balanceFC_Reais -= mFC;
-                 balanceTA_Reais -= mTA;
-                 balanceFR_Reais -= mFR;
+                 balanceFC_Reais = parseFloat((balanceFC_Reais - mFC).toFixed(2));
+                 balanceTA_Reais = parseFloat((balanceTA_Reais - mTA).toFixed(2));
+                 balanceFR_Reais = parseFloat((balanceFR_Reais - mFR).toFixed(2));
 
                  return { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
              };
 
-             if (quota.bidEmbedded && quota.bidEmbedded > 0) {
-                 bidEmbeddedApplied = quota.bidEmbedded;
-                 const res = distributeBid(bidEmbeddedApplied);
+             if (quota.bidEmbedded && safeParseNumber(quota.bidEmbedded) > 0) {
+                 const bidEmbPayment = payments[-1];
+                 const rawAmount = (bidEmbPayment && bidEmbPayment.amount !== null && bidEmbPayment.amount !== undefined) ? bidEmbPayment.amount : quota.bidEmbedded;
+                 bidEmbeddedApplied = safeParseNumber(rawAmount);
+                 
+                 let res;
+                 if (bidEmbPayment && (typeof bidEmbPayment.manualFC === 'number' || typeof bidEmbPayment.manualTA === 'number' || typeof bidEmbPayment.manualFR === 'number')) {
+                     const mFC = safeParseNumber(bidEmbPayment.manualFC);
+                     const mTA = safeParseNumber(bidEmbPayment.manualTA);
+                     const mFR = safeParseNumber(bidEmbPayment.manualFR);
+                     const pTotalAbatido = safeBidCalcBase > 0 ? (bidEmbeddedApplied / safeBidCalcBase) * 100 : 0;
+                     const pFC = currentCreditValue > 0 ? (mFC / currentCreditValue) * 100 : 0;
+                     const pTA = currentCreditValue > 0 ? (mTA / currentCreditValue) * 100 : 0;
+                     const pFR = currentCreditValue > 0 ? (mFR / currentCreditValue) * 100 : 0;
+                     
+                     // SEMPRE abater do saldo para que a simulação reflita o contrato (100%)
+                     balanceFC_Reais = parseFloat((balanceFC_Reais - mFC).toFixed(2));
+                     balanceTA_Reais = parseFloat((balanceTA_Reais - mTA).toFixed(2));
+                     balanceFR_Reais = parseFloat((balanceFR_Reais - mFR).toFixed(2));
+                     
+                     res = { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
+                 } else {
+                     res = distributeBid(bidEmbeddedApplied);
+                 }
+
+                 bidEmbeddedBalanceBeforeFC = balanceFC_Reais + res.mFC;
+                 bidEmbeddedBalanceBeforeTA = balanceTA_Reais + res.mTA;
+                 bidEmbeddedBalanceBeforeFR = balanceFR_Reais + res.mFR;
+                 bidEmbeddedBalanceBeforeTotal = bidEmbeddedBalanceBeforeFC + bidEmbeddedBalanceBeforeTA + bidEmbeddedBalanceBeforeFR;
+                 bidEmbeddedPercentBalanceBeforeFC = currentCreditValue > 0 ? (bidEmbeddedBalanceBeforeFC / currentCreditValue) * 100 : 0;
+                 bidEmbeddedPercentBalanceBeforeTA = currentCreditValue > 0 ? (bidEmbeddedBalanceBeforeTA / currentCreditValue) * 100 : 0;
+                 bidEmbeddedPercentBalanceBeforeFR = currentCreditValue > 0 ? (bidEmbeddedBalanceBeforeFR / currentCreditValue) * 100 : 0;
+                 bidEmbeddedPercentBalanceBeforeTotal = currentCreditValue > 0 ? (bidEmbeddedBalanceBeforeTotal / currentCreditValue) * 100 : 0;
+
                  bidEmbeddedAbatementFC = res.mFC; bidEmbeddedAbatementTA = res.mTA; bidEmbeddedAbatementFR = res.mFR;
                  bidEmbeddedPercent = res.pTotal; bidEmbeddedPercentFC = res.pFC; bidEmbeddedPercentTA = res.pTA; bidEmbeddedPercentFR = res.pFR;
 
@@ -448,35 +623,45 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                   bidEmbeddedBalanceTA = balanceTA_Reais;
                   bidEmbeddedBalanceFR = balanceFR_Reais;
                   bidEmbeddedBalanceTotal = balanceFC_Reais + balanceTA_Reais + balanceFR_Reais;
-                  bidEmbeddedPercentBalanceFC = (balanceFC_Reais / currentCreditValue) * 100;
-                  bidEmbeddedPercentBalanceTA = (balanceTA_Reais / currentCreditValue) * 100;
-                  bidEmbeddedPercentBalanceFR = (balanceFR_Reais / currentCreditValue) * 100;
-                  bidEmbeddedPercentBalanceTotal = (bidEmbeddedBalanceTotal / currentCreditValue) * 100;
+                  bidEmbeddedPercentBalanceFC = currentCreditValue > 0 ? (balanceFC_Reais / currentCreditValue) * 100 : 0;
+                  bidEmbeddedPercentBalanceTA = currentCreditValue > 0 ? (balanceTA_Reais / currentCreditValue) * 100 : 0;
+                  bidEmbeddedPercentBalanceFR = currentCreditValue > 0 ? (balanceFR_Reais / currentCreditValue) * 100 : 0;
+                  bidEmbeddedPercentBalanceTotal = currentCreditValue > 0 ? (bidEmbeddedBalanceTotal / currentCreditValue) * 100 : 0;
              }
-             if (quota.bidFree && quota.bidFree > 0) {
+             if (quota.bidFree && safeParseNumber(quota.bidFree) > 0) {
                  const bidPayment = payments[0];
-                 bidFreeApplied = (bidPayment && bidPayment.amount !== null) ? bidPayment.amount : quota.bidFree;
+                 const rawAmount = (bidPayment && bidPayment.amount !== null && bidPayment.amount !== undefined) ? bidPayment.amount : quota.bidFree;
+                 bidFreeApplied = safeParseNumber(rawAmount);
                  
                  let res;
                  if (bidPayment && (typeof bidPayment.manualFC === 'number' || typeof bidPayment.manualTA === 'number' || typeof bidPayment.manualFR === 'number')) {
-                     const mFC = bidPayment.manualFC ?? 0;
-                     const mTA = bidPayment.manualTA ?? 0;
-                     const mFR = bidPayment.manualFR ?? 0;
-                     const pTotalAbatido = (bidFreeApplied / currentBidCalcBase) * 100;
-                     const pFC = (mFC / currentCreditValue) * 100;
-                     const pTA = (mTA / currentCreditValue) * 100;
-                     const pFR = (mFR / currentCreditValue) * 100;
+                     const mFC = safeParseNumber(bidPayment.manualFC);
+                     const mTA = safeParseNumber(bidPayment.manualTA);
+                     const mFR = safeParseNumber(bidPayment.manualFR);
+                     const pTotalAbatido = safeBidCalcBase > 0 ? (bidFreeApplied / safeBidCalcBase) * 100 : 0;
+                     const pFC = currentCreditValue > 0 ? (mFC / currentCreditValue) * 100 : 0;
+                     const pTA = currentCreditValue > 0 ? (mTA / currentCreditValue) * 100 : 0;
+                     const pFR = currentCreditValue > 0 ? (mFR / currentCreditValue) * 100 : 0;
                      
                      // SEMPRE abater do saldo para que a simulação reflita o contrato (100%)
-                     balanceFC_Reais -= mFC;
-                     balanceTA_Reais -= mTA;
-                     balanceFR_Reais -= mFR;
+                     balanceFC_Reais = parseFloat((balanceFC_Reais - mFC).toFixed(2));
+                     balanceTA_Reais = parseFloat((balanceTA_Reais - mTA).toFixed(2));
+                     balanceFR_Reais = parseFloat((balanceFR_Reais - mFR).toFixed(2));
                      
                      res = { mFC, mTA, mFR, pFC, pTA, pFR, pTotal: pTotalAbatido };
                  } else {
                      res = distributeBid(bidFreeApplied);
                  }
                  
+                 bidFreeBalanceBeforeFC = balanceFC_Reais + res.mFC;
+                 bidFreeBalanceBeforeTA = balanceTA_Reais + res.mTA;
+                 bidFreeBalanceBeforeFR = balanceFR_Reais + res.mFR;
+                 bidFreeBalanceBeforeTotal = bidFreeBalanceBeforeFC + bidFreeBalanceBeforeTA + bidFreeBalanceBeforeFR;
+                 bidFreePercentBalanceBeforeFC = currentCreditValue > 0 ? (bidFreeBalanceBeforeFC / currentCreditValue) * 100 : 0;
+                 bidFreePercentBalanceBeforeTA = currentCreditValue > 0 ? (bidFreeBalanceBeforeTA / currentCreditValue) * 100 : 0;
+                 bidFreePercentBalanceBeforeFR = currentCreditValue > 0 ? (bidFreeBalanceBeforeFR / currentCreditValue) * 100 : 0;
+                 bidFreePercentBalanceBeforeTotal = currentCreditValue > 0 ? (bidFreeBalanceBeforeTotal / currentCreditValue) * 100 : 0;
+
                  bidFreeAbatementFC = res.mFC; bidFreeAbatementTA = res.mTA; bidFreeAbatementFR = res.mFR;
                  bidFreePercent = res.pTotal; bidFreePercentFC = res.pFC; bidFreePercentTA = res.pTA; bidFreePercentFR = res.pFR;
 
@@ -484,15 +669,14 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                   bidFreeBalanceTA = balanceTA_Reais;
                   bidFreeBalanceFR = balanceFR_Reais;
                   bidFreeBalanceTotal = balanceFC_Reais + balanceTA_Reais + balanceFR_Reais;
-                  bidFreePercentBalanceFC = (balanceFC_Reais / currentCreditValue) * 100;
-                  bidFreePercentBalanceTA = (balanceTA_Reais / currentCreditValue) * 100;
-                  bidFreePercentBalanceFR = (balanceFR_Reais / currentCreditValue) * 100;
-                  bidFreePercentBalanceTotal = (bidFreeBalanceTotal / currentCreditValue) * 100;
+                  bidFreePercentBalanceFC = currentCreditValue > 0 ? (balanceFC_Reais / currentCreditValue) * 100 : 0;
+                  bidFreePercentBalanceTA = currentCreditValue > 0 ? (balanceTA_Reais / currentCreditValue) * 100 : 0;
+                  bidFreePercentBalanceFR = currentCreditValue > 0 ? (balanceFR_Reais / currentCreditValue) * 100 : 0;
+                  bidFreePercentBalanceTotal = currentCreditValue > 0 ? (bidFreeBalanceTotal / currentCreditValue) * 100 : 0;
              }
              
              bidAmountApplied = bidEmbeddedApplied + bidFreeApplied;
         }
-    }
 
     let useIndexTable = quota.calculationMethod === CalculationMethod.INDEX_TABLE && quota.indexTable && quota.indexTable.length > 0;
 
@@ -585,6 +769,11 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         }
     }
 
+    // Ajuste final para não cobrar mais do que o saldo devedor
+    if (installmentFC > balanceFC_Reais) installmentFC = Math.max(0, balanceFC_Reais);
+    if (installmentTA > balanceTA_Reais) installmentTA = Math.max(0, balanceTA_Reais);
+    if (installmentFR > balanceFR_Reais) installmentFR = Math.max(0, balanceFR_Reais);
+
     // Calculate actual rates used (for display purposes)
     // Include manual earnings in the FC rate to ensure the total sum reflects all contributions
     let actualRateFC = ((installmentFC + (payment?.manualEarnings || 0)) / currentCreditValue) * 100;
@@ -592,9 +781,9 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let actualRateFR = (installmentFR / currentCreditValue) * 100;
 
     // Deduct from remaining balance in Reais to maintain continuous projection
-    balanceFC_Reais -= installmentFC;
-    balanceTA_Reais -= installmentTA;
-    balanceFR_Reais -= installmentFR;
+    balanceFC_Reais = parseFloat((balanceFC_Reais - installmentFC).toFixed(2));
+    balanceTA_Reais = parseFloat((balanceTA_Reais - installmentTA).toFixed(2));
+    balanceFR_Reais = parseFloat((balanceFR_Reais - installmentFR).toFixed(2));
 
     const totalInstallment = installmentFC + installmentTA + installmentFR + insurance + amortization + fine + interest;
 
@@ -633,6 +822,22 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       bidFreeBalanceTA: parseFloat(bidFreeBalanceTA.toFixed(2)),
       bidFreeBalanceFR: parseFloat(bidFreeBalanceFR.toFixed(2)),
       bidFreeBalanceTotal: parseFloat(bidFreeBalanceTotal.toFixed(2)),
+      bidEmbeddedBalanceBeforeFC,
+      bidEmbeddedBalanceBeforeTA,
+      bidEmbeddedBalanceBeforeFR,
+      bidEmbeddedBalanceBeforeTotal,
+      bidEmbeddedPercentBalanceBeforeFC,
+      bidEmbeddedPercentBalanceBeforeTA,
+      bidEmbeddedPercentBalanceBeforeFR,
+      bidEmbeddedPercentBalanceBeforeTotal,
+      bidFreeBalanceBeforeFC,
+      bidFreeBalanceBeforeTA,
+      bidFreeBalanceBeforeFR,
+      bidFreeBalanceBeforeTotal,
+      bidFreePercentBalanceBeforeFC,
+      bidFreePercentBalanceBeforeTA,
+      bidFreePercentBalanceBeforeFR,
+      bidFreePercentBalanceBeforeTotal,
       bidFreePercentBalanceFC,
       bidFreePercentBalanceTA,
       bidFreePercentBalanceFR,
@@ -652,7 +857,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       correctionAmountFR,
       correctionAmountTotal,
       realAmountPaid, 
-      isPaid: status === 'PAGO',
+      isPaid: ['PAGO', 'CONCILIADO', 'EFETIVADO', 'QUITADO'].includes(status?.trim().toUpperCase() || '') || (realAmountPaid !== null && realAmountPaid > 0) || (paymentDate !== null && paymentDate !== undefined),
       status: status as PaymentStatus,
       paymentDate,
       tag,

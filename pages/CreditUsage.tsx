@@ -10,7 +10,7 @@ import { ArrowLeft, Plus, Trash2, ShoppingBag, DollarSign, Wallet, TrendingDown,
 const CreditUsage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getQuotaById, indices, getCreditUsages, addCreditUsage, deleteCreditUsage } = useConsortium();
+  const { getQuotaById, indices, getCreditUsages, addCreditUsage, deleteCreditUsage, allCreditUpdates } = useConsortium();
   
   const quota = getQuotaById(id || '');
   const [usages, setUsages] = useState<CreditUsageEntry[]>([]);
@@ -64,7 +64,13 @@ const CreditUsage = () => {
       }
   }
 
-  const manualAdjustment = quota.creditManualAdjustment || 0;
+  // Get Latest Credit Update (Financial Application)
+  const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+  const latestUpdateValue = quotaUpdates.length > 0 
+    ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+    : 0;
+
+  const manualAdjustment = (quota.creditManualAdjustment || 0) + latestUpdateValue;
   const embeddedBid = quota.bidEmbedded || 0;
   
   // Formula: (Carta + Atualização) - Embutido
@@ -160,7 +166,7 @@ const CreditUsage = () => {
                   <DollarSign size={48} className="text-slate-600" />
               </div>
               <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 mb-1">
-                  Valor Carta (Base)
+                  Crédito total Bruto
               </p>
               <p className="text-lg font-bold text-slate-700">{formatCurrency(currentCredit)}</p>
               <p className="text-[10px] text-slate-400">Automático (INCC/IPCA)</p>
@@ -172,7 +178,7 @@ const CreditUsage = () => {
                   <TrendingUp size={48} className="text-blue-600" />
               </div>
               <p className="text-[10px] font-bold text-blue-600 uppercase flex items-center gap-1 mb-1">
-                  Atualização (+)
+                  Aplicação financeira
               </p>
               <p className="text-lg font-bold text-blue-700">{formatCurrency(manualAdjustment)}</p>
               <p className="text-[10px] text-slate-400">Ajuste Manual</p>
@@ -184,7 +190,7 @@ const CreditUsage = () => {
                   <Gavel size={48} className="text-orange-600" />
               </div>
               <p className="text-[10px] font-bold text-orange-600 uppercase flex items-center gap-1 mb-1">
-                  Lance Embutido (-)
+                  Lance Emb. (-)
               </p>
               <p className="text-lg font-bold text-orange-600">{formatCurrency(embeddedBid)}</p>
               <p className="text-[10px] text-slate-400">Descontado do Total</p>
@@ -196,7 +202,7 @@ const CreditUsage = () => {
                   <ShoppingBag size={48} className="text-amber-600" />
               </div>
               <p className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1 mb-1">
-                  Total Compras (-)
+                  Crédito Utilizado
               </p>
               <p className="text-lg font-bold text-amber-600">{formatCurrency(totalUsed)}</p>
               <div className="w-full bg-slate-100 rounded-full h-1 mt-2 overflow-hidden">
@@ -211,7 +217,7 @@ const CreditUsage = () => {
                   <Wallet size={48} className={remaining >= 0 ? 'text-emerald-700' : 'text-red-700'} />
               </div>
               <p className={`text-[10px] font-bold uppercase flex items-center gap-1 mb-1 ${remaining >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                  Saldo Disponível (=)
+                  Crédito Total Disponível
               </p>
               <p className={`text-xl font-bold ${remaining >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
                   {formatCurrency(remaining)}

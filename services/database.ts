@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -8,6 +8,7 @@ const INDICES_KEY = 'consortium_indices_db';
 const ADMINS_KEY = 'consortium_admins_db';
 const COMPANIES_KEY = 'consortium_companies_db';
 const CREDIT_USAGES_KEY = 'consortium_credit_usages_db';
+const CREDIT_UPDATES_KEY = 'consortium_credit_updates_db';
 const MANUAL_TRANSACTIONS_KEY = 'consortium_manual_transactions_db';
 const USERS_KEY = 'consortium_users_db';
 
@@ -66,7 +67,8 @@ const toDbQuota = (q: Quota) => ({
   index_reference_month: q.indexReferenceMonth || null,
   bid_base: q.bidBase || null,
   anticipate_correction_month: q.anticipateCorrectionMonth || false,
-  prioritize_fees_in_bid: q.prioritizeFeesInBid || false
+  prioritize_fees_in_bid: q.prioritizeFeesInBid || false,
+  is_draw_contemplation: q.isDrawContemplation || false
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -105,19 +107,72 @@ const fromDbQuota = (dbQ: any): Quota => ({
   recalculateBalanceAfterHalfOrContemplation: dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA',
   bidBase: dbQ.bid_base,
   anticipateCorrectionMonth: dbQ.anticipate_correction_month || false,
-  prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false
+  prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false,
+  isDrawContemplation: dbQ.is_draw_contemplation || false
 });
 
 export const db = {
   isCloudEnabled: () => !!getSupabase(),
 
+  checkColumnExists: async (tableName: string, columnName: string): Promise<boolean> => {
+    const supabase = getSupabase();
+    if (!supabase) return true;
+    try {
+      const { error } = await supabase.from(tableName).select(columnName).limit(1);
+      if (error) {
+        // PGRST204 is "Column not found"
+        if (error.code === 'PGRST204' || error.message.toLowerCase().includes('column') || error.message.toLowerCase().includes('does not exist')) {
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  checkTableExists: async (tableName: string): Promise<boolean> => {
+    const supabase = getSupabase();
+    if (!supabase) return true;
+    try {
+      const { error } = await supabase.from(tableName).select('*').limit(1);
+      if (error) {
+        // PGRST204 is "Relation not found"
+        if (error.code === 'PGRST204' || error.message.toLowerCase().includes('relation') || error.message.toLowerCase().includes('does not exist')) {
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  },
+
   getQuotas: async (): Promise<Quota[]> => {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('quotas').select('*');
-        if (error) throw new Error(error.message);
-        return (data || []).map(fromDbQuota);
+        let allData: any[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('quotas')
+            .select('*')
+            .range(from, from + pageSize - 1);
+          
+          if (error) throw new Error(error.message);
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            if (data.length < pageSize) hasMore = false;
+            else from += pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+        return allData.map(fromDbQuota);
       } catch (err: any) { throw err; }
     } else {
       const data = localStorage.getItem(DB_KEY);
@@ -178,7 +233,7 @@ export const db = {
                manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
                manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
                manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
-               status: p.status || 'PREVISTO',
+               status: (p.status && p.status.trim() !== '') ? p.status.trim().toUpperCase() : (Number(p.amount_paid) > 0 || p.payment_date ? 'PAGO' : 'PREVISTO'),
                paymentDate: p.payment_date || undefined,
             };
           });
@@ -187,19 +242,19 @@ export const db = {
           if (err.code === '42703') {
             // Fallback for missing columns
             console.warn("Missing columns in payments table, falling back to basic columns");
-            const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date').eq('quota_id', quotaId);
-            if (error) throw error;
-            const paymentMap: Record<number, any> = {};
-            (data || []).forEach((p: any) => {
-              paymentMap[p.installment_number] = {
-                 amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
-                 manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
-                 manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
-                 manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
-                 status: 'PREVISTO',
-                 paymentDate: p.payment_date || undefined,
-              };
-            });
+          const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date').eq('quota_id', quotaId);
+          if (error) throw error;
+          const paymentMap: Record<number, any> = {};
+          (data || []).forEach((p: any) => {
+            paymentMap[p.installment_number] = {
+               amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
+               manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
+               manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
+               manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
+               status: (Number(p.amount_paid) > 0 || p.payment_date) ? 'PAGO' : 'PREVISTO',
+               paymentDate: p.payment_date || undefined,
+            };
+          });
             return paymentMap;
           }
           throw err;
@@ -217,13 +272,33 @@ export const db = {
     
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('payments').select('*');
-        if (error) throw error;
+        let allData: any[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('payments')
+            .select('*')
+            .range(from, from + pageSize - 1);
+          
+          if (error) throw error;
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            if (data.length < pageSize) hasMore = false;
+            else from += pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
         
-        (data || []).forEach((p: any) => {
+        console.log(`Fetched ${allData.length} raw payment records from DB.`);
+        
+        allData.forEach((p: any) => {
           if (!dict[p.quota_id]) dict[p.quota_id] = {};
           dict[p.quota_id][p.installment_number] = {
-            amount: Number(p.amount_paid),
+            amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
             manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
             manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
             manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
@@ -232,24 +307,43 @@ export const db = {
             manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
             manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
             manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
-            status: p.status || 'PREVISTO',
+            status: (p.status && p.status.trim() !== '') ? p.status.trim().toUpperCase() : (Number(p.amount_paid) > 0 || p.payment_date ? 'PAGO' : 'PREVISTO'),
             paymentDate: p.payment_date || undefined,
           };
         });
       } catch (err: any) {
         if (err.code === '42703') {
           console.warn("Missing columns in payments table, falling back to basic columns for dictionary");
-          const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date');
-          if (error) throw error;
           
-          (data || []).forEach((p: any) => {
+          let allData: any[] = [];
+          let from = 0;
+          const pageSize = 1000;
+          let hasMore = true;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .from('payments')
+              .select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date')
+              .range(from, from + pageSize - 1);
+            
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allData = [...allData, ...data];
+              if (data.length < pageSize) hasMore = false;
+              else from += pageSize;
+            } else {
+              hasMore = false;
+            }
+          }
+          
+          allData.forEach((p: any) => {
             if (!dict[p.quota_id]) dict[p.quota_id] = {};
             dict[p.quota_id][p.installment_number] = {
-              amount: Number(p.amount_paid),
+              amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
               manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
               manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
               manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
-              status: 'PREVISTO',
+              status: (Number(p.amount_paid) > 0 || p.payment_date) ? 'PAGO' : 'PREVISTO',
               paymentDate: p.payment_date || undefined,
             };
           });
@@ -291,7 +385,7 @@ export const db = {
         status: data.status || 'PAGO',
         payment_date: (data.paymentDate && data.paymentDate.trim() !== '') 
           ? (data.paymentDate.includes('T') ? data.paymentDate : `${data.paymentDate}T12:00:00Z`) 
-          : (data.status === 'PAGO' ? new Date().toISOString() : null)
+          : ((data.status === 'PAGO' || data.status === 'CONCILIADO') ? new Date().toISOString() : null)
       };
 
       try {
@@ -516,9 +610,28 @@ export const db = {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        const { data, error } = await supabase.from('manual_transactions').select('*');
-        if (error) throw new Error(error.message);
-        return (data || []).map((t: any) => ({
+        let allData: any[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('manual_transactions')
+            .select('*')
+            .range(from, from + pageSize - 1);
+          
+          if (error) throw new Error(error.message);
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            if (data.length < pageSize) hasMore = false;
+            else from += pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        return allData.map((t: any) => ({
           id: t.id,
           quotaId: t.quota_id,
           date: t.date,
@@ -625,6 +738,97 @@ export const db = {
     } else {
       const list = JSON.parse(localStorage.getItem(MANUAL_TRANSACTIONS_KEY) || '[]');
       localStorage.setItem(MANUAL_TRANSACTIONS_KEY, JSON.stringify(list.filter((t: any) => t.id !== id)));
+    }
+  },
+
+  // --- Credit Updates (Aplicação Financeira) ---
+  getCreditUpdates: async (quotaId: string): Promise<CreditUpdate[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('credit_updates').select('*').eq('quota_id', quotaId);
+        if (error) throw error;
+        return (data || []).map(u => ({
+          id: u.id,
+          quotaId: u.quota_id,
+          date: u.date,
+          value: Number(u.value)
+        }));
+      } catch (err) {
+        console.warn('Error fetching credit_updates from Supabase:', err);
+        const all = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+        return all.filter((u: any) => u.quotaId === quotaId);
+      }
+    }
+    const all = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+    return all.filter((u: any) => u.quotaId === quotaId);
+  },
+
+  getAllCreditUpdates: async (): Promise<CreditUpdate[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('credit_updates').select('*').limit(10000);
+        if (error) throw error;
+        return (data || []).map(u => ({
+          id: u.id,
+          quotaId: u.quota_id,
+          date: u.date,
+          value: Number(u.value)
+        }));
+      } catch (err) {
+        console.warn('Error fetching all credit_updates from Supabase:', err);
+        return JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+      }
+    }
+    return JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+  },
+
+  saveCreditUpdate: async (update: CreditUpdate): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('credit_updates').upsert({
+          id: update.id,
+          quota_id: update.quotaId,
+          date: update.date,
+          value: update.value
+        });
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error saving credit_update to Supabase:', err);
+        // Fallback to local storage
+        const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+        const idx = list.findIndex((u: any) => u.id === update.id);
+        if (idx >= 0) list[idx] = update;
+        else list.push(update);
+        localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list));
+        throw err;
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+      const idx = list.findIndex((u: any) => u.id === update.id);
+      if (idx >= 0) list[idx] = update;
+      else list.push(update);
+      localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list));
+    }
+  },
+
+  deleteCreditUpdate: async (id: string): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('credit_updates').delete().eq('id', id);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error deleting credit_update from Supabase:', err);
+        const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+        localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list.filter((u: any) => u.id !== id)));
+        throw err;
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
+      localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list.filter((u: any) => u.id !== id)));
     }
   },
 

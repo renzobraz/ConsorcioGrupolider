@@ -3,19 +3,43 @@ import React, { useState } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { calculateCurrentCreditValue } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
-import { ShoppingBag, Building2, Search, Filter, X, Printer } from 'lucide-react';
+import { ShoppingBag, Building2, Search, Filter, X, Printer, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const CreditManagement = () => {
-  const { quotas, companies, administrators, indices, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
+  const { quotas, companies, administrators, indices, allCreditUsages, allCreditUpdates, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
 
   // Filter States
   const [search, setSearch] = useState('');
+  const [columnFilters, setColumnFilters] = useState({
+    quota: '',
+    credit: '',
+    adj: '',
+    emb: '',
+    used: '',
+    avail: ''
+  });
+  const [showColumnFilters, setShowColumnFilters] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' | null }>({ key: '', direction: null });
 
-  // Helper to filter a list of quotas based on state
-  const filterQuotas = (list: any[]) => {
-      return list.filter(q => {
+  const handleSort = (key: string) => {
+      let direction: 'asc' | 'desc' = 'asc';
+      if (sortConfig.key === key && sortConfig.direction === 'asc') {
+          direction = 'desc';
+      }
+      setSortConfig({ key, direction });
+  };
+
+  const getSortIcon = (key: string) => {
+      if (sortConfig.key !== key) return <ArrowUpDown size={12} className="opacity-30" />;
+      return sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />;
+  };
+
+  // Helper to filter and sort a list of quotas based on state
+  const processQuotas = (list: any[]) => {
+      // 1. Filter
+      let result = list.filter(q => {
           // 1. Text Search (Group / Quota)
           const matchesSearch = 
             q.group.toLowerCase().includes(search.toLowerCase()) || 
@@ -32,15 +56,75 @@ const CreditManagement = () => {
           if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
           if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
 
-          return matchesSearch && matchesAdmin && matchesCompany && matchesStatus;
+          // 5. Column Filters
+          const matchesQuotaCol = !columnFilters.quota || `${q.group}/${q.quotaNumber}`.toLowerCase().includes(columnFilters.quota.toLowerCase());
+          
+          const curCredit = calculateCurrentCreditValue(q, indices);
+          const matchesCreditCol = !columnFilters.credit || curCredit.toString().includes(columnFilters.credit);
+
+          return matchesSearch && matchesAdmin && matchesCompany && matchesStatus && matchesQuotaCol && matchesCreditCol;
       });
+
+      // 2. Sort
+      if (sortConfig.key && sortConfig.direction) {
+          result.sort((a, b) => {
+              let valA: any, valB: any;
+
+              // Map key to actual data property or calculated value
+              switch (sortConfig.key) {
+                  case 'quota':
+                      valA = `${a.group}/${a.quotaNumber}`;
+                      valB = `${b.group}/${b.quotaNumber}`;
+                      break;
+                  case 'credit':
+                      valA = calculateCurrentCreditValue(a, indices);
+                      valB = calculateCurrentCreditValue(b, indices);
+                      break;
+                  case 'adj':
+                      const updatesA = allCreditUpdates.filter(u => u.quotaId === a.id);
+                      const updatesB = allCreditUpdates.filter(u => u.quotaId === b.id);
+                      valA = (a.creditManualAdjustment || 0) + (updatesA.length > 0 ? Math.max(...updatesA.map(u => u.value)) : 0);
+                      valB = (b.creditManualAdjustment || 0) + (updatesB.length > 0 ? Math.max(...updatesB.map(u => u.value)) : 0);
+                      break;
+                  case 'emb':
+                      valA = a.bidEmbedded || 0;
+                      valB = b.bidEmbedded || 0;
+                      break;
+                  case 'used':
+                      valA = allCreditUsages.filter(u => u.quotaId === a.id).reduce((acc, curr) => acc + curr.amount, 0);
+                      valB = allCreditUsages.filter(u => u.quotaId === b.id).reduce((acc, curr) => acc + curr.amount, 0);
+                      break;
+                  case 'avail':
+                      const curA = calculateCurrentCreditValue(a, indices);
+                      const updA = allCreditUpdates.filter(u => u.quotaId === a.id);
+                      const adjA = (a.creditManualAdjustment || 0) + (updA.length > 0 ? Math.max(...updA.map(u => u.value)) : 0);
+                      const usedA = allCreditUsages.filter(u => u.quotaId === a.id).reduce((acc, curr) => acc + curr.amount, 0);
+                      valA = (curA + adjA - (a.bidEmbedded || 0)) - usedA;
+
+                      const curB = calculateCurrentCreditValue(b, indices);
+                      const updB = allCreditUpdates.filter(u => u.quotaId === b.id);
+                      const adjB = (b.creditManualAdjustment || 0) + (updB.length > 0 ? Math.max(...updB.map(u => u.value)) : 0);
+                      const usedB = allCreditUsages.filter(u => u.quotaId === b.id).reduce((acc, curr) => acc + curr.amount, 0);
+                      valB = (curB + adjB - (b.bidEmbedded || 0)) - usedB;
+                      break;
+                  default:
+                      return 0;
+              }
+
+              if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+              if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+              return 0;
+          });
+      }
+
+      return result;
   };
 
   // 1. Group Quotas by Company
   const companyGroups = companies.map(comp => {
       // Get quotas for this company AND apply UI filters
       const rawCompanyQuotas = quotas.filter(q => q.companyId === comp.id);
-      const companyQuotas = filterQuotas(rawCompanyQuotas);
+      const companyQuotas = processQuotas(rawCompanyQuotas);
       
       let totalCreditBase = 0;
       let totalUpdates = 0;
@@ -65,7 +149,13 @@ const CreditManagement = () => {
               .filter(u => u.quotaId === quota.id)
               .reduce((acc, curr) => acc + curr.amount, 0);
 
-          const manualAdj = quota.creditManualAdjustment || 0;
+          // Get Latest Credit Update (Financial Application)
+          const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+          const latestUpdateValue = quotaUpdates.length > 0 
+            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+            : 0;
+
+          const manualAdj = (quota.creditManualAdjustment || 0) + latestUpdateValue;
           const embeddedBid = quota.bidEmbedded || 0;
 
           // Formula: (Carta + Atualização - Lance Embutido) - Uso
@@ -101,7 +191,7 @@ const CreditManagement = () => {
 
   // Handle Quotas without Company
   const rawNoCompanyQuotas = quotas.filter(q => !q.companyId);
-  const quotasNoCompany = filterQuotas(rawNoCompanyQuotas);
+  const quotasNoCompany = processQuotas(rawNoCompanyQuotas);
 
   if (quotasNoCompany.length > 0) {
       let totalCreditBase = 0;
@@ -124,7 +214,13 @@ const CreditManagement = () => {
               .filter(u => u.quotaId === quota.id)
               .reduce((acc, curr) => acc + curr.amount, 0);
           
-          const manualAdj = quota.creditManualAdjustment || 0;
+          // Get Latest Credit Update (Financial Application)
+          const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+          const latestUpdateValue = quotaUpdates.length > 0 
+            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+            : 0;
+
+          const manualAdj = (quota.creditManualAdjustment || 0) + latestUpdateValue;
           const embeddedBid = quota.bidEmbedded || 0;
           const remaining = (currentCredit + manualAdj - embeddedBid) - usageSum;
 
@@ -270,23 +366,23 @@ const CreditManagement = () => {
                               
                               <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-right print:gap-2 print:grid-cols-5">
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Base</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Crédito total Bruto</p>
                                       <p className="text-base font-bold text-slate-600 print:text-xs">{formatCurrency(group.totalCreditBase)}</p>
                                   </div>
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-indigo-600">Ajuste (+)</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-indigo-600">Crédito Total Com Aplicação</p>
                                       <p className="text-base font-bold text-indigo-600 print:text-xs">{formatCurrency(group.totalUpdates)}</p>
                                   </div>
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-orange-600">Emb. (-)</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-orange-600">Lance Emb. (-)</p>
                                       <p className="text-base font-bold text-orange-600 print:text-xs">{formatCurrency(group.totalEmbedded)}</p>
                                   </div>
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-amber-600">Uso (-)</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold text-amber-600">Crédito Utilizado</p>
                                       <p className="text-base font-bold text-amber-600 print:text-xs">{formatCurrency(group.totalUsed)}</p>
                                   </div>
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Disponível</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Crédito Total Disponível</p>
                                       <p className={`text-xl font-bold print:text-sm ${group.totalAvailable >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
                                           {formatCurrency(group.totalAvailable)}
                                       </p>
@@ -310,12 +406,81 @@ const CreditManagement = () => {
                           <table className="w-full text-xs text-left print:text-[8px]">
                               <thead className="bg-white text-slate-500 uppercase border-b border-slate-100 print:bg-slate-50">
                                   <tr>
-                                      <th className="px-6 py-3 font-semibold print:px-2">Cota / Grupo</th>
-                                      <th className="px-6 py-3 font-semibold text-right print:px-2">Valor Carta</th>
-                                      <th className="px-6 py-3 font-semibold text-right text-indigo-600 print:px-2">Ajuste (+)</th>
-                                      <th className="px-6 py-3 font-semibold text-right text-orange-600 print:px-2">Emb. (-)</th>
-                                      <th className="px-6 py-3 font-semibold text-right text-amber-600 print:px-2">Uso (-)</th>
-                                      <th className="px-6 py-3 font-semibold text-right text-blue-700 bg-blue-50/50 print:px-2 print:bg-transparent">Disponível</th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold print:px-2 transition-colors group"
+                                      >
+                                          <div className="flex items-center gap-1">
+                                            <span className="cursor-pointer hover:text-slate-800 flex items-center gap-1" onClick={() => handleSort('quota')}>
+                                              Cota / Grupo {getSortIcon('quota')}
+                                            </span>
+                                            <button onClick={() => setShowColumnFilters(!showColumnFilters)} className="ml-auto text-slate-300 hover:text-emerald-500 transition-colors">
+                                              <Filter size={12} />
+                                            </button>
+                                          </div>
+                                          {showColumnFilters && (
+                                            <input 
+                                              type="text" 
+                                              value={columnFilters.quota}
+                                              onChange={(e) => setColumnFilters({...columnFilters, quota: e.target.value})}
+                                              placeholder="Filtrar..."
+                                              className="mt-2 w-full p-1 text-[10px] font-normal border border-slate-200 rounded outline-none focus:ring-1 focus:ring-emerald-500 normal-case"
+                                            />
+                                          )}
+                                      </th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold text-right print:px-2 transition-colors group"
+                                      >
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="cursor-pointer hover:text-slate-800 flex items-center gap-1" onClick={() => handleSort('credit')}>
+                                              Crédito total Bruto {getSortIcon('credit')}
+                                            </span>
+                                          </div>
+                                          {showColumnFilters && (
+                                            <input 
+                                              type="text" 
+                                              value={columnFilters.credit}
+                                              onChange={(e) => setColumnFilters({...columnFilters, credit: e.target.value})}
+                                              placeholder="Filtrar..."
+                                              className="mt-2 w-full p-1 text-[10px] font-normal border border-slate-200 rounded outline-none focus:ring-1 focus:ring-emerald-500 normal-case text-right"
+                                            />
+                                          )}
+                                      </th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold text-right text-indigo-600 print:px-2 transition-colors group"
+                                      >
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="cursor-pointer hover:text-indigo-800 flex items-center gap-1" onClick={() => handleSort('adj')}>
+                                              Crédito Total Com Aplicação {getSortIcon('adj')}
+                                            </span>
+                                          </div>
+                                      </th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold text-right text-orange-600 print:px-2 transition-colors group"
+                                      >
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="cursor-pointer hover:text-orange-800 flex items-center gap-1" onClick={() => handleSort('emb')}>
+                                              Lance Emb. (-) {getSortIcon('emb')}
+                                            </span>
+                                          </div>
+                                      </th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold text-right text-amber-600 print:px-2 transition-colors group"
+                                      >
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="cursor-pointer hover:text-amber-800 flex items-center gap-1" onClick={() => handleSort('used')}>
+                                              Crédito Utilizado {getSortIcon('used')}
+                                            </span>
+                                          </div>
+                                      </th>
+                                      <th 
+                                        className="px-6 py-3 font-semibold text-right text-blue-700 bg-blue-50/50 print:px-2 print:bg-transparent transition-colors group"
+                                      >
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className="cursor-pointer hover:text-blue-900 flex items-center gap-1" onClick={() => handleSort('avail')}>
+                                              Crédito Total Disponível {getSortIcon('avail')}
+                                            </span>
+                                          </div>
+                                      </th>
                                       <th className="px-6 py-3 text-center print:hidden">Ação</th>
                                   </tr>
                               </thead>

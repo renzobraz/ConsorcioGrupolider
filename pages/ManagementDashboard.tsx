@@ -348,26 +348,32 @@ const ManagementDashboard = () => {
               Evolução de Desembolso Mensal
             </h3>
           </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlyEvolution}>
-                <defs>
-                  <linearGradient id="colorReal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="monthName" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} tickFormatter={(value) => `R$ ${value/1000}k`} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [formatCurrency(value), '']}
-                />
-                <Area type="monotone" dataKey="real" name="Total Pago" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorReal)" />
-                <Line type="monotone" dataKey="projected" name="Projetado" stroke="#94a3b8" strokeDasharray="5 5" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="h-80 min-h-[320px]">
+            {monthlyEvolution.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monthlyEvolution}>
+                  <defs>
+                    <linearGradient id="colorReal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="monthName" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} tickFormatter={(value) => `R$ ${value/1000}k`} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                    formatter={(value: number) => [formatCurrency(value), '']}
+                  />
+                  <Area type="monotone" dataKey="real" name="Total Pago" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorReal)" />
+                  <Line type="monotone" dataKey="projected" name="Projetado" stroke="#94a3b8" strokeDasharray="5 5" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
+                Sem dados para exibir evolução
+              </div>
+            )}
           </div>
         </div>
 
@@ -379,26 +385,32 @@ const ManagementDashboard = () => {
               Composição do Desembolso Real
             </h3>
           </div>
-          <div className="h-80 flex flex-col md:flex-row items-center">
-            <div className="w-full md:w-1/2 h-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <RePieChart>
-                  <Pie
-                    data={compositionData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {compositionData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                </RePieChart>
-              </ResponsiveContainer>
+          <div className="h-80 min-h-[320px] flex flex-col md:flex-row items-center">
+            <div className="w-full md:w-1/2 h-full min-h-[200px]">
+              {compositionData.some(d => d.value > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RePieChart>
+                    <Pie
+                      data={compositionData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {compositionData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  </RePieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">
+                  Sem dados de composição
+                </div>
+              )}
             </div>
             <div className="w-full md:w-1/2 space-y-4">
               {compositionData.map((item, index) => (

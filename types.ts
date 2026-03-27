@@ -107,6 +107,13 @@ export interface ManualTransaction {
   interest?: number;
 }
 
+export interface CreditUpdate {
+  id: string;
+  quotaId: string;
+  date: string;
+  value: number;
+}
+
 export interface Quota {
   id: string;
   group: string;
@@ -161,11 +168,17 @@ export interface Quota {
 
   // Manual Transactions
   manualTransactions?: ManualTransaction[];
+  creditUpdates?: CreditUpdate[];
+  isDrawContemplation?: boolean;
+  stopCreditCorrection?: boolean; // NOVO: Interromper reajuste anual após contemplação
 }
 
 export enum PaymentStatus {
   PREVISTO = 'PREVISTO',
-  PAGO = 'PAGO'
+  PAGO = 'PAGO',
+  CONCILIADO = 'CONCILIADO',
+  EFETIVADO = 'EFETIVADO',
+  QUITADO = 'QUITADO'
 }
 
 export interface PaymentInstallment {
@@ -220,6 +233,15 @@ export interface PaymentInstallment {
   bidFreePercentTA?: number; 
 
   // Balances after Bid
+  bidEmbeddedBalanceBeforeFC?: number;
+  bidEmbeddedBalanceBeforeTA?: number;
+  bidEmbeddedBalanceBeforeFR?: number;
+  bidEmbeddedBalanceBeforeTotal?: number;
+  bidEmbeddedPercentBalanceBeforeFC?: number;
+  bidEmbeddedPercentBalanceBeforeTA?: number;
+  bidEmbeddedPercentBalanceBeforeFR?: number;
+  bidEmbeddedPercentBalanceBeforeTotal?: number;
+
   bidEmbeddedBalanceFC?: number;
   bidEmbeddedBalanceTA?: number;
   bidEmbeddedBalanceFR?: number;
@@ -228,6 +250,15 @@ export interface PaymentInstallment {
   bidEmbeddedPercentBalanceTA?: number;
   bidEmbeddedPercentBalanceFR?: number;
   bidEmbeddedPercentBalanceTotal?: number;
+
+  bidFreeBalanceBeforeFC?: number;
+  bidFreeBalanceBeforeTA?: number;
+  bidFreeBalanceBeforeFR?: number;
+  bidFreeBalanceBeforeTotal?: number;
+  bidFreePercentBalanceBeforeFC?: number;
+  bidFreePercentBalanceBeforeTA?: number;
+  bidFreePercentBalanceBeforeFR?: number;
+  bidFreePercentBalanceBeforeTotal?: number;
 
   bidFreeBalanceFC?: number;
   bidFreeBalanceTA?: number;

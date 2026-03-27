@@ -104,7 +104,7 @@ const CreditUsageReport = () => {
                     <ShoppingBag size={24} />
                 </div>
                 <div>
-                    <p className="text-sm font-semibold text-slate-500 uppercase print:text-[8px]">Total Utilizado</p>
+                    <p className="text-sm font-semibold text-slate-500 uppercase print:text-[8px]">Crédito Utilizado</p>
                     <p className="text-2xl font-bold text-slate-800 print:text-lg">{formatCurrency(totalUsed)}</p>
                 </div>
             </div>
