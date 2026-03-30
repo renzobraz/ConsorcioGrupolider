@@ -1,0 +1,26 @@
+export const REPORT_COLUMNS = [
+  { id: 'group', label: 'Grupo', key: 'group' },
+  { id: 'quotaNumber', label: 'Cota', key: 'quotaNumber' },
+  { id: 'creditValue', label: 'Vlr Carta', key: 'creditValue', type: 'currency' },
+  { id: 'saldoVencido', label: 'Valor Pago', key: 'saldoVencido', type: 'currency' },
+  { id: 'saldoAVencer', label: 'Valor a Pagar', key: 'saldoAVencer', type: 'currency' },
+  { id: 'bidTotal', label: 'Lance Tot.', key: 'bidTotal', type: 'currency' },
+  { id: 'percentBidTotal', label: '% Lance', key: 'percentBidTotal', type: 'percent' },
+  { id: 'bidFree', label: 'Lance Livre', key: 'bidFree', type: 'currency' },
+  { id: 'percentBidFree', label: '% Liv', key: 'percentBidFree', type: 'percent' },
+  { id: 'creditAtContemplation', label: 'Crédito total Bruto', key: 'creditAtContemplation', type: 'currency' },
+  { id: 'bidEmbedded', label: 'Lance Emb.', key: 'bidEmbedded', type: 'currency' },
+  { id: 'percentBidEmbedded', label: '% Emb', key: 'percentBidEmbedded', type: 'percent' },
+  { id: 'valorRealCarta', label: 'Crédito Total Líquido', key: 'valorRealCarta', type: 'currency' },
+  { id: 'creditManualAdjustment', label: 'Aplicação', key: 'creditManualAdjustment', type: 'currency' },
+  { id: 'bidFreeCorrection', label: '92% CDI', key: 'bidFreeCorrection', type: 'currency' },
+  { id: 'creditoTotal', label: 'Corrigido', key: 'creditoTotal', type: 'currency' },
+  { id: 'creditoUtilizado', label: 'Crédito Utilizado', key: 'creditoUtilizado', type: 'currency' },
+  { id: 'saldoDisponivel', label: 'Crédito Total Disponível', key: 'saldoDisponivel', type: 'currency' },
+  { id: 'contemplationDate', label: 'Contemplação', key: 'contemplationDate' },
+  { id: 'status', label: 'Status', key: 'status' },
+  { id: 'company', label: 'Empresa', key: 'company' },
+  { id: 'administrator', label: 'Administradora', key: 'administrator' },
+];
+
+export const getColumnById = (id: string) => REPORT_COLUMNS.find(col => col.id === id);

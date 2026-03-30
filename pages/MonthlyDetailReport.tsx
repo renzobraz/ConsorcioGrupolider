@@ -18,6 +18,7 @@ interface QuotaDetailRow {
     bids: number;
     others: number;
     total: number;
+    isBidRow?: boolean;
 }
 
 const MonthlyDetailReport = () => {
@@ -73,7 +74,7 @@ const MonthlyDetailReport = () => {
                         const actualFine = isPaid ? (paymentData.manualFine || 0) : 0;
                         const actualInterest = isPaid ? (paymentData.manualInterest || 0) : 0;
 
-                        const rowBids = (inst.bidAmountApplied || 0);
+                        const rowBids = 0; // Bids are now handled separately below to avoid double-counting
 
                         rows.push({
                             quotaId: quota.id,
@@ -88,6 +89,30 @@ const MonthlyDetailReport = () => {
                             total: actualFC + actualTA + actualFR + rowBids + actualFine + actualInterest
                         });
                     });
+
+                    // Handle Bids separately (once per quota)
+                    // Free Bid (Lance Livre) - This is a cash payment
+                    const freeBidPayment = paymentMap[0];
+                    if (freeBidPayment && (freeBidPayment.status === 'PAGO' || freeBidPayment.isPaid === true) && freeBidPayment.paymentDate) {
+                        const bidDateStr = freeBidPayment.paymentDate.split('T')[0];
+                        const bidMonthKey = bidDateStr.slice(0, 7);
+                        if (bidMonthKey === monthYear) {
+                            const bidAmount = freeBidPayment.bidFreeApplied || quota.bidFree || 0;
+                            rows.push({
+                                quotaId: quota.id,
+                                group: quota.group,
+                                quotaNumber: quota.quotaNumber,
+                                companyId: quota.companyId || '',
+                                companyName: company?.name || 'Sem Empresa',
+                                commonFund: 0,
+                                fees: 0,
+                                bids: bidAmount,
+                                others: 0,
+                                total: bidAmount,
+                                isBidRow: true // Optional flag for styling
+                            });
+                        }
+                    }
                 });
 
                 setDetailData(rows.sort((a, b) => a.group.localeCompare(b.group) || a.quotaNumber.localeCompare(b.quotaNumber)));

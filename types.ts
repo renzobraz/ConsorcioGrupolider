@@ -171,6 +171,19 @@ export interface Quota {
   creditUpdates?: CreditUpdate[];
   isDrawContemplation?: boolean;
   stopCreditCorrection?: boolean; // NOVO: Interromper reajuste anual após contemplação
+  contractFileUrl?: string; // URL do contrato arquivado
+
+  // Marketplace / SaaS Fields
+  isAnnounced?: boolean;
+  announcedAt?: string;
+  marketValueOverride?: number;
+  marketStatus?: 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'SOLD';
+  marketNotes?: string;
+  
+  // New Financial Fields for Marketplace Transparency
+  reserveFundAccumulated?: number; // Valor acumulado no Fundo de Reserva (conforme extrato)
+  insuranceRate?: number; // Taxa de Seguro (%)
+  insuranceValue?: number; // Valor fixo de Seguro (se houver)
 }
 
 export enum PaymentStatus {
@@ -329,4 +342,43 @@ export interface CreditUsageEntry {
   date: string;
   amount: number;
   seller?: string; 
+}
+
+export interface SMTPConfig {
+  id?: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
+  fromEmail: string;
+  reportRecipient: string;
+}
+
+export enum ReportFrequency {
+  NONE = 'NONE',
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY'
+}
+
+export interface ScheduledReport {
+  id: string;
+  name: string;
+  recipient: string;
+  subject: string;
+  message: string;
+  frequency: ReportFrequency;
+  selectedColumns: string[];
+  filters: {
+    referenceDate: string;
+    companyId?: string;
+    administratorId?: string;
+    productType?: string;
+    status?: string;
+  };
+  lastSent?: string;
+  isActive: boolean;
+  createdAt: string;
 }

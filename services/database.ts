@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate, SMTPConfig } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -11,6 +11,7 @@ const CREDIT_USAGES_KEY = 'consortium_credit_usages_db';
 const CREDIT_UPDATES_KEY = 'consortium_credit_updates_db';
 const MANUAL_TRANSACTIONS_KEY = 'consortium_manual_transactions_db';
 const USERS_KEY = 'consortium_users_db';
+const SMTP_CONFIG_KEY = 'consortium_smtp_config_db';
 
 const toDbUser = (u: User) => ({
   id: u.id,
@@ -68,7 +69,13 @@ const toDbQuota = (q: Quota) => ({
   bid_base: q.bidBase || null,
   anticipate_correction_month: q.anticipateCorrectionMonth || false,
   prioritize_fees_in_bid: q.prioritizeFeesInBid || false,
-  is_draw_contemplation: q.isDrawContemplation || false
+  is_draw_contemplation: q.isDrawContemplation || false,
+  contract_file_url: q.contractFileUrl || null,
+  is_announced: q.isAnnounced || false,
+  announced_at: q.announcedAt || null,
+  market_value_override: q.marketValueOverride || null,
+  market_status: q.marketStatus || 'DRAFT',
+  market_notes: q.marketNotes || null
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -108,8 +115,52 @@ const fromDbQuota = (dbQ: any): Quota => ({
   bidBase: dbQ.bid_base,
   anticipateCorrectionMonth: dbQ.anticipate_correction_month || false,
   prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false,
-  isDrawContemplation: dbQ.is_draw_contemplation || false
+  isDrawContemplation: dbQ.is_draw_contemplation || false,
+  contractFileUrl: dbQ.contract_file_url,
+  isAnnounced: dbQ.is_announced || false,
+  announcedAt: dbQ.announced_at,
+  marketValueOverride: dbQ.market_value_override ? Number(dbQ.market_value_override) : undefined,
+  marketStatus: dbQ.market_status as any,
+  marketNotes: dbQ.market_notes
 });
+
+export const uploadContractFile = async (file: File, quotaId: string): Promise<string | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${quotaId}_${Date.now()}.${fileExt}`;
+  const filePath = `contracts/${fileName}`;
+
+  // Tenta primeiro 'contracts' (padrão), depois 'Contratos' (comum em PT)
+  let bucketName = 'contracts';
+  let { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, file);
+
+  if (error && (error.message.includes('not found') || error.message.includes('bucket'))) {
+    bucketName = 'Contratos';
+    const retry = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file);
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error) {
+    console.error('Error uploading file:', error.message);
+    if (error.message.includes('not found')) {
+      alert(`Erro: O bucket de armazenamento '${bucketName}' não foi encontrado no Supabase. Por favor, crie um bucket chamado 'contracts' no Storage do Supabase e marque como 'Public'.`);
+    }
+    return null;
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+
+  return publicUrl;
+};
 
 export const db = {
   isCloudEnabled: () => !!getSupabase(),
@@ -143,6 +194,18 @@ export const db = {
         }
       }
       return true;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  checkBucketExists: async (bucketName: string): Promise<boolean> => {
+    const supabase = getSupabase();
+    if (!supabase) return true;
+    try {
+      const { data, error } = await supabase.storage.getBucket(bucketName);
+      if (error) return false;
+      return !!data;
     } catch (err) {
       return false;
     }
@@ -741,6 +804,67 @@ export const db = {
     }
   },
 
+  getSMTPConfig: async (): Promise<SMTPConfig | null> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('smtp_config').select('*').single();
+        if (error) {
+          if (error.code === 'PGRST116') return null;
+          if (error.code === 'PGRST204' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
+            return null;
+          }
+          console.error('Error fetching SMTP config:', error.message);
+          return null;
+        }
+        if (!data) return null;
+        return {
+          id: data.id,
+          host: data.host,
+          port: Number(data.port),
+          secure: data.secure,
+          user: data.user_name,
+          pass: data.password,
+          fromName: data.from_name,
+          fromEmail: data.from_email,
+          reportRecipient: data.report_recipient
+        };
+      } catch (err) {
+        return null;
+      }
+    }
+    const data = localStorage.getItem(SMTP_CONFIG_KEY);
+    return data ? JSON.parse(data) : null;
+  },
+
+  saveSMTPConfig: async (config: SMTPConfig): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const payload = {
+        id: config.id || 'default',
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        user_name: config.user,
+        password: config.pass,
+        from_name: config.fromName,
+        from_email: config.fromEmail,
+        report_recipient: config.reportRecipient
+      };
+      const { error } = await supabase.from('smtp_config').upsert(payload);
+      if (error) {
+        if (error.message.includes('schema cache') || error.message.includes('does not exist')) {
+          console.warn('SMTP config table not found in Supabase. Saving to local storage as fallback.');
+          localStorage.setItem(SMTP_CONFIG_KEY, JSON.stringify(config));
+          return;
+        }
+        throw new Error(error.message);
+      }
+    } else {
+      localStorage.setItem(SMTP_CONFIG_KEY, JSON.stringify(config));
+    }
+  },
+
   // --- Credit Updates (Aplicação Financeira) ---
   getCreditUpdates: async (quotaId: string): Promise<CreditUpdate[]> => {
     const supabase = getSupabase();
@@ -868,6 +992,89 @@ export const db = {
     } else {
       const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
       localStorage.setItem(USERS_KEY, JSON.stringify(users.filter((u: User) => u.id !== id)));
+    }
+  },
+
+  // --- Scheduled Reports ---
+  getScheduledReports: async (): Promise<any[]> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('scheduled_reports').select('*').order('created_at', { ascending: false });
+        if (error) {
+          if (error.code === 'PGRST204') return []; // Table doesn't exist yet
+          throw error;
+        }
+        return (data || []).map(r => ({
+          id: r.id,
+          name: r.name,
+          recipient: r.recipient,
+          subject: r.subject,
+          message: r.message,
+          frequency: r.frequency,
+          selectedColumns: r.selected_columns,
+          filters: r.filters,
+          lastSent: r.last_sent,
+          isActive: r.is_active,
+          createdAt: r.created_at
+        }));
+      } catch (err) {
+        console.warn('Error fetching scheduled_reports from Supabase:', err);
+        return JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+      }
+    }
+    return JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+  },
+
+  saveScheduledReport: async (report: any): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('scheduled_reports').upsert({
+          id: report.id,
+          name: report.name,
+          recipient: report.recipient,
+          subject: report.subject,
+          message: report.message,
+          frequency: report.frequency,
+          selected_columns: report.selectedColumns,
+          filters: report.filters,
+          last_sent: report.lastSent,
+          is_active: report.isActive,
+          created_at: report.createdAt
+        });
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error saving scheduled_report to Supabase:', err);
+        const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+        const idx = list.findIndex((r: any) => r.id === report.id);
+        if (idx >= 0) list[idx] = report;
+        else list.push(report);
+        localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list));
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+      const idx = list.findIndex((r: any) => r.id === report.id);
+      if (idx >= 0) list[idx] = report;
+      else list.push(report);
+      localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list));
+    }
+  },
+
+  deleteScheduledReport: async (id: string): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('scheduled_reports').delete().eq('id', id);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error deleting scheduled_report from Supabase:', err);
+        const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+        localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list.filter((r: any) => r.id !== id)));
+      }
+    } else {
+      const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
+      localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list.filter((r: any) => r.id !== id)));
     }
   },
 

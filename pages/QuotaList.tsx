@@ -3,14 +3,19 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy } from 'lucide-react';
-import { ProductType } from '../types';
-import { calculateCurrentCreditValue, generateSchedule, calculateIRR } from '../services/calculationService';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign } from 'lucide-react';
+import { ProductType, Quota } from '../types';
+import { calculateCurrentCreditValue, generateSchedule, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
+import { calculateMarketAnalysis, MarketAnalysis } from '../services/marketService';
+import { db } from '../services/database';
 
 const QuotaList = () => {
-  const { quotas, deleteQuota, setCurrentQuota, administrators, companies, indices, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
+  const { quotas, deleteQuota, updateQuota, setCurrentQuota, administrators, companies, indices, allCreditUpdates, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Sorting State
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   
   // Filter States - Lendo search da URL, mas usando globalFilters para o resto
   const search = searchParams.get('q') || '';
@@ -31,6 +36,17 @@ const QuotaList = () => {
   // Delete Modal State
   const [quotaToDelete, setQuotaToDelete] = useState<{ id: string, label: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Market Modal State
+  const [marketQuota, setMarketQuota] = useState<{ quota: Quota; analysis: any } | null>(null);
+  const [customAgio, setCustomAgio] = useState<number>(0);
+  const [agioMode, setAgioMode] = useState<'currency' | 'percent'>('currency');
+  const [agioPercent, setAgioPercent] = useState<number>(0);
+  const [reserveFundAccumulated, setReserveFundAccumulated] = useState<number>(0);
+  const [insuranceRate, setInsuranceRate] = useState<number>(0);
+  const [insuranceValue, setInsuranceValue] = useState<number>(0);
+  const [isAnnouncing, setIsAnnouncing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const filteredQuotas = quotas.filter(q => {
     const matchesSearch = 
@@ -54,6 +70,70 @@ const QuotaList = () => {
 
     return matchesSearch && matchesAdmin && matchesCompany && matchesProduct && matchesStatus;
   });
+
+  const sortedQuotas = [...filteredQuotas].sort((a, b) => {
+    if (!sortConfig) return 0;
+    
+    const { key, direction } = sortConfig;
+    let aValue: any;
+    let bValue: any;
+
+    switch (key) {
+      case 'product':
+        aValue = a.productType;
+        bValue = b.productType;
+        break;
+      case 'id':
+        aValue = `${a.group}-${a.quotaNumber}`;
+        bValue = `${b.group}-${b.quotaNumber}`;
+        break;
+      case 'credit':
+        aValue = a.creditValue;
+        bValue = b.creditValue;
+        break;
+      case 'current':
+        aValue = calculateCurrentCreditValue(a, indices);
+        bValue = calculateCurrentCreditValue(b, indices);
+        break;
+      case 'plano':
+        aValue = a.paymentPlan;
+        bValue = b.paymentPlan;
+        break;
+      case 'indice':
+        aValue = a.correctionIndex;
+        bValue = b.correctionIndex;
+        break;
+      case 'prazo':
+        aValue = a.termMonths;
+        bValue = b.termMonths;
+        break;
+      case 'status':
+        aValue = a.isContemplated ? 1 : 0;
+        bValue = b.isContemplated ? 1 : 0;
+        break;
+      default:
+        return 0;
+    }
+
+    if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+    if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const handleSort = (key: string) => {
+    setSortConfig(prev => {
+      if (prev?.key === key) {
+        if (prev.direction === 'asc') return { key, direction: 'desc' };
+        return null;
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig?.key !== column) return <div className="w-4" />;
+    return sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1" /> : <ChevronDown size={14} className="ml-1" />;
+  };
 
   const handleSimulate = (quota: any) => {
     setCurrentQuota(quota);
@@ -97,19 +177,18 @@ const QuotaList = () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Buscar por Grupo, Cota ou Contrato..." 
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-            value={search}
-            onChange={(e) => updateSearch(e.target.value)}
-          />
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+            <div className="flex-1 relative min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                    type="text" 
+                    placeholder="Buscar..." 
+                    className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    value={search}
+                    onChange={(e) => updateSearch(e.target.value)}
+                />
+            </div>
             <div className="flex-1">
                 <select 
                     value={globalFilters.companyId} 
@@ -170,27 +249,43 @@ const QuotaList = () => {
 
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {filteredQuotas.length > 0 ? (
+        {sortedQuotas.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-sm uppercase tracking-wider">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-[10px] uppercase tracking-wider">
                 <tr>
-                  <th className="p-4 font-semibold">Produto</th>
-                  <th className="p-4 font-semibold">Identificação</th>
-                  <th className="p-4 font-semibold text-right">Valor Carta</th>
-                  <th className="p-4 font-semibold text-right bg-emerald-50/50 text-emerald-800 border-l border-emerald-100">Vlr Atual</th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('product')}>
+                    <div className="flex items-center">Produto <SortIcon column="product" /></div>
+                  </th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('id')}>
+                    <div className="flex items-center">Identificação <SortIcon column="id" /></div>
+                  </th>
+                  <th className="p-4 font-semibold text-right cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('credit')}>
+                    <div className="flex items-center justify-end">Valor Carta <SortIcon column="credit" /></div>
+                  </th>
+                  <th className="p-4 font-semibold text-right bg-emerald-50/50 text-emerald-800 border-l border-emerald-100 cursor-pointer hover:bg-emerald-100/50 transition-colors" onClick={() => handleSort('current')}>
+                    <div className="flex items-center justify-end">Vlr Atual <SortIcon column="current" /></div>
+                  </th>
                   <th className="p-4 font-semibold text-right bg-blue-50/50 text-blue-800 border-l border-blue-100">Taxas (TA/FR)</th>
                   <th className="p-4 font-semibold text-right bg-amber-50 text-amber-800 border-l border-emerald-100">Cred. Usado</th>
                   <th className="p-4 font-semibold text-center bg-slate-100 text-slate-800 border-l border-slate-200">CET Anual</th>
-                  <th className="p-4 font-semibold text-center">Plano</th>
-                  <th className="p-4 font-semibold text-center">Índice</th>
-                  <th className="p-4 font-semibold text-center">Prazo</th>
-                  <th className="p-4 font-semibold text-center">Status</th>
+                  <th className="p-4 font-semibold text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('plano')}>
+                    <div className="flex items-center justify-center">Plano <SortIcon column="plano" /></div>
+                  </th>
+                  <th className="p-4 font-semibold text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('indice')}>
+                    <div className="flex items-center justify-center">Índice <SortIcon column="indice" /></div>
+                  </th>
+                  <th className="p-4 font-semibold text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('prazo')}>
+                    <div className="flex items-center justify-center">Prazo <SortIcon column="prazo" /></div>
+                  </th>
+                  <th className="p-4 font-semibold text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('status')}>
+                    <div className="flex items-center justify-center">Status <SortIcon column="status" /></div>
+                  </th>
                   <th className="p-4 font-semibold text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredQuotas.map((quota) => {
+                {sortedQuotas.map((quota) => {
                   const currentValue = calculateCurrentCreditValue(quota, indices);
                   const usedCredit = allCreditUsages
                       .filter(u => u.quotaId === quota.id)
@@ -208,11 +303,30 @@ const QuotaList = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="font-medium text-slate-800">Gp: {quota.group} / Cota: {quota.quotaNumber}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium text-slate-800">Gp: {quota.group} / Cota: {quota.quotaNumber}</div>
+                        {quota.isAnnounced && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[8px] font-black rounded uppercase tracking-tighter flex items-center gap-0.5">
+                            <Tag size={8} /> Anunciada
+                          </span>
+                        )}
+                      </div>
                       {quota.contractNumber && (
                         <div className="flex items-center gap-1 text-xs text-slate-500">
                           <FileText size={10} /> {quota.contractNumber}
                         </div>
+                      )}
+                      {quota.contractFileUrl && (
+                        <a 
+                          href={quota.contractFileUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[10px] text-blue-600 font-bold hover:underline mt-1"
+                          title="Ver Contrato Arquivado"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <FileText size={10} /> CONTRATO ANEXADO
+                        </a>
                       )}
                       <div className="flex flex-col mt-1 gap-0.5">
                          {quota.administratorId && (
@@ -354,6 +468,60 @@ const QuotaList = () => {
                           <Calculator size={18} />
                         </button>
                         <button 
+                          onClick={async () => {
+                            setIsLoading(true);
+                            try {
+                              const [payments, manualTransactions] = await Promise.all([
+                                db.getPayments(quota.id),
+                                db.getManualTransactions(quota.id)
+                              ]);
+                              
+                              const schedule = generateSchedule({ ...quota, manualTransactions }, indices, payments);
+                              const summary = calculateScheduleSummary(quota, schedule, payments);
+                              
+                              const paidAmount = summary.paid.total;
+                              const debtBalance = summary.toPay.total;
+                              
+                              const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+                              const latestUpdateValue = quotaUpdates.length > 0 
+                                ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+                                : 0;
+                              
+                              const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id);
+                              const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+                              const analysis = calculateMarketAnalysis(
+                                quota, 
+                                indices, 
+                                paidAmount, 
+                                debtBalance, 
+                                0, 
+                                latestUpdateValue, 
+                                creditoUtilizado
+                              );
+                              setMarketQuota({ quota, analysis });
+                              setCustomAgio(analysis.agioValue);
+                              
+                              // Calculate initial percentage
+                              if (paidAmount > 0) {
+                                setAgioPercent(parseFloat(((analysis.agioValue / paidAmount) * 100).toFixed(2)));
+                              } else {
+                                setAgioPercent(0);
+                              }
+                              setAgioMode('currency');
+                            } catch (err) {
+                              console.error("Failed to prepare market analysis", err);
+                              alert("Erro ao carregar dados da cota para o marketplace.");
+                            } finally {
+                              setIsLoading(false);
+                            }
+                          }}
+                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-transparent hover:border-amber-200"
+                          title="Anunciar para Venda"
+                        >
+                          <Tag size={18} />
+                        </button>
+                        <button 
                           onClick={() => setQuotaToDelete({ id: quota.id, label: `${quota.group}/${quota.quotaNumber}` })}
                           className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200"
                           title="Excluir"
@@ -410,6 +578,316 @@ const QuotaList = () => {
             </div>
             <div className="bg-slate-50 p-4 text-[10px] text-slate-400 text-center uppercase tracking-widest font-bold">
               Ação Irreversível
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MARKETPLACE ANNOUNCEMENT MODAL */}
+      {marketQuota && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
+                  <TrendingUp size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Anunciar para Venda</h3>
+                  <p className="text-sm text-slate-500">Cota {marketQuota.quota.group}/{marketQuota.quota.quotaNumber}</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {/* Seção de Precificação */}
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                      <TrendingUp size={18} className="text-emerald-500" />
+                      Definição de Preço (Ágio)
+                    </h4>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-black uppercase">
+                      Autonomia Total
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          {agioMode === 'currency' ? 'Quanto você quer receber (Ágio)?' : 'Percentual de Ágio (%)'}
+                        </label>
+                        <div className="flex bg-slate-200 p-0.5 rounded-lg">
+                          <button 
+                            onClick={() => setAgioMode('currency')}
+                            className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all ${agioMode === 'currency' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                          >
+                            R$
+                          </button>
+                          <button 
+                            onClick={() => setAgioMode('percent')}
+                            className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all ${agioMode === 'percent' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                          >
+                            %
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                          {agioMode === 'currency' ? 'R$' : '%'}
+                        </span>
+                        <input 
+                          type="number" 
+                          value={agioMode === 'currency' ? customAgio : agioPercent}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            let newAgioValue = val;
+                            
+                            if (agioMode === 'percent') {
+                              setAgioPercent(val);
+                              newAgioValue = (val / 100) * marketQuota.analysis.investedAmount;
+                              setCustomAgio(newAgioValue);
+                            } else {
+                              setCustomAgio(val);
+                              if (marketQuota.analysis.investedAmount > 0) {
+                                setAgioPercent(parseFloat(((val / marketQuota.analysis.investedAmount) * 100).toFixed(2)));
+                              }
+                            }
+
+                            // Recalcular análise em tempo real
+                            if (marketQuota) {
+                              const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
+                              const latestUpdateValue = quotaUpdates.length > 0 
+                                ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+                                : 0;
+                              
+                              const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
+                              const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+                              const newAnalysis = calculateMarketAnalysis(
+                                { 
+                                  ...marketQuota.quota, 
+                                  reserveFundAccumulated, 
+                                  insuranceRate, 
+                                  insuranceValue 
+                                }, 
+                                indices, 
+                                marketQuota.analysis.investedAmount, 
+                                marketQuota.analysis.debtBalance, 
+                                newAgioValue,
+                                latestUpdateValue,
+                                creditoUtilizado
+                              );
+                              setMarketQuota({ ...marketQuota, analysis: newAnalysis });
+                            }
+                          }}
+                          className="w-full pl-10 pr-4 py-3 bg-white border-2 border-emerald-100 rounded-xl outline-none focus:border-emerald-500 font-bold text-slate-700 transition-all"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-400 italic">
+                        {agioMode === 'percent' 
+                          ? `Equivale a ${formatCurrency(customAgio)} sobre o valor pago.`
+                          : 'Este é o valor que você pede pela transferência da cota.'}
+                      </p>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col justify-center">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor de Entrada (Comprador)</span>
+                        <span className="text-lg font-black text-emerald-600">{formatCurrency(marketQuota.analysis.buyerEntry)}</span>
+                      </div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Comissão Líder</span>
+                        <span className="text-xs font-bold text-slate-600">{formatCurrency(marketQuota.analysis.platformFee)}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
+                        <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Líquido Vendedor</span>
+                        <span className="text-lg font-black text-slate-800">{formatCurrency(marketQuota.analysis.investedAmount + marketQuota.analysis.sellerNetPayout)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Novos Campos Financeiros */}
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                  <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                    <DollarSign size={18} className="text-blue-500" />
+                    Dados Financeiros (Conforme Extrato)
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Fundo de Reserva Acumulado (R$)</label>
+                      <input 
+                        type="number" 
+                        value={reserveFundAccumulated}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setReserveFundAccumulated(val);
+                          if (marketQuota) {
+                            const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
+                            const latestUpdateValue = quotaUpdates.length > 0 
+                              ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+                              : 0;
+                            
+                            const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
+                            const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+                            const newAnalysis = calculateMarketAnalysis(
+                              { ...marketQuota.quota, reserveFundAccumulated: val, insuranceRate, insuranceValue }, 
+                              indices, 
+                              marketQuota.analysis.investedAmount, 
+                              marketQuota.analysis.debtBalance, 
+                              customAgio,
+                              latestUpdateValue,
+                              creditoUtilizado
+                            );
+                            setMarketQuota({ ...marketQuota, analysis: newAnalysis });
+                          }
+                        }}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-bold text-slate-700 transition-all"
+                        placeholder="0,00"
+                      />
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Seguro de Vida/Garantia (%)</label>
+                      <input 
+                        type="number" 
+                        value={insuranceRate}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setInsuranceRate(val);
+                          if (marketQuota) {
+                            const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
+                            const latestUpdateValue = quotaUpdates.length > 0 
+                              ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+                              : 0;
+                            
+                            const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
+                            const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+                            const newAnalysis = calculateMarketAnalysis(
+                              { ...marketQuota.quota, reserveFundAccumulated, insuranceRate: val, insuranceValue }, 
+                              indices, 
+                              marketQuota.analysis.investedAmount, 
+                              marketQuota.analysis.debtBalance, 
+                              customAgio,
+                              latestUpdateValue,
+                              creditoUtilizado
+                            );
+                            setMarketQuota({ ...marketQuota, analysis: newAnalysis });
+                          }
+                        }}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-bold text-slate-700 transition-all"
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Total Pago</span>
+                    <span className="text-lg font-bold text-slate-700">{formatCurrency(marketQuota.analysis.investedAmount)}</span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Saldo Devedor</span>
+                    <span className="text-lg font-bold text-slate-700">{formatCurrency(marketQuota.analysis.debtBalance)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl my-6">
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  <span className="font-bold">Como calculamos?</span> Para cotas {marketQuota.quota.isContemplated ? 'contempladas' : 'ativas'}, sugerimos um ágio de {(marketQuota.analysis.suggestedAgioPercent * 100).toFixed(0)}% sobre o valor do crédito atualizado, somado ao que você já pagou.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button 
+                  disabled={isAnnouncing}
+                  onClick={async () => {
+                    if (!marketQuota) return;
+                    setIsAnnouncing(true);
+                    try {
+                      const updatedQuota: Quota = {
+                        ...marketQuota.quota,
+                        isAnnounced: true,
+                        announcedAt: new Date().toISOString(),
+                        marketStatus: 'PENDING',
+                        marketValueOverride: marketQuota.analysis.suggestedMarketValue,
+                        marketNotes: JSON.stringify({
+                          customAgio,
+                          paidAmount: marketQuota.analysis.investedAmount,
+                          debtBalance: marketQuota.analysis.debtBalance,
+                          reserveFundAccumulated,
+                          insuranceRate,
+                          insuranceValue,
+                          announcedAt: new Date().toISOString()
+                        })
+                      };
+                      await updateQuota(updatedQuota);
+                      setIsAnnouncing(false);
+                      setMarketQuota(null);
+                      alert('Cota enviada com sucesso! Nossa equipe analisará os dados e publicará no marketplace em até 24h.');
+                    } catch (err) {
+                      console.error("Failed to announce quota", err);
+                      setIsAnnouncing(false);
+                      alert('Erro ao enviar anúncio. Tente novamente.');
+                    }
+                  }}
+                  className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-emerald-200"
+                >
+                  {isAnnouncing ? <Loader className="animate-spin" size={20} /> : <Tag size={20} />}
+                  {isAnnouncing ? 'Processando...' : (marketQuota.quota.isAnnounced ? 'Atualizar Anúncio' : 'Confirmar Anúncio Grátis')}
+                </button>
+
+                {marketQuota.quota.isAnnounced && (
+                  <button 
+                    disabled={isAnnouncing}
+                    onClick={async () => {
+                      if (!marketQuota) return;
+                      if (!window.confirm('Tem certeza que deseja remover este anúncio do marketplace?')) return;
+                      
+                      setIsAnnouncing(true);
+                      try {
+                        const updatedQuota: Quota = {
+                          ...marketQuota.quota,
+                          isAnnounced: false,
+                          announcedAt: undefined,
+                          marketStatus: 'DRAFT',
+                          marketValueOverride: undefined,
+                          marketNotes: `Anúncio removido pelo usuário em ${new Date().toLocaleDateString()}`
+                        };
+                        await updateQuota(updatedQuota);
+                        setIsAnnouncing(false);
+                        setMarketQuota(null);
+                        alert('Anúncio removido com sucesso.');
+                      } catch (err) {
+                        console.error("Failed to remove announcement", err);
+                        setIsAnnouncing(false);
+                        alert('Erro ao remover anúncio. Tente novamente.');
+                      }
+                    }}
+                    className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Trash2 size={20} />
+                    Remover Anúncio
+                  </button>
+                )}
+                <button 
+                  disabled={isAnnouncing}
+                  onClick={() => setMarketQuota(null)}
+                  className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                >
+                  Agora não
+                </button>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-4 text-[10px] text-slate-400 text-center uppercase tracking-widest font-bold">
+              Venda Garantida • Sem Taxas de Anúncio
             </div>
           </div>
         </div>

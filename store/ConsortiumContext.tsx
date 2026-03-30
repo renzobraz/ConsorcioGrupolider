@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate } from '../types';
+import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate, SMTPConfig } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { useAuth } from './AuthContext';
@@ -61,6 +61,14 @@ interface ConsortiumContextType {
   addCreditUpdate: (update: CreditUpdate) => Promise<void>;
   deleteCreditUpdate: (id: string) => Promise<void>;
   
+  smtpConfig: SMTPConfig | null;
+  updateSMTPConfig: (config: SMTPConfig) => Promise<void>;
+  sendReportEmail: (subject: string, html: string, attachments?: { filename: string, content: string, contentType: string }[]) => Promise<void>;
+
+  scheduledReports: any[];
+  addScheduledReport: (report: any) => Promise<void>;
+  deleteScheduledReport: (id: string) => Promise<void>;
+
   refreshData: () => Promise<void>;
 
   // Global Filters
@@ -97,6 +105,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [payments, setPayments] = useState<Record<number, any>>({});
   const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
   const [allCreditUpdates, setAllCreditUpdates] = useState<CreditUpdate[]>([]);
+  const [smtpConfig, setSmtpConfig] = useState<SMTPConfig | null>(null);
+  const [scheduledReports, setScheduledReports] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -183,8 +193,17 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          
          const updates = await db.getAllCreditUpdates();
          setAllCreditUpdates(updates);
+
+         const smtp = await db.getSMTPConfig();
+         setSmtpConfig(smtp);
+
+         const scheduled = await db.getScheduledReports();
+         setScheduledReports(scheduled);
       } catch (err: any) {
          console.warn("Failed to load auxiliary tables:", err);
+         if (err.message?.includes('smtp_config') || err.message?.includes('schema cache')) {
+           setConnectionError("Atenção: Tabela 'smtp_config' ausente. Execute o script SQL nas Configurações.");
+         }
       }
       
     } catch (err: any) {
@@ -193,7 +212,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAdmin, migrateQuotas]);
 
   // Initial Load
   useEffect(() => {
@@ -546,6 +565,74 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
+  const updateSMTPConfig = useCallback(async (config: SMTPConfig) => {
+    try {
+      await db.saveSMTPConfig(config);
+      setSmtpConfig(config);
+    } catch (err: any) {
+      console.error("Failed to save SMTP config", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const sendReportEmail = useCallback(async (subject: string, html: string, attachments?: any[], to?: string) => {
+    if (!smtpConfig) {
+      throw new Error("Configuração SMTP não encontrada. Por favor, configure o e-mail nas configurações.");
+    }
+
+    const recipient = to || smtpConfig.reportRecipient;
+
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        smtpConfig,
+        to: recipient,
+        subject,
+        html,
+        attachments
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Erro ao enviar e-mail.");
+    }
+  }, [smtpConfig]);
+
+  const addScheduledReport = useCallback(async (report: any) => {
+    try {
+      await db.saveScheduledReport(report);
+      setScheduledReports(prev => {
+        const idx = prev.findIndex(r => r.id === report.id);
+        if (idx >= 0) {
+          const newArr = [...prev];
+          newArr[idx] = report;
+          return newArr;
+        }
+        return [report, ...prev];
+      });
+    } catch (err: any) {
+      console.error("Failed to save scheduled report", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const deleteScheduledReport = useCallback(async (id: string) => {
+    try {
+      await db.deleteScheduledReport(id);
+      setScheduledReports(prev => prev.filter(r => r.id !== id));
+    } catch (err: any) {
+      console.error("Failed to delete scheduled report", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
   const filteredQuotas = React.useMemo(() => {
     if (!user) return [];
     if (isAdmin) return quotas;
@@ -589,6 +676,12 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       allCreditUpdates,
       addCreditUpdate,
       deleteCreditUpdate,
+      smtpConfig,
+      updateSMTPConfig,
+      sendReportEmail,
+      scheduledReports,
+      addScheduledReport,
+      deleteScheduledReport,
       refreshData,
       globalFilters,
       setGlobalFilters

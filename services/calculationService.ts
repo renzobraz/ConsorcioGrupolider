@@ -162,6 +162,8 @@ export interface ScheduleSummary {
     ta: number;
     insurance: number;
     amortization: number;
+    fine: number;
+    interest: number;
     total: number;
     percent: number;
   };
@@ -182,7 +184,7 @@ export function calculateScheduleSummary(
 ): ScheduleSummary {
   const stats = {
     paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0 },
-    toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, percent: 0 },
+    toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0 },
   };
 
   const totalPercentContract = 100 + (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
@@ -206,6 +208,8 @@ export function calculateScheduleSummary(
       stats.toPay.ta += inst.adminFee;
       stats.toPay.insurance += (inst.insurance || 0);
       stats.toPay.amortization += (inst.amortization || 0);
+      stats.toPay.fine += (inst.manualFine || 0);
+      stats.toPay.interest += (inst.manualInterest || 0);
       stats.toPay.percent += instPct;
     }
 
@@ -243,7 +247,7 @@ export function calculateScheduleSummary(
   });
 
   const paidTotal = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.insurance + stats.paid.amortization + stats.paid.fine + stats.paid.interest;
-  const toPayTotal = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization;
+  const toPayTotal = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization + stats.toPay.fine + stats.toPay.interest;
 
   return {
     paid: {
@@ -267,7 +271,7 @@ export function calculateScheduleSummary(
   };
 }
 
-export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}): PaymentInstallment[] => {
+export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}, manualTransactionsOverride?: any[]): PaymentInstallment[] => {
   const schedule: PaymentInstallment[] = [];
   if (!quota || !quota.firstDueDate) return [];
   
@@ -316,7 +320,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
   let correctionAmountFC = 0, correctionAmountTA = 0, correctionAmountFR = 0, correctionAmountTotal = 0;
 
   // Sort manual transactions by date
-  const manualTransactions = [...(quota.manualTransactions || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const manualTransactions = [...(manualTransactionsOverride || quota.manualTransactions || [])].sort((a, b) => a.date.localeCompare(b.date));
   let manualTxIndex = 0;
 
   for (let i = startInstallment; i <= termMonths; i++) {

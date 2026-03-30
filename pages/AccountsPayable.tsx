@@ -115,7 +115,7 @@ const AccountsPayable = () => {
         const payments = allPayments[quota.id] || {};
         const manualTransactions = manualTransactionsByQuota[quota.id] || [];
         
-        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, payments);
+        const schedule = generateSchedule(quota, indices, payments, manualTransactions);
         
         schedule.forEach(inst => {
           // Double check: if there's a payment record in our dictionary, it should probably be paid
@@ -135,7 +135,7 @@ const AccountsPayable = () => {
             companyId: quota.companyId,
             administratorId: quota.administratorId,
             productType: quota.productType,
-            quotaStatus: quota.isContemplated ? 'CONTEMPLADA' : 'ATIVA',
+            quotaStatus: quota.isContemplated ? 'CONTEMPLATED' : 'ACTIVE',
             
             installmentNumber: inst.installmentNumber,
             dueDate: inst.dueDate.split('T')[0],
@@ -513,8 +513,8 @@ const AccountsPayable = () => {
           <label className="text-[10px] font-bold text-slate-400 uppercase">Status Cota</label>
           <select value={globalFilters.status} onChange={e => setGlobalFilters({...globalFilters, status: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">
             <option value="">Todos</option>
-            <option value="ATIVA">Em Andamento</option>
-            <option value="CONTEMPLADA">Contempladas</option>
+            <option value="ACTIVE">Em Andamento</option>
+            <option value="CONTEMPLATED">Contempladas</option>
           </select>
         </div>
         <div className="space-y-1">

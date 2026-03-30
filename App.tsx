@@ -6,13 +6,17 @@ import {
   List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp, 
   AlertCircle, FileBarChart, Building2, Briefcase, BookOpen, 
   ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays,
-  CalendarClock,
+  CalendarClock, Tag, ShieldCheck,
   Activity, Loader, CheckCircle 
 } from 'lucide-react';
 
 // Components
 import Dashboard from './pages/Dashboard';
 import ManagementDashboard from './pages/ManagementDashboard';
+import SellerDashboard from './pages/SellerDashboard';
+import Marketplace from './pages/Marketplace';
+import NegotiationRoom from './pages/NegotiationRoom';
+import AdModeration from './pages/AdModeration';
 import NewQuota from './pages/NewQuota';
 import Simulation from './pages/Simulation';
 import QuotaList from './pages/QuotaList';
@@ -53,6 +57,8 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
   const navItems = [
     { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('canViewDashboard') },
     { to: "/dashboard/gerencial", icon: <Activity size={20} />, label: "Dashboard Gerencial", show: hasPermission('canViewDashboard') },
+    { to: "/marketplace", icon: <ShoppingBag size={20} />, label: "Marketplace", show: true },
+    { to: "/seller-dashboard", icon: <Tag size={20} />, label: "Painel de Revenda", show: true },
     { to: "/quotas", icon: <List size={20} />, label: "Minhas Cotas", show: true },
     { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('canManageQuotas') },
     { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('canSimulate') },
@@ -68,6 +74,10 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
     { to: "/administrators", icon: <Building2 size={20} />, label: "Administradoras", show: hasPermission('canManageSettings') },
     { to: "/companies", icon: <Briefcase size={20} />, label: "Empresas", show: hasPermission('canManageSettings') },
     { to: "/indices", icon: <TrendingUp size={20} />, label: "Índices Correção", show: hasPermission('canManageSettings') },
+  ].filter(item => item.show);
+
+  const backofficeItems = [
+    { to: "/admin/moderation", icon: <ShieldCheck size={20} />, label: "Moderação de Anúncios", show: isAdmin },
   ].filter(item => item.show);
 
   const systemItems = [
@@ -139,6 +149,24 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
           </Link>
         ))}
 
+        {backofficeItems.length > 0 && (
+          <>
+            <div className={`my-4 border-t border-slate-800 transition-all ${isCollapsed ? 'mx-2' : 'mx-1'}`}></div>
+            {!isCollapsed && <p className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Backoffice</p>}
+            {backofficeItems.map((item) => (
+              <Link 
+                key={item.to} 
+                to={item.to} 
+                title={isCollapsed ? item.label : ""}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive(item.to)} ${isCollapsed ? 'justify-center' : ''}`}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
+              </Link>
+            ))}
+          </>
+        )}
+
         <div className={`my-4 border-t border-slate-800 transition-all ${isCollapsed ? 'mx-2' : 'mx-1'}`}></div>
 
         {systemItems.map((item) => (
@@ -199,12 +227,7 @@ const ConnectionStatus = () => {
       <Cloud size={14} />
       <span className="font-medium hidden sm:inline">Cloud Ativa</span>
     </Link>
-  ) : (
-    <Link to="/settings" title="Clique para configurar o banco de dados" className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 hover:bg-slate-200 hover:text-slate-700 transition-colors cursor-pointer group">
-      <CloudOff size={14} className="group-hover:text-red-500" />
-      <span className="font-medium hidden sm:inline">Modo Offline</span>
-    </Link>
-  );
+  ) : null;
 };
 
 const SupabaseSyncWarning = () => {
@@ -223,6 +246,12 @@ const SupabaseSyncWarning = () => {
         
         const hasTable = await db.checkTableExists('manual_transactions');
         if (!hasTable) missing.push('table_manual_tx');
+
+        const hasContractColumn = await db.checkColumnExists('quotas', 'contract_file_url');
+        if (!hasContractColumn) missing.push('column_contract_url');
+
+        const hasBucket = await db.checkBucketExists('contracts');
+        if (!hasBucket) missing.push('bucket_contracts');
         
         setMissingItems(missing);
         if (missing.length === 0) setIsVisible(false);
@@ -242,6 +271,12 @@ const SupabaseSyncWarning = () => {
       
       const hasTable = await db.checkTableExists('manual_transactions');
       if (!hasTable) missing.push('table_manual_tx');
+
+      const hasContractColumn = await db.checkColumnExists('quotas', 'contract_file_url');
+      if (!hasContractColumn) missing.push('column_contract_url');
+
+      const hasBucket = await db.checkBucketExists('contracts');
+      if (!hasBucket) missing.push('bucket_contracts');
       
       setMissingItems(missing);
       if (missing.length === 0) {
@@ -296,6 +331,24 @@ const SupabaseSyncWarning = () => {
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );`}
                 </code>
+              </div>
+            )}
+
+            {missingItems.includes('column_contract_url') && (
+              <div>
+                <p className="font-semibold text-[10px] text-amber-700 mb-1">3. Habilitar Arquivamento de Contratos:</p>
+                <code className="bg-amber-100 px-2 py-1 rounded block font-mono text-[10px] border border-amber-200 select-all">
+                  ALTER TABLE quotas ADD COLUMN IF NOT EXISTS contract_file_url TEXT;
+                </code>
+              </div>
+            )}
+
+            {missingItems.includes('bucket_contracts') && (
+              <div className="bg-amber-100/50 p-2 rounded border border-amber-200">
+                <p className="font-semibold text-[10px] text-amber-700 mb-1">4. Criar Bucket de Armazenamento:</p>
+                <p className="text-[10px] text-amber-600 mb-1">
+                  Vá em <span className="font-bold">Storage</span>, clique em <span className="font-bold">New Bucket</span>, nomeie como <code className="bg-amber-200 px-1 rounded">contracts</code> e marque como <span className="font-bold">Public bucket</span>.
+                </p>
               </div>
             )}
           </div>
@@ -376,6 +429,10 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
           
           <div className="flex items-center gap-4">
+             <div className="hidden lg:flex flex-col items-end text-right mr-2">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Versão 1.2.0</span>
+                <span className="text-[10px] text-slate-400 font-medium">{new Date().toLocaleDateString('pt-BR')}</span>
+             </div>
              <ConnectionStatus />
              <div className="h-8 w-[1px] bg-slate-200 mx-2"></div>
              <div className="flex items-center gap-2">
@@ -415,6 +472,10 @@ const App = () => {
             <Routes>
               <Route path="/" element={<ProtectedRoute permission="canViewDashboard"><Dashboard /></ProtectedRoute>} />
               <Route path="/dashboard/gerencial" element={<ProtectedRoute permission="canViewDashboard"><ManagementDashboard /></ProtectedRoute>} />
+              <Route path="/seller-dashboard" element={<ProtectedRoute><SellerDashboard /></ProtectedRoute>} />
+              <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
+              <Route path="/negotiation/:id" element={<ProtectedRoute><NegotiationRoom /></ProtectedRoute>} />
+              <Route path="/admin/moderation" element={<ProtectedRoute><AdModeration /></ProtectedRoute>} />
               <Route path="/quotas" element={<ProtectedRoute><QuotaList /></ProtectedRoute>} />
               <Route path="/new" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
               <Route path="/edit/:id" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />

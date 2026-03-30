@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue, calculateScheduleSummary } from '../services/calculationService';
 import { db } from '../services/database';
 import { getTodayStr, formatNumber } from '../utils/formatters';
-import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2 } from 'lucide-react';
+import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2, Mail } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { SendEmailModal } from '../components/SendEmailModal';
+import { AVAILABLE_REPORT_COLUMNS } from '../constants/reportAvailableColumns';
 
 interface ReportRow {
   id: string;
@@ -41,9 +43,12 @@ interface ReportRow {
 }
 
 const Reports = () => {
-  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, allCreditUpdates, addCreditUpdate, deleteCreditUpdate, globalFilters, setGlobalFilters } = useConsortium();
+  const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, allCreditUpdates, addCreditUpdate, deleteCreditUpdate, globalFilters, setGlobalFilters, sendReportEmail, smtpConfig, addScheduledReport } = useConsortium();
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [editingId, setEditingId] = useState<{ id: string, field: string } | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -53,85 +58,93 @@ const Reports = () => {
   const [referenceDate, setReferenceDate] = useState(getTodayStr());
   const [sortConfig, setSortConfig] = useState<{ key: keyof ReportRow, direction: 'asc' | 'desc' } | null>(null);
 
+  const buildReport = useCallback(async (refDateStr: string) => {
+    const refDate = new Date(refDateStr + 'T23:59:59');
+
+    try {
+      const rows = await Promise.all(quotas.map(async (quota) => {
+        const [quotaPayments, quotaManualTransactions] = await Promise.all([
+          db.getPayments(quota.id),
+          db.getManualTransactions(quota.id)
+        ]);
+
+        const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
+        
+        let vlrCartaAtual = quota.creditValue;
+        if (schedule.length > 0) {
+           const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= refDateStr);
+           vlrCartaAtual = pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue : quota.creditValue;
+        }
+
+        const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
+        
+        const sumVencido = summary.paid.total;
+        const sumAVencer = summary.toPay.total;
+        const percentVencido = summary.paid.percent;
+        const percentAVencer = summary.toPay.percent;
+        
+        const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices, refDateStr);
+        
+        const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate);
+        
+        const bidEmbedded = quota.bidEmbedded || 0;
+        const valorLiquido = creditAtContemplation - bidEmbedded;
+        
+        const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
+        const latestUpdateValue = quotaUpdates.length > 0 
+          ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
+          : 0;
+        
+        const creditoTotal = valorLiquido + latestUpdateValue;
+        
+        const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id && u.date <= refDateStr);
+        const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+        return {
+          id: quota.id,
+          group: quota.group,
+          quotaNumber: quota.quotaNumber,
+          creditValue: vlrCartaAtual,
+          isContemplated: quota.isContemplated,
+          contemplationDate: quota.contemplationDate,
+          administratorId: quota.administratorId,
+          companyId: quota.companyId,
+          productType: quota.productType,
+          saldoAVencer: sumAVencer,
+          percentAVencer: percentAVencer,
+          saldoVencido: sumVencido,
+          percentVencido: percentVencido,
+          bidTotal: quota.bidTotal || 0,
+          percentBidTotal: vlrCartaAtual > 0 ? ((quota.bidTotal || 0) / vlrCartaAtual) * 100 : 0,
+          bidFree: quota.bidFree || 0,
+          percentBidFree: vlrCartaAtual > 0 ? ((quota.bidFree || 0) / vlrCartaAtual) * 100 : 0,
+          bidEmbedded: bidEmbedded,
+          percentBidEmbedded: vlrCartaAtual > 0 ? (bidEmbedded / vlrCartaAtual) * 100 : 0,
+          creditAtContemplation: creditAtContemplation,
+          valorRealCarta: valorLiquido,
+          creditManualAdjustment: latestUpdateValue,
+          creditoTotal: creditoTotal,
+          bidFreeCorrection: correction92CDI,
+          creditoUtilizado,
+          saldoDisponivel: creditoTotal - creditoUtilizado
+        };
+      }));
+      return rows;
+    } catch (err) { 
+      console.error(err); 
+      return [];
+    }
+  }, [quotas, indices, allCreditUsages, allCreditUpdates]);
+
   useEffect(() => {
-    const buildReport = async () => {
+    const loadData = async () => {
       setLoading(true);
-      const refDateStr = referenceDate;
-      const refDate = new Date(refDateStr + 'T23:59:59');
-
-      try {
-        const rows = await Promise.all(quotas.map(async (quota) => {
-          const [quotaPayments, quotaManualTransactions] = await Promise.all([
-            db.getPayments(quota.id),
-            db.getManualTransactions(quota.id)
-          ]);
-
-          const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
-          
-          let vlrCartaAtual = quota.creditValue;
-          if (schedule.length > 0) {
-             const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= refDateStr);
-             vlrCartaAtual = pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue : quota.creditValue;
-          }
-
-          const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
-          
-          const sumVencido = summary.paid.total;
-          const sumAVencer = summary.toPay.total;
-          const percentVencido = summary.paid.percent;
-          const percentAVencer = summary.toPay.percent;
-          
-          const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices, refDateStr);
-          
-          const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate);
-          
-          const bidEmbedded = quota.bidEmbedded || 0;
-          const valorLiquido = creditAtContemplation - bidEmbedded;
-          
-          const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
-          const latestUpdateValue = quotaUpdates.length > 0 
-            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
-            : 0;
-          
-          const creditoTotal = valorLiquido + latestUpdateValue;
-          
-          const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id && u.date <= refDateStr);
-          const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
-
-          return {
-            id: quota.id,
-            group: quota.group,
-            quotaNumber: quota.quotaNumber,
-            creditValue: vlrCartaAtual,
-            isContemplated: quota.isContemplated,
-            contemplationDate: quota.contemplationDate,
-            administratorId: quota.administratorId,
-            companyId: quota.companyId,
-            productType: quota.productType,
-            saldoAVencer: sumAVencer,
-            percentAVencer: percentAVencer,
-            saldoVencido: sumVencido,
-            percentVencido: percentVencido,
-            bidTotal: quota.bidTotal || 0,
-            percentBidTotal: vlrCartaAtual > 0 ? ((quota.bidTotal || 0) / vlrCartaAtual) * 100 : 0,
-            bidFree: quota.bidFree || 0,
-            percentBidFree: vlrCartaAtual > 0 ? ((quota.bidFree || 0) / vlrCartaAtual) * 100 : 0,
-            bidEmbedded: bidEmbedded,
-            percentBidEmbedded: vlrCartaAtual > 0 ? (bidEmbedded / vlrCartaAtual) * 100 : 0,
-            creditAtContemplation: creditAtContemplation,
-            valorRealCarta: valorLiquido,
-            creditManualAdjustment: latestUpdateValue,
-            creditoTotal: creditoTotal,
-            bidFreeCorrection: correction92CDI,
-            creditoUtilizado,
-            saldoDisponivel: creditoTotal - creditoUtilizado
-          };
-        }));
-        setReportData(rows);
-      } catch (err) { console.error(err); } finally { setLoading(false); }
+      const rows = await buildReport(referenceDate);
+      setReportData(rows);
+      setLoading(false);
     };
-    buildReport();
-  }, [quotas, indices, allCreditUsages, allCreditUpdates, referenceDate]);
+    loadData();
+  }, [buildReport, referenceDate]);
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
@@ -258,12 +271,58 @@ const Reports = () => {
     if (!sortedData.length) return;
 
     const doc = new jsPDF('l', 'mm', 'a4');
-    const title = `Relatório por Cota - Referência: ${referenceDate}`;
+    const title = `Relatório por Cota`;
     
-    doc.setFontSize(16);
+    doc.setFontSize(20);
+    doc.setTextColor(30, 41, 59);
     doc.text(title, 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}`, 14, 22);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Acompanhamento de saldos, lances e créditos em ${referenceDate}`, 14, 22);
+
+    let currentY = 28;
+
+    // Summary Cards
+    const cardWidth = 42;
+    const cardHeight = 15;
+    const gap = 2;
+    let startX = 14;
+    let currentX = startX;
+
+    const cards = [
+      { label: 'Cotas', value: sortedData.length, color: [71, 85, 105] },
+      { label: 'Valor Total da Carta', value: formatNumber(totals.creditValue), color: [71, 85, 105] },
+      { label: 'Valor Pago', value: formatNumber(totals.saldoVencido), color: [5, 150, 105] },
+      { label: 'Valor a Pagar', value: formatNumber(totals.saldoAVencer), color: [220, 38, 38] },
+      { label: 'Total Lances', value: formatNumber(totals.bidTotal), color: [180, 83, 9] },
+      { label: 'Crédito total Bruto', value: formatNumber(totals.creditAtContemplation), color: [71, 85, 105] },
+      { label: 'Crédito Total Líquido', value: formatNumber(totals.valorRealCarta), color: [29, 78, 216] },
+      { label: 'Crédito Total Com Aplicação', value: formatNumber(totals.creditoTotal), color: [30, 41, 59] },
+      { label: 'Crédito Utilizado', value: formatNumber(totals.creditoUtilizado), color: [194, 65, 12] },
+      { label: 'Crédito Total Disponível', value: formatNumber(totals.saldoDisponivel), color: [6, 95, 70] },
+      { label: 'Créditos Disponível Utilização', value: formatNumber(totals.contemplatedAvailableCredit), color: [55, 48, 163] },
+    ];
+
+    cards.forEach((card, index) => {
+      if (index === 6) {
+        currentY += cardHeight + gap;
+        currentX = startX;
+      }
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(currentX, currentY, cardWidth, cardHeight, 1, 1, 'F');
+      doc.setFontSize(6);
+      doc.setTextColor(100, 116, 139);
+      doc.text(card.label, currentX + 2, currentY + 5);
+      doc.setFontSize(7);
+      doc.setTextColor(card.color[0], card.color[1], card.color[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(card.value), currentX + 2, currentY + 11);
+      doc.setFont('helvetica', 'normal');
+      currentX += cardWidth + gap;
+    });
+
+    currentY += cardHeight + 5;
 
     const tableColumn = [
       "Grupo", "Cota", "Vlr Carta", "Valor Pago", "Valor a Pagar", "Lance Tot.", "% Lance", 
@@ -296,13 +355,257 @@ const Reports = () => {
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 30,
+      startY: currentY,
       theme: 'grid',
       styles: { fontSize: 5, cellPadding: 0.5 },
       headStyles: { fillColor: [30, 41, 59] },
+      didParseCell: (data) => {
+        const header = data.column.raw as string;
+        if (data.section === 'body') {
+          if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
+          if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
+          if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
+          if (header === 'Crédito Total Líquido') data.cell.styles.textColor = [29, 78, 216];
+          if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
+        }
+      }
     });
 
     doc.save(`Relatorio_por_Cota_${referenceDate}.pdf`);
+  };
+
+  const availableColumns = AVAILABLE_REPORT_COLUMNS;
+
+  const handleSendEmail = async (config: {
+    recipient: string;
+    subject: string;
+    message: string;
+    selectedColumns: string[];
+    filters: {
+      referenceDate: string;
+      companyId?: string;
+      administratorId?: string;
+      productType?: string;
+      status?: string;
+    };
+    saveAsScheduled: boolean;
+    frequency: any;
+    reportName: string;
+  }) => {
+    // If saving as scheduled, we need to save it to the database
+    if (config.saveAsScheduled) {
+      try {
+        await addScheduledReport({
+          id: crypto.randomUUID(),
+          name: config.reportName,
+          recipient: config.recipient,
+          subject: config.subject,
+          message: config.message,
+          frequency: config.frequency,
+          selectedColumns: config.selectedColumns,
+          filters: config.filters,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error('Erro ao salvar relatório agendado:', error);
+      }
+    }
+
+    if (!smtpConfig || !smtpConfig.host) {
+      throw new Error('Configurações de SMTP não encontradas. Configure-as na página de Configurações.');
+    }
+
+    setSendingEmail(true);
+    setEmailStatus(null);
+
+    try {
+      // Re-calculate or re-filter data based on modal filters
+      let dataForEmail = reportData;
+      
+      // If reference date changed, we must re-calculate
+      if (config.filters.referenceDate !== referenceDate) {
+        dataForEmail = await buildReport(config.filters.referenceDate);
+      }
+
+      // Apply other filters from modal
+      const filteredForEmail = dataForEmail.filter(row => {
+        const matchAdmin = !config.filters.administratorId || row.administratorId === config.filters.administratorId;
+        const matchComp = !config.filters.companyId || row.companyId === config.filters.companyId;
+        
+        let rowProduct = row.productType;
+        if (rowProduct === 'VEHICLE') rowProduct = 'VEICULO';
+        if (rowProduct === 'REAL_ESTATE') rowProduct = 'IMOVEL';
+        
+        const matchProduct = !config.filters.productType || rowProduct === config.filters.productType;
+        let matchStatus = true;
+        if (config.filters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
+        else if (config.filters.status === 'ACTIVE') matchStatus = !row.isContemplated;
+        return matchAdmin && matchComp && matchProduct && matchStatus;
+      });
+
+      if (filteredForEmail.length === 0) {
+        throw new Error('Nenhuma cota encontrada com os filtros selecionados.');
+      }
+
+      // Calculate totals for the filtered data
+      const emailTotals = filteredForEmail.reduce((acc, row) => ({
+        creditValue: acc.creditValue + row.creditValue,
+        saldoAVencer: acc.saldoAVencer + row.saldoAVencer,
+        saldoVencido: acc.saldoVencido + row.saldoVencido,
+        bidTotal: acc.bidTotal + row.bidTotal,
+        bidFree: acc.bidFree + row.bidFree,
+        bidEmbedded: acc.bidEmbedded + row.bidEmbedded,
+        creditAtContemplation: acc.creditAtContemplation + row.creditAtContemplation,
+        valorRealCarta: acc.valorRealCarta + row.valorRealCarta,
+        creditoTotal: acc.creditoTotal + row.creditoTotal,
+        creditoUtilizado: acc.creditoUtilizado + row.creditoUtilizado,
+        saldoDisponivel: acc.saldoDisponivel + row.saldoDisponivel,
+        creditManualAdjustment: acc.creditManualAdjustment + row.creditManualAdjustment,
+        bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection,
+        contemplatedAvailableCredit: acc.contemplatedAvailableCredit + (row.isContemplated ? row.saldoDisponivel : 0)
+      }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0, contemplatedAvailableCredit: 0 });
+
+      const doc = new jsPDF('l', 'mm', 'a4');
+      const title = config.subject || `Relatório por Cota`;
+      
+      doc.setFontSize(20);
+      doc.setTextColor(30, 41, 59);
+      doc.text(title, 14, 15);
+      
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Acompanhamento de saldos, lances e créditos em ${config.filters.referenceDate}`, 14, 22);
+
+      let currentY = 28;
+
+      // Summary Cards
+      const cardWidth = 42;
+      const cardHeight = 15;
+      const gap = 2;
+      let startX = 14;
+      let currentX = startX;
+
+      const cards = [
+        { label: 'Cotas', value: filteredForEmail.length, color: [71, 85, 105] },
+        { label: 'Valor Total da Carta', value: formatNumber(emailTotals.creditValue), color: [71, 85, 105] },
+        { label: 'Valor Pago', value: formatNumber(emailTotals.saldoVencido), color: [5, 150, 105] },
+        { label: 'Valor a Pagar', value: formatNumber(emailTotals.saldoAVencer), color: [220, 38, 38] },
+        { label: 'Total Lances', value: formatNumber(emailTotals.bidTotal), color: [180, 83, 9] },
+        { label: 'Crédito total Bruto', value: formatNumber(emailTotals.creditAtContemplation), color: [71, 85, 105] },
+        { label: 'Crédito Total Líquido', value: formatNumber(emailTotals.valorRealCarta), color: [29, 78, 216] },
+        { label: 'Crédito Total Com Aplicação', value: formatNumber(emailTotals.creditoTotal), color: [30, 41, 59] },
+        { label: 'Crédito Utilizado', value: formatNumber(emailTotals.creditoUtilizado), color: [194, 65, 12] },
+        { label: 'Crédito Total Disponível', value: formatNumber(emailTotals.saldoDisponivel), color: [6, 95, 70] },
+        { label: 'Créditos Disponível Utilização', value: formatNumber(emailTotals.contemplatedAvailableCredit), color: [55, 48, 163] },
+      ];
+
+      cards.forEach((card, index) => {
+        if (index === 6) {
+          currentY += cardHeight + gap;
+          currentX = startX;
+        }
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(currentX, currentY, cardWidth, cardHeight, 1, 1, 'F');
+        doc.setFontSize(6);
+        doc.setTextColor(100, 116, 139);
+        doc.text(card.label, currentX + 2, currentY + 5);
+        doc.setFontSize(7);
+        doc.setTextColor(card.color[0], card.color[1], card.color[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.text(String(card.value), currentX + 2, currentY + 11);
+        doc.setFont('helvetica', 'normal');
+        currentX += cardWidth + gap;
+      });
+
+      currentY += cardHeight + 5;
+
+      // Map selected columns to headers and data
+      const tableColumn = availableColumns
+        .filter(col => config.selectedColumns.includes(col.id))
+        .map(col => col.label);
+      
+      const tableRows = filteredForEmail.map(row => {
+        const rowData: string[] = [];
+        config.selectedColumns.forEach(colId => {
+          const val = row[colId as keyof ReportRow];
+          if (colId === 'contemplationDate') {
+            rowData.push(row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : '');
+          } else if (colId.startsWith('percent')) {
+            rowData.push(`${(val as number).toFixed(2)}%`);
+          } else if (typeof val === 'number') {
+            rowData.push(formatNumber(val));
+          } else {
+            rowData.push(String(val || ''));
+          }
+        });
+        return rowData;
+      });
+
+      // Add Totals Row
+      const totalsRow: string[] = [];
+      config.selectedColumns.forEach(colId => {
+        if (colId === 'group') {
+          totalsRow.push('TOTAIS');
+        } else if (['creditValue', 'saldoAVencer', 'saldoVencido', 'bidTotal', 'bidFree', 'bidEmbedded', 'creditAtContemplation', 'valorRealCarta', 'creditoTotal', 'creditoUtilizado', 'saldoDisponivel', 'creditManualAdjustment', 'bidFreeCorrection', 'contemplatedAvailableCredit'].includes(colId)) {
+          totalsRow.push(formatNumber(emailTotals[colId as keyof typeof emailTotals]));
+        } else {
+          totalsRow.push('');
+        }
+      });
+      tableRows.push(totalsRow);
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: currentY,
+        theme: 'grid',
+        styles: { fontSize: config.selectedColumns.length > 12 ? 4 : 6, cellPadding: 0.5 },
+        headStyles: { fillColor: [30, 41, 59] },
+        columnStyles: config.selectedColumns.reduce((acc, colId, index) => {
+          const col = availableColumns.find(c => c.id === colId);
+          if (col && (col.type === 'currency' || col.type === 'number' || col.type === 'percent')) {
+            acc[index] = { halign: 'right' };
+          }
+          return acc;
+        }, {} as any),
+        didParseCell: (data) => {
+          const header = data.column.raw as string;
+          if (data.section === 'body') {
+            // Apply colors to specific columns
+            if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
+            if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
+            if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
+            if (header === 'Crédito Total Líquido') data.cell.styles.textColor = [29, 78, 216];
+            if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
+
+            // Highlight Totals Row
+            if (data.row.index === tableRows.length - 1) {
+              data.cell.styles.fontStyle = 'bold';
+              data.cell.styles.fillColor = [241, 245, 249];
+            }
+          }
+        }
+      });
+
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+      const filename = `Relatorio_por_Cota_${config.filters.referenceDate}.pdf`;
+
+      await sendReportEmail(
+        config.subject,
+        config.message,
+        [{ filename, content: pdfBase64, encoding: 'base64' }],
+        config.recipient
+      );
+
+      setEmailStatus({ type: 'success', message: 'Relatório enviado com sucesso por e-mail!' });
+    } catch (error: any) {
+      console.error('Erro ao enviar e-mail:', error);
+      setEmailStatus({ type: 'error', message: `Erro ao enviar e-mail: ${error.message}` });
+      throw error;
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   return (
@@ -328,6 +631,14 @@ const Reports = () => {
             <FileText size={20} />
           </button>
           <button 
+            onClick={() => setIsEmailModalOpen(true)}
+            disabled={sendingEmail}
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors disabled:opacity-50"
+            title="Enviar por E-mail"
+          >
+            {sendingEmail ? <Loader size={20} className="animate-spin" /> : <Mail size={20} />}
+          </button>
+          <button 
             onClick={handlePrint}
             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
             title="Imprimir"
@@ -337,6 +648,18 @@ const Reports = () => {
         </div>
       </div>
 
+      {emailStatus && (
+        <div className={`p-4 rounded-lg flex items-center justify-between ${emailStatus.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          <div className="flex items-center gap-2">
+            {emailStatus.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+            <span className="text-sm font-medium">{emailStatus.message}</span>
+          </div>
+          <button onClick={() => setEmailStatus(null)} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 print:hidden">
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Fechamento</label><input type="date" value={referenceDate} onChange={(e) => setReferenceDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" /></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
@@ -345,9 +668,10 @@ const Reports = () => {
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-5 xl:grid-cols-10 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3">
           {[
               { label: 'Cotas', value: sortedData.length, color: 'text-slate-700', bg: 'bg-white', isCurrency: false },
+              { label: 'Valor Total da Carta', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
               { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50', isCurrency: true },
               { label: 'Valor a Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50', isCurrency: true },
               { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50', isCurrency: true },
@@ -463,6 +787,24 @@ const Reports = () => {
           onClose={() => setShowUpdateModal(null)} 
         />
       )}
+
+      <SendEmailModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        onSend={handleSendEmail}
+        defaultRecipient={smtpConfig?.reportRecipient || ''}
+        defaultSubject={`Relatório por Cota - ${referenceDate}`}
+        availableColumns={availableColumns}
+        currentFilters={{
+          referenceDate,
+          companyId: globalFilters.companyId,
+          administratorId: globalFilters.administratorId,
+          productType: globalFilters.productType,
+          status: globalFilters.status
+        }}
+        companies={companies}
+        administrators={administrators}
+      />
     </div>
   );
 };

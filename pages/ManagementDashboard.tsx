@@ -86,7 +86,7 @@ const ManagementDashboard = () => {
               const ins = paymentData.manualInsurance ?? inst.insurance;
               const fine = paymentData.manualFine ?? 0;
               const interest = paymentData.manualInterest ?? 0;
-              const bid = inst.bidAmountApplied || 0;
+              const bid = inst.bidFreeApplied || 0;
 
               const totalInst = fc + fr + ta + ins + fine + interest;
               
@@ -94,7 +94,6 @@ const ManagementDashboard = () => {
               accFC += fc;
               accFees += (fr + ta + ins);
               accEncargos += (fine + interest);
-              accBids += bid;
               accCount++;
               accProjectedForPaid += inst.totalInstallment;
 
@@ -116,6 +115,20 @@ const ManagementDashboard = () => {
               adminMap[adminName].count++;
             }
           });
+
+          // Handle Bids separately (once per quota)
+          const freeBidPayment = paymentMap[0];
+          if (freeBidPayment && (freeBidPayment.status === 'PAGO' || freeBidPayment.isPaid === true) && freeBidPayment.paymentDate) {
+            const bidAmount = freeBidPayment.bidFreeApplied || 0;
+            accBids += bidAmount;
+            
+            const bidMonthKey = freeBidPayment.paymentDate.slice(0, 7);
+            if (!monthMap[bidMonthKey]) {
+              monthMap[bidMonthKey] = { month: bidMonthKey, real: 0, projected: 0, fc: 0, fees: 0, bids: 0 };
+            }
+            if (!monthMap[bidMonthKey].bids) monthMap[bidMonthKey].bids = 0;
+            monthMap[bidMonthKey].bids += bidAmount;
+          }
         });
 
         // Format charts

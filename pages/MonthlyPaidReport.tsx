@@ -92,12 +92,34 @@ const MonthlyPaidReport = () => {
                         currentMonth.fees += actualTA + actualFR;
                         currentMonth.others += actualFine + actualInterest;
 
-                        if (isPaid && (inst.bidAmountApplied || 0) > 0) {
-                            currentMonth.bids += inst.bidAmountApplied || 0;
-                        }
-
+                        // Bids are now handled separately below to avoid double-counting
+                        
                         currentMonth.total = currentMonth.commonFund + currentMonth.fees + currentMonth.bids + currentMonth.others;
                     });
+
+                    // Handle Bids separately (once per quota)
+                    // Free Bid (Lance Livre) - This is a cash payment
+                    const freeBidPayment = paymentMap[0];
+                    if (freeBidPayment && (freeBidPayment.status === 'PAGO' || freeBidPayment.isPaid === true) && freeBidPayment.paymentDate) {
+                        const bidDateStr = freeBidPayment.paymentDate.split('T')[0];
+                        if (bidDateStr >= startDate && bidDateStr <= endDate) {
+                            const monthKey = bidDateStr.slice(0, 7);
+                            if (!monthMap[monthKey]) {
+                                monthMap[monthKey] = {
+                                    monthYear: monthKey,
+                                    commonFund: 0,
+                                    fees: 0,
+                                    bids: 0,
+                                    others: 0,
+                                    total: 0,
+                                    quotaCount: 0
+                                };
+                            }
+                            const bidAmount = (freeBidPayment.bidFreeApplied || quota.bidFree || 0);
+                            monthMap[monthKey].bids += bidAmount;
+                            monthMap[monthKey].total = monthMap[monthKey].commonFund + monthMap[monthKey].fees + monthMap[monthKey].bids + monthMap[monthKey].others;
+                        }
+                    }
                 });
 
                 const sortedMonths = Object.values(monthMap).sort((a, b) => b.monthYear.localeCompare(a.monthYear));

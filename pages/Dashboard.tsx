@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
 import { generateSchedule, calculateCurrentCreditValue, calculateIRR } from '../services/calculationService';
@@ -12,6 +13,7 @@ import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader
 
 const Dashboard = () => {
   const { quotas, companies, administrators, indices, allCreditUpdates, globalFilters, setGlobalFilters } = useConsortium();
+  const navigate = useNavigate();
   
   // Filters State
   // selectedQuotaId remains local as it is specific to this view's interaction
@@ -190,9 +192,9 @@ const Dashboard = () => {
                   }
               }
 
-              if (isActuallyPaid && inst.bidAmountApplied && inst.bidAmountApplied > 0) {
-                  const bidFR = (inst.bidAbatementFR || 0);
-                  quotaPaid += (inst.bidAbatementFC || 0) + bidFR + (inst.bidAbatementTA || 0);
+              if (isActuallyPaid && inst.bidFreeApplied && inst.bidFreeApplied > 0) {
+                  const bidFR = (inst.bidFreeAbatementFR || 0);
+                  quotaPaid += (inst.bidFreeAbatementFC || 0) + bidFR + (inst.bidFreeAbatementTA || 0);
                   accTotalReserveFund += bidFR;
               }
           });
@@ -591,6 +593,27 @@ const Dashboard = () => {
               </select>
             </div>
         </div>
+      </div>
+
+      {/* SELLER DASHBOARD CTA */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center">
+            <TrendingUp size={32} />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold">Quanto vale sua cota hoje?</h3>
+            <p className="text-emerald-50 opacity-90 text-sm max-w-md">
+              Descubra o valor de mercado (ágio) do seu consórcio e anuncie grátis no nosso marketplace integrado.
+            </p>
+          </div>
+        </div>
+        <button 
+          onClick={() => navigate('/seller-dashboard')}
+          className="bg-white text-emerald-700 px-6 py-3 rounded-xl font-bold hover:bg-emerald-50 transition-all flex items-center gap-2 shadow-md whitespace-nowrap"
+        >
+          Ver Painel de Revenda <ArrowRight size={20} />
+        </button>
       </div>
 
       {loading ? (

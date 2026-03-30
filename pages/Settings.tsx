@@ -1,23 +1,53 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi } from 'lucide-react';
+import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi, Trash2, Calendar, Mail } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { useConsortium } from '../store/ConsortiumContext';
 import { db } from '../services/database';
 
 import { getTodayStr } from '../utils/formatters';
+import { EmailSettings } from '../components/EmailSettings';
+import { SendEmailModal } from '../components/SendEmailModal';
+import { AVAILABLE_REPORT_COLUMNS } from '../constants/reportAvailableColumns';
+import { ScheduledReport } from '../types';
 
 const Settings = () => {
-  const { refreshData, isCloudConnected, connectionError } = useConsortium();
+  const { 
+    refreshData, 
+    isCloudConnected, 
+    connectionError, 
+    scheduledReports, 
+    deleteScheduledReport,
+    addScheduledReport,
+    companies,
+    administrators
+  } = useConsortium();
   const [url, setUrl] = useState('');
   const [key, setKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [serverConfig, setServerConfig] = useState<{ isConfigured: boolean, url: string | null } | null>(null);
+  const [editingReport, setEditingReport] = useState<ScheduledReport | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [triggeringReportId, setTriggeringReportId] = useState<string | null>(null);
 
   useEffect(() => {
     const config = getSupabaseConfig();
     if (config.url) setUrl(config.url);
     if (config.key) setKey(config.key);
+
+    // Check server-side config
+    fetch('/api/config-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.supabase) {
+          setServerConfig({
+            isConfigured: data.supabase.isConfigured,
+            url: data.supabase.url
+          });
+        }
+      })
+      .catch(err => console.error('Error checking server config:', err));
   }, []);
 
   const handleTestConnection = async () => {
@@ -77,6 +107,28 @@ const Settings = () => {
       }
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleTriggerReport = async (reportId: string) => {
+    setTriggeringReportId(reportId);
+    try {
+      const response = await fetch(`/api/trigger-report/${reportId}`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        alert("✅ Relatório disparado com sucesso!");
+        refreshData(); // Refresh to update last_sent
+      } else {
+        alert(`❌ Falha ao disparar relatório: ${data.error || 'Erro desconhecido'}`);
+      }
+    } catch (err: any) {
+      console.error("Error triggering report:", err);
+      alert(`❌ Erro ao conectar com o servidor: ${err.message}`);
+    } finally {
+      setTriggeringReportId(null);
     }
   };
 
@@ -190,6 +242,35 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
+
+-- Tabela de Configuração SMTP
+CREATE TABLE IF NOT EXISTS smtp_config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  secure BOOLEAN DEFAULT FALSE,
+  user_name TEXT NOT NULL,
+  password TEXT NOT NULL,
+  from_name TEXT,
+  from_email TEXT,
+  report_recipient TEXT NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Tabela de Relatórios Agendados
+CREATE TABLE IF NOT EXISTS scheduled_reports (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  message TEXT,
+  frequency TEXT NOT NULL,
+  selected_columns JSONB NOT NULL,
+  filters JSONB NOT NULL,
+  last_sent TIMESTAMP WITH TIME ZONE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
 -- Tabela de Administradoras
 CREATE TABLE IF NOT EXISTS administrators (
@@ -410,6 +491,8 @@ ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE credit_usages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE smtp_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 
 -- Remove políticas antigas se existirem para evitar erro de duplicidade
 DROP POLICY IF EXISTS "Public access for demo" ON quotas;
@@ -420,6 +503,8 @@ DROP POLICY IF EXISTS "Public access for demo" ON companies;
 DROP POLICY IF EXISTS "Public access for demo" ON credit_usages;
 DROP POLICY IF EXISTS "Public access for demo" ON manual_transactions;
 DROP POLICY IF EXISTS "Public access for demo" ON users;
+DROP POLICY IF EXISTS "Public access for demo" ON smtp_config;
+DROP POLICY IF EXISTS "Public access for demo" ON scheduled_reports;
 
 -- Cria as políticas novamente
 CREATE POLICY "Public access for demo" ON quotas FOR ALL USING (true);
@@ -430,6 +515,8 @@ CREATE POLICY "Public access for demo" ON companies FOR ALL USING (true);
 CREATE POLICY "Public access for demo" ON credit_usages FOR ALL USING (true);
 CREATE POLICY "Public access for demo" ON manual_transactions FOR ALL USING (true);
 CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
+CREATE POLICY "Public access for demo" ON smtp_config FOR ALL USING (true);
+CREATE POLICY "Public access for demo" ON scheduled_reports FOR ALL USING (true);
 `;
 
   const copyToClipboard = () => {
@@ -444,6 +531,9 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
         <p className="text-slate-500">Conecte seu aplicativo a um banco de dados PostgreSQL na nuvem ou gerencie backups.</p>
       </div>
 
+      {/* Email Config */}
+      <EmailSettings />
+
       {connectionError && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-start gap-3">
           <AlertTriangle className="shrink-0 mt-0.5" />
@@ -453,6 +543,90 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
           </div>
         </div>
       )}
+
+      {/* Scheduled Reports Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="flex items-center gap-3 mb-6 bg-white rounded-lg">
+          <div className="p-3 bg-blue-100 text-blue-600 rounded-full">
+            <Calendar size={24} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Relatórios Agendados</h2>
+            <p className="text-sm text-slate-500">Gerencie os relatórios que são enviados automaticamente por e-mail.</p>
+          </div>
+        </div>
+
+        {scheduledReports.length === 0 ? (
+          <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-xl">
+            <Mail className="mx-auto text-slate-300 mb-2" size={32} />
+            <p className="text-slate-400 text-sm">Nenhum relatório agendado encontrado.</p>
+            <p className="text-slate-400 text-xs mt-1">Agende um novo relatório na página de Relatórios.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frequência</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Destinatário</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Último Envio</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {scheduledReports.map((report) => (
+                  <tr key={report.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3 px-4 text-sm font-medium text-slate-700">{report.name}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600">
+                      <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium">
+                        {report.frequency === 'DAILY' || report.frequency === 'daily' ? 'Diário' : 
+                         report.frequency === 'WEEKLY' || report.frequency === 'weekly' ? 'Semanal' : 
+                         report.frequency === 'MONTHLY' || report.frequency === 'monthly' ? 'Mensal' : 'Nenhum'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-sm text-slate-600">{report.recipient}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600">
+                      {report.last_sent ? new Date(report.last_sent).toLocaleString('pt-BR') : 'Nunca'}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleTriggerReport(report.id)}
+                          disabled={triggeringReportId === report.id}
+                          className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="Disparar e-mail agora"
+                        >
+                          {triggeringReportId === report.id ? <Activity size={18} className="animate-spin" /> : <Mail size={18} />}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingReport(report);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Editar agendamento"
+                        >
+                          <Calendar size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            deleteScheduledReport(report.id);
+                          }}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Excluir agendamento"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Database Config */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
@@ -467,6 +641,31 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
         </div>
 
         <div className="space-y-4">
+          {serverConfig && !serverConfig.isConfigured && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-700 p-4 rounded-lg flex items-start gap-3 mb-4">
+              <AlertTriangle className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Atenção: Agendador não configurado no Servidor</p>
+                <p className="text-sm">
+                  Os relatórios agendados são processados pelo servidor. Para que funcionem, você deve configurar as variáveis de ambiente 
+                  <strong>SUPABASE_URL</strong> e <strong>SUPABASE_ANON_KEY</strong> no menu <strong>Settings</strong> do AI Studio.
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {serverConfig && serverConfig.isConfigured && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-lg flex items-start gap-3 mb-4">
+              <CheckCircle className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-sm">Servidor Conectado</p>
+                <p className="text-xs">
+                  O servidor está conectado ao Supabase ({serverConfig.url}). Os relatórios agendados serão processados automaticamente.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-4">
             <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2 mb-2">
               <Info size={16} /> Como obter as credenciais corretas:
@@ -548,7 +747,7 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
           </button>
         </div>
         
-        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions')) && (
+        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions') || connectionError.includes('smtp_config')) && (
             <div className="bg-amber-600/20 border border-amber-600 text-amber-100 p-3 rounded mb-4 text-sm flex items-start gap-2">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
                 <p>
@@ -613,6 +812,49 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
             </p>
         )}
       </div>
+      {/* Modal de Edição de Agendamento */}
+      {editingReport && (
+        <SendEmailModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingReport(null);
+          }}
+          onSend={async (config) => {
+            try {
+              await addScheduledReport({
+                id: editingReport.id,
+                name: config.reportName,
+                recipient: config.recipient,
+                subject: config.subject,
+                message: config.message,
+                frequency: config.frequency,
+                selectedColumns: config.selectedColumns,
+                filters: config.filters,
+                isActive: true,
+                createdAt: editingReport.createdAt || new Date().toISOString()
+              });
+              setIsEditModalOpen(false);
+              setEditingReport(null);
+              alert('Agendamento atualizado com sucesso!');
+            } catch (error) {
+              console.error('Erro ao atualizar agendamento:', error);
+              alert('Erro ao atualizar agendamento. Verifique o console.');
+            }
+          }}
+          defaultRecipient={editingReport.recipient}
+          defaultSubject={editingReport.subject}
+          defaultMessage={editingReport.message}
+          defaultSelectedColumns={typeof editingReport.selected_columns === 'string' ? JSON.parse(editingReport.selected_columns) : editingReport.selected_columns}
+          defaultFrequency={editingReport.frequency}
+          defaultReportName={editingReport.name}
+          defaultSaveAsScheduled={true}
+          availableColumns={AVAILABLE_REPORT_COLUMNS}
+          currentFilters={typeof editingReport.filters === 'string' ? JSON.parse(editingReport.filters) : editingReport.filters}
+          companies={companies}
+          administrators={administrators}
+        />
+      )}
     </div>
   );
 };

@@ -3,8 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType, CalculationMethod, IndexTableEntry } from '../types';
-import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Trash2, FileText, Upload, Sparkles, ExternalLink, CheckCircle } from 'lucide-react';
 import { formatCurrency, calculateIndexReferenceMonth, getTodayStr } from '../utils/formatters';
+import { extractQuotaDataFromContract } from '../services/aiService';
+import { uploadContractFile } from '../services/database';
 
 const NewQuota = () => {
   const navigate = useNavigate();
@@ -15,6 +17,8 @@ const NewQuota = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [displayCreditValue, setDisplayCreditValue] = useState('');
   const [isManualMonth, setIsManualMonth] = useState(false);
+  const [contractFile, setContractFile] = useState<File | null>(null);
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
 
   const [formData, setFormData] = useState<Partial<Quota>>({
     productType: ProductType.VEHICLE,
@@ -73,6 +77,7 @@ const NewQuota = () => {
           dataToSet.group = '';
           dataToSet.quotaNumber = '';
           dataToSet.contractNumber = '';
+          dataToSet.contractFileUrl = '';
         }
 
         setFormData(dataToSet);
@@ -173,6 +178,64 @@ const NewQuota = () => {
       }));
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setContractFile(e.target.files[0]);
+    }
+  };
+
+  const handleProcessAI = async () => {
+    if (!contractFile) {
+      alert("Por favor, selecione um arquivo de contrato primeiro.");
+      return;
+    }
+    
+    setIsProcessingAI(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(contractFile);
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(',')[1];
+          const data = await extractQuotaDataFromContract(base64, contractFile.type);
+          
+          // Update form data with extracted values
+          setFormData(prev => ({
+            ...prev,
+            group: data.group || prev.group,
+            quotaNumber: data.quotaNumber || prev.quotaNumber,
+            contractNumber: data.contractNumber || prev.contractNumber,
+            creditValue: data.creditValue || prev.creditValue,
+            termMonths: data.termMonths || prev.termMonths,
+            adminFeeRate: data.adminFeeRate || prev.adminFeeRate,
+            reserveFundRate: data.reserveFundRate || prev.reserveFundRate,
+            dueDay: data.dueDay || prev.dueDay,
+            correctionIndex: (data.correctionIndex as CorrectionIndex) || prev.correctionIndex,
+            productType: (data.productType as ProductType) || prev.productType,
+            adhesionDate: data.adhesionDate || prev.adhesionDate,
+            firstAssemblyDate: data.firstAssemblyDate || prev.firstAssemblyDate,
+            firstDueDate: data.firstDueDate || prev.firstDueDate,
+          }));
+
+          if (data.creditValue) {
+            setDisplayCreditValue(data.creditValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+          }
+          
+          alert("Dados extraídos com sucesso! Por favor, revise os campos preenchidos.");
+        } catch (err) {
+          console.error("Erro no processamento IA:", err);
+          alert("Erro ao extrair dados do contrato. Tente novamente ou preencha manualmente.");
+        } finally {
+          setIsProcessingAI(false);
+        }
+      };
+    } catch (error) {
+      console.error("Erro ao ler arquivo:", error);
+      alert("Erro ao ler o arquivo selecionado.");
+      setIsProcessingAI(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.group || !formData.quotaNumber || !formData.creditValue) {
@@ -222,8 +285,22 @@ const NewQuota = () => {
     }
 
     setIsSaving(true);
+    
+    const quotaId = id || crypto.randomUUID();
+    let contractUrl = formData.contractFileUrl;
+    if (contractFile) {
+      try {
+        const uploadedUrl = await uploadContractFile(contractFile, quotaId);
+        if (uploadedUrl) {
+          contractUrl = uploadedUrl;
+        }
+      } catch (err) {
+        console.warn("Erro ao fazer upload do contrato:", err);
+      }
+    }
+
     const quotaData: Quota = {
-      id: id || crypto.randomUUID(),
+      id: quotaId,
       group: formData.group!,
       quotaNumber: formData.quotaNumber!,
       contractNumber: formData.contractNumber || '',
@@ -258,7 +335,8 @@ const NewQuota = () => {
       recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
       anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
       prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
-      indexReferenceMonth: Number(formData.indexReferenceMonth || 1)
+      indexReferenceMonth: Number(formData.indexReferenceMonth || 1),
+      contractFileUrl: contractUrl
     };
     try {
       if (id) {
@@ -282,20 +360,34 @@ const NewQuota = () => {
   };
 
   const handleSaveAndContinue = async () => {
+      setIsSaving(true);
+      
+      let contractUrl = formData.contractFileUrl;
+      if (contractFile) {
+        try {
+          const uploadedUrl = await uploadContractFile(contractFile, id || crypto.randomUUID());
+          if (uploadedUrl) {
+            contractUrl = uploadedUrl;
+          }
+        } catch (err) {
+          console.warn("Erro ao fazer upload do contrato:", err);
+        }
+      }
+
       const quotaData: Quota = {
         id: id!,
         group: formData.group!,
         quotaNumber: formData.quotaNumber!,
         contractNumber: formData.contractNumber || '',
         creditValue: Number(formData.creditValue),
-        adhesionDate: formData.adhesionDate || '',
-        firstAssemblyDate: formData.firstAssemblyDate || '',
+        adhesionDate: formData.adhesionDate || getTodayStr(),
+        firstAssemblyDate: formData.firstAssemblyDate || getTodayStr(),
         termMonths: Number(formData.termMonths),
         adminFeeRate: Number(formData.adminFeeRate),
         reserveFundRate: Number(formData.reserveFundRate),
         productType: formData.productType as ProductType,
         dueDay: Number(formData.dueDay || 25),
-        firstDueDate: formData.firstDueDate || '',
+        firstDueDate: formData.firstDueDate || getTodayStr(),
         correctionIndex: formData.correctionIndex as CorrectionIndex,
         paymentPlan: formData.paymentPlan as PaymentPlanType,
         calculationMethod: formData.calculationMethod as CalculationMethod,
@@ -312,17 +404,25 @@ const NewQuota = () => {
         bidBase: formData.bidBase as BidBaseType,
         creditManualAdjustment: Number(formData.creditManualAdjustment || 0),
         bidFreeCorrection: Number(formData.bidFreeCorrection || 0),
-        administratorId: formData.administratorId,
-        companyId: formData.companyId,
+        administratorId: formData.administratorId || undefined,
+        companyId: formData.companyId || undefined,
         correctionRateCap: formData.correctionRateCap ? Number(formData.correctionRateCap) : undefined,
         recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
         anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
         prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
-        indexReferenceMonth: Number(formData.indexReferenceMonth || 1)
+        indexReferenceMonth: Number(formData.indexReferenceMonth || 1),
+        contractFileUrl: contractUrl
       };
-      await updateQuota(quotaData);
-      setCurrentQuota(quotaData);
-      navigate('/simulate');
+      
+      try {
+        await updateQuota(quotaData);
+        setCurrentQuota(quotaData);
+        navigate('/simulate');
+      } catch (error: any) {
+        alert(error.message || "Erro ao salvar. Verifique a conexão.");
+      } finally {
+        setIsSaving(false);
+      }
   };
 
   return (
@@ -337,6 +437,61 @@ const NewQuota = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="mb-8 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText className="text-blue-600" size={20} />
+            <h2 className="text-lg font-semibold text-blue-900">Anexo de Contrato e Cadastro Inteligente</h2>
+          </div>
+          
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            <div className="flex-1 w-full">
+              <div className="relative border-2 border-dashed border-blue-200 rounded-lg p-4 hover:border-blue-400 transition-colors bg-white">
+                <input 
+                  type="file" 
+                  accept=".pdf,image/*" 
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                    <Upload size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">
+                      {contractFile ? contractFile.name : 'Clique ou arraste o contrato aqui'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider">PDF ou Imagem (Máx 10MB)</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <button 
+              type="button"
+              onClick={handleProcessAI}
+              disabled={!contractFile || isProcessingAI}
+              className="w-full md:w-auto px-6 py-4 bg-blue-600 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessingAI ? <Loader className="animate-spin" size={18} /> : <Sparkles size={18} />}
+              {isProcessingAI ? 'Processando...' : 'Preencher com IA'}
+            </button>
+          </div>
+          
+          {formData.contractFileUrl && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-blue-600">
+              <CheckCircle size={14} />
+              <span>Contrato arquivado: </span>
+              <a href={formData.contractFileUrl} target="_blank" rel="noopener noreferrer" className="font-bold underline flex items-center gap-1">
+                Visualizar Arquivo <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
+          
+          <p className="mt-3 text-[10px] text-slate-500 italic">
+            * A IA irá ler o documento e preencher os campos automaticamente. Revise sempre os dados antes de salvar.
+          </p>
+        </div>
+
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Identificação</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
