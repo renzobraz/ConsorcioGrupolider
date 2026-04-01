@@ -28,39 +28,63 @@ const Marketplace = () => {
     return quotas
       .filter(q => q.isAnnounced)
       .map(quota => {
+        const schedule = generateSchedule(quota, indices);
+        
+        const totalInstallments = quota.termMonths;
+        const assumedPaidCount = quota.assumedInstallment ? quota.assumedInstallment - 1 : 0;
+        
+        // Estimar o valor pago antes da aquisição ou antes do início do cronograma atual
+        const firstInst = schedule.find(i => i.installmentNumber > 0);
+        const avgInstValue = firstInst ? firstInst.totalInstallment : (Number(quota.creditValue) * (1 + (Number(quota.adminFeeRate) + Number(quota.reserveFundRate)) / 100) / totalInstallments);
+        const assumedPaidAmount = assumedPaidCount * avgInstValue;
+        
+        const paidAmount = schedule.filter(i => i.isPaid).reduce((sum, i) => sum + (i.realAmountPaid || i.totalInstallment) + (i.bidFreeApplied || 0), 0) + assumedPaidAmount;
+        const debtBalance = schedule.filter(i => !i.isPaid).reduce((sum, i) => sum + i.totalInstallment, 0);
+        
+        const paidCountInSchedule = schedule.filter(i => i.isPaid && i.installmentNumber > 0).length;
+        const totalPaidCount = paidCountInSchedule + assumedPaidCount;
+
+        const now = new Date();
+        const currentMonthInst = schedule.find(i => {
+          const d = new Date(i.dueDate);
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        });
+        
+        let currentMonthNumber = 0;
+        if (currentMonthInst) {
+          currentMonthNumber = currentMonthInst.installmentNumber;
+        } else {
+          const lastPastInst = [...schedule].filter(i => new Date(i.dueDate) <= now && i.installmentNumber > 0)
+            .sort((a, b) => b.installmentNumber - a.installmentNumber)[0];
+          currentMonthNumber = lastPastInst ? lastPastInst.installmentNumber : assumedPaidCount;
+        }
+
+        const remainingInstallments = Math.max(0, totalInstallments - Math.max(totalPaidCount, currentMonthNumber));
+        const nextInstallment = schedule.find(i => !i.isPaid && i.installmentNumber > 0);
+        const currentInstallmentValue = nextInstallment ? nextInstallment.totalInstallment : 0;
+
         // Extrair dados do ágio e financeiros das notas se existir (formato JSON)
         let customAgio = 0;
-        let paidAmount = 0;
-        let debtBalance = 0;
+        let reserveFundAccumulated = 0;
+        let insuranceRate = 0;
+        let insuranceValue = 0;
 
         if (quota.marketNotes) {
           try {
             const data = JSON.parse(quota.marketNotes);
             customAgio = data.customAgio || 0;
-            paidAmount = data.paidAmount || 0;
-            debtBalance = data.debtBalance || 0;
             
             // Novos campos para o Raio-X
-            quota.reserveFundAccumulated = data.reserveFundAccumulated || 0;
-            quota.insuranceRate = data.insuranceRate || 0;
-            quota.insuranceValue = data.insuranceValue || 0;
+            reserveFundAccumulated = data.reserveFundAccumulated || 0;
+            insuranceRate = data.insuranceRate || 0;
+            insuranceValue = data.insuranceValue || 0;
           } catch (e) {
             // Fallback para formato antigo de texto
             if (quota.marketNotes.includes('Ágio definido pelo vendedor:')) {
               const match = quota.marketNotes.match(/Ágio definido pelo vendedor: ([\d.]+)/);
               if (match) customAgio = parseFloat(match[1]);
             }
-            
-            // Se não tiver no JSON, calcula o básico (pode ser impreciso, mas é o fallback)
-            const schedule = generateSchedule(quota, indices);
-            paidAmount = schedule.filter(i => i.isPaid).reduce((sum, i) => sum + (i.realAmountPaid || i.totalInstallment) + (i.bidFreeApplied || 0), 0);
-            debtBalance = schedule.filter(i => !i.isPaid).reduce((sum, i) => sum + i.totalInstallment, 0);
           }
-        } else {
-          // Sem notas, calcula o básico
-          const schedule = generateSchedule(quota, indices);
-          paidAmount = schedule.filter(i => i.isPaid).reduce((sum, i) => sum + (i.realAmountPaid || i.totalInstallment) + (i.bidFreeApplied || 0), 0);
-          debtBalance = schedule.filter(i => !i.isPaid).reduce((sum, i) => sum + i.totalInstallment, 0);
         }
 
         const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === quota.id);
@@ -72,13 +96,15 @@ const Marketplace = () => {
         const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
 
         const analysis = calculateMarketAnalysis(
-          quota, 
+          { ...quota, reserveFundAccumulated, insuranceRate, insuranceValue }, 
           indices, 
           paidAmount, 
           debtBalance, 
           customAgio,
           latestUpdateValue,
-          creditoUtilizado
+          creditoUtilizado,
+          remainingInstallments,
+          currentInstallmentValue
         );
         return { quota, analysis };
       });
@@ -275,8 +301,30 @@ const Marketplace = () => {
                   <span className="text-sm font-bold text-slate-600">{formatCurrency(item.analysis.debtBalance)}</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Parcelas</span>
-                  <span className="text-sm font-bold text-slate-600">{item.quota.termMonths} meses</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Total de Parcelas</span>
+                  <span className="text-sm font-bold text-slate-600">{item.analysis.totalInstallments} meses</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Parcelas Restantes</span>
+                  <span className="text-sm font-bold text-slate-600">{item.analysis.remainingInstallments} meses</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Parcela Atual</span>
+                  <span className="text-sm font-black text-slate-700">{formatCurrency(item.analysis.currentInstallmentValue)}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Taxa Adm.</span>
+                  <span className="text-sm font-bold text-slate-600">{item.analysis.adminFeeRate.toFixed(2)}%</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Fundo Reserva</span>
+                  <span className="text-sm font-bold text-slate-600">{item.analysis.reserveFundRate.toFixed(2)}%</span>
                 </div>
               </div>
             </div>

@@ -231,14 +231,16 @@ const ConnectionStatus = () => {
 };
 
 const SupabaseSyncWarning = () => {
-  const [isVisible, setIsVisible] = useState(true);
+  const [isVisible, setIsVisible] = useState(() => {
+    return localStorage.getItem('supabase_sync_warning_dismissed') !== 'true';
+  });
   const [isChecking, setIsChecking] = useState(false);
   const [missingItems, setMissingItems] = useState<string[]>([]);
   const isCloud = db.isCloudEnabled();
 
   // Initial check to hide if already exists
   useEffect(() => {
-    if (isCloud) {
+    if (isCloud && isVisible) {
       const checkAll = async () => {
         const missing = [];
         const hasColumn = await db.checkColumnExists('quotas', 'is_draw_contemplation');
@@ -258,9 +260,14 @@ const SupabaseSyncWarning = () => {
       };
       checkAll();
     }
-  }, [isCloud]);
+  }, [isCloud, isVisible]);
 
   if (!isCloud || !isVisible || missingItems.length === 0) return null;
+
+  const handleDismiss = () => {
+    localStorage.setItem('supabase_sync_warning_dismissed', 'true');
+    setIsVisible(false);
+  };
 
   const handleCheck = async () => {
     setIsChecking(true);
@@ -283,7 +290,14 @@ const SupabaseSyncWarning = () => {
         alert('Tudo verificado com sucesso! O banco está sincronizado.');
         setIsVisible(false);
       } else {
-        alert('Alguns itens ainda não foram encontrados. Certifique-se de executar os comandos SQL no Supabase.');
+        const missingLabels = missing.map(m => {
+          if (m === 'column_is_draw') return 'Coluna is_draw_contemplation';
+          if (m === 'table_manual_tx') return 'Tabela manual_transactions';
+          if (m === 'column_contract_url') return 'Coluna contract_file_url';
+          if (m === 'bucket_contracts') return 'Bucket contracts (Storage)';
+          return m;
+        });
+        alert(`Alguns itens ainda não foram encontrados:\n- ${missingLabels.join('\n- ')}\n\nCertifique-se de executar os comandos SQL no Supabase e criar o bucket no Storage.`);
       }
     } catch (err) {
       alert('Erro ao verificar. Tente novamente.');
@@ -364,7 +378,7 @@ const SupabaseSyncWarning = () => {
           Verificar Sincronização
         </button>
         <button 
-          onClick={() => setIsVisible(false)}
+          onClick={handleDismiss}
           className="text-amber-400 hover:text-amber-600 p-1 rounded-md hover:bg-amber-100 transition-colors flex items-center gap-1 text-[10px]"
         >
           <X size={14} /> Ignorar por agora

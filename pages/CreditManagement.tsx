@@ -366,7 +366,7 @@ const CreditManagement = () => {
                               
                               <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-right print:gap-2 print:grid-cols-5">
                                   <div>
-                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Crédito total Bruto</p>
+                                      <p className="text-[10px] text-slate-500 uppercase font-bold">Crédito</p>
                                       <p className="text-base font-bold text-slate-600 print:text-xs">{formatCurrency(group.totalCreditBase)}</p>
                                   </div>
                                   <div>
@@ -432,7 +432,7 @@ const CreditManagement = () => {
                                       >
                                           <div className="flex items-center justify-end gap-1">
                                             <span className="cursor-pointer hover:text-slate-800 flex items-center gap-1" onClick={() => handleSort('credit')}>
-                                              Crédito total Bruto {getSortIcon('credit')}
+                                              Crédito {getSortIcon('credit')}
                                             </span>
                                           </div>
                                           {showColumnFilters && (

@@ -70,11 +70,7 @@ const Reports = () => {
 
         const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
         
-        let vlrCartaAtual = quota.creditValue;
-        if (schedule.length > 0) {
-           const pastOrPresent = schedule.filter(i => i.dueDate.split('T')[0] <= refDateStr);
-           vlrCartaAtual = pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || quota.creditValue : quota.creditValue;
-        }
+        const vlrCartaAtual = calculateCurrentCreditValue(quota, indices, refDate, false, true);
 
         const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
         
@@ -85,7 +81,7 @@ const Reports = () => {
         
         const correction92CDI = calculateCDICorrection(quota.bidFree || 0, quota.contemplationDate, indices, refDateStr);
         
-        const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate);
+        const creditAtContemplation = calculateCurrentCreditValue(quota, indices, refDate, true);
         
         const bidEmbedded = quota.bidEmbedded || 0;
         const valorLiquido = creditAtContemplation - bidEmbedded;
@@ -99,6 +95,8 @@ const Reports = () => {
         
         const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id && u.date <= refDateStr);
         const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
+
+        const bidBase = quota.isContemplated ? creditAtContemplation : vlrCartaAtual;
 
         return {
           id: quota.id,
@@ -115,11 +113,11 @@ const Reports = () => {
           saldoVencido: sumVencido,
           percentVencido: percentVencido,
           bidTotal: quota.bidTotal || 0,
-          percentBidTotal: vlrCartaAtual > 0 ? ((quota.bidTotal || 0) / vlrCartaAtual) * 100 : 0,
+          percentBidTotal: bidBase > 0 ? ((quota.bidTotal || 0) / bidBase) * 100 : 0,
           bidFree: quota.bidFree || 0,
-          percentBidFree: vlrCartaAtual > 0 ? ((quota.bidFree || 0) / vlrCartaAtual) * 100 : 0,
+          percentBidFree: bidBase > 0 ? ((quota.bidFree || 0) / bidBase) * 100 : 0,
           bidEmbedded: bidEmbedded,
-          percentBidEmbedded: vlrCartaAtual > 0 ? (bidEmbedded / vlrCartaAtual) * 100 : 0,
+          percentBidEmbedded: bidBase > 0 ? (bidEmbedded / bidBase) * 100 : 0,
           creditAtContemplation: creditAtContemplation,
           valorRealCarta: valorLiquido,
           creditManualAdjustment: latestUpdateValue,
@@ -209,22 +207,46 @@ const Reports = () => {
     return items;
   }, [filteredData, sortConfig]);
 
-  const totals = sortedData.reduce((acc, row) => ({
-    creditValue: acc.creditValue + row.creditValue,
-    saldoAVencer: acc.saldoAVencer + row.saldoAVencer,
-    saldoVencido: acc.saldoVencido + row.saldoVencido,
-    bidTotal: acc.bidTotal + row.bidTotal,
-    bidFree: acc.bidFree + row.bidFree,
-    bidEmbedded: acc.bidEmbedded + row.bidEmbedded,
-    creditAtContemplation: acc.creditAtContemplation + row.creditAtContemplation,
-    valorRealCarta: acc.valorRealCarta + row.valorRealCarta,
-    creditoTotal: acc.creditoTotal + row.creditoTotal,
-    creditoUtilizado: acc.creditoUtilizado + row.creditoUtilizado,
-    saldoDisponivel: acc.saldoDisponivel + row.saldoDisponivel,
-    creditManualAdjustment: acc.creditManualAdjustment + row.creditManualAdjustment,
-    bidFreeCorrection: acc.bidFreeCorrection + row.bidFreeCorrection,
-    contemplatedAvailableCredit: acc.contemplatedAvailableCredit + (row.isContemplated ? row.saldoDisponivel : 0)
-  }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0, contemplatedAvailableCredit: 0 });
+  const sums = sortedData.reduce((acc, row) => ({
+    creditValue: acc.creditValue + (row.creditValue || 0),
+    saldoAVencer: acc.saldoAVencer + (row.saldoAVencer || 0),
+    saldoVencido: acc.saldoVencido + (row.saldoVencido || 0),
+    bidTotal: acc.bidTotal + (row.bidTotal || 0),
+    bidFree: acc.bidFree + (row.bidFree || 0),
+    bidEmbedded: acc.bidEmbedded + (row.bidEmbedded || 0),
+    creditAtContemplation: acc.creditAtContemplation + (row.creditAtContemplation || 0),
+    valorRealCarta: acc.valorRealCarta + (row.valorRealCarta || 0),
+    creditoTotal: acc.creditoTotal + (row.creditoTotal || 0),
+    creditoUtilizado: acc.creditoUtilizado + (row.creditoUtilizado || 0),
+    saldoDisponivel: acc.saldoDisponivel + (row.saldoDisponivel || 0),
+    creditManualAdjustment: acc.creditManualAdjustment + (row.creditManualAdjustment || 0),
+    bidFreeCorrection: acc.bidFreeCorrection + (row.bidFreeCorrection || 0),
+    contemplatedAvailableCredit: acc.contemplatedAvailableCredit + (row.isContemplated ? (row.saldoDisponivel || 0) : 0),
+    percentBidTotalSum: acc.percentBidTotalSum + (row.percentBidTotal || 0),
+    percentBidFreeSum: acc.percentBidFreeSum + (row.percentBidFree || 0),
+    percentBidEmbeddedSum: acc.percentBidEmbeddedSum + (row.percentBidEmbedded || 0),
+    percentVencidoSum: acc.percentVencidoSum + (row.percentVencido || 0),
+    percentAVencerSum: acc.percentAVencerSum + (row.percentAVencer || 0),
+  }), { 
+    creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, 
+    creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, 
+    saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0, 
+    contemplatedAvailableCredit: 0,
+    percentBidTotalSum: 0,
+    percentBidFreeSum: 0,
+    percentBidEmbeddedSum: 0,
+    percentVencidoSum: 0,
+    percentAVencerSum: 0,
+  });
+
+  const totals = {
+    ...sums,
+    percentBidTotalAvg: sortedData.length > 0 ? sums.percentBidTotalSum / sortedData.length : 0,
+    percentBidFreeAvg: sortedData.length > 0 ? sums.percentBidFreeSum / sortedData.length : 0,
+    percentBidEmbeddedAvg: sortedData.length > 0 ? sums.percentBidEmbeddedSum / sortedData.length : 0,
+    percentVencidoAvg: sortedData.length > 0 ? sums.percentVencidoSum / sortedData.length : 0,
+    percentAVencerAvg: sortedData.length > 0 ? sums.percentAVencerSum / sortedData.length : 0,
+  };
 
   const SortHeader = ({ label, sortKey, align = 'right', className = '' }: { label: string, sortKey: keyof ReportRow, align?: 'left'|'right', className?: string }) => (
       <th className={`px-2 py-3 cursor-pointer hover:bg-slate-800 transition-colors group select-none ${className} ${align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => setSortConfig({ key: sortKey, direction: sortConfig?.key === sortKey && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -242,17 +264,19 @@ const Reports = () => {
     const exportRows = sortedData.map(row => ({
       'Grupo': row.group,
       'Cota': row.quotaNumber,
-      'Vlr Carta': row.creditValue,
+      'Valor da Carta Atual': row.creditValue,
       'Valor Pago': row.saldoVencido,
+      '% Pago (efetivado)': row.percentVencido,
       'Valor a Pagar': row.saldoAVencer,
+      '% do valor a pagar': row.percentAVencer,
       'Lance Tot.': row.bidTotal,
       '% Lance': row.percentBidTotal,
       'Lance Livre': row.bidFree,
       '% Liv': row.percentBidFree,
-      'Crédito total Bruto': row.creditAtContemplation,
+      'Crédito': row.creditAtContemplation,
       'Lance Emb.': row.bidEmbedded,
       '% Emb': row.percentBidEmbedded,
-      'Crédito Total Líquido': row.valorRealCarta,
+      'Vlr Líquido': row.valorRealCarta,
       'Aplicação financeira': row.creditManualAdjustment,
       '92% CDI': row.bidFreeCorrection,
       'Crédito Total Com Aplicação': row.creditoTotal,
@@ -292,12 +316,12 @@ const Reports = () => {
 
     const cards = [
       { label: 'Cotas', value: sortedData.length, color: [71, 85, 105] },
-      { label: 'Valor Total da Carta', value: formatNumber(totals.creditValue), color: [71, 85, 105] },
+      { label: 'Valor da Carta Atual', value: formatNumber(totals.creditValue), color: [71, 85, 105] },
       { label: 'Valor Pago', value: formatNumber(totals.saldoVencido), color: [5, 150, 105] },
       { label: 'Valor a Pagar', value: formatNumber(totals.saldoAVencer), color: [220, 38, 38] },
       { label: 'Total Lances', value: formatNumber(totals.bidTotal), color: [180, 83, 9] },
-      { label: 'Crédito total Bruto', value: formatNumber(totals.creditAtContemplation), color: [71, 85, 105] },
-      { label: 'Crédito Total Líquido', value: formatNumber(totals.valorRealCarta), color: [29, 78, 216] },
+      { label: 'Crédito', value: formatNumber(totals.creditAtContemplation), color: [71, 85, 105] },
+      { label: 'Vlr Líquido', value: formatNumber(totals.valorRealCarta), color: [29, 78, 216] },
       { label: 'Crédito Total Com Aplicação', value: formatNumber(totals.creditoTotal), color: [30, 41, 59] },
       { label: 'Crédito Utilizado', value: formatNumber(totals.creditoUtilizado), color: [194, 65, 12] },
       { label: 'Crédito Total Disponível', value: formatNumber(totals.saldoDisponivel), color: [6, 95, 70] },
@@ -325,8 +349,8 @@ const Reports = () => {
     currentY += cardHeight + 5;
 
     const tableColumn = [
-      "Grupo", "Cota", "Vlr Carta", "Valor Pago", "Valor a Pagar", "Lance Tot.", "% Lance", 
-      "Lance Livre", "% Liv", "Crédito total Bruto", "Lance Emb.", "% Emb", "Crédito Total Líquido", "Aplicação", "92% CDI", 
+      "Grupo", "Cota", "Valor da Carta Atual", "Valor Pago", "% Pago", "Valor a Pagar", "% a Pagar", "Lance Tot.", "% Lance", 
+      "Lance Livre", "% Liv", "Crédito", "Lance Emb.", "% Emb", "Vlr Líquido", "Aplicação", "92% CDI", 
       "Corrigido", "Crédito Utilizado", "Crédito Total Disponível", "Contemplação"
     ];
     
@@ -335,7 +359,9 @@ const Reports = () => {
       row.quotaNumber,
       formatNumber(row.creditValue),
       formatNumber(row.saldoVencido),
+      `${row.percentVencido.toFixed(2)}%`,
       formatNumber(row.saldoAVencer),
+      `${row.percentAVencer.toFixed(2)}%`,
       formatNumber(row.bidTotal),
       `${row.percentBidTotal.toFixed(2)}%`,
       formatNumber(row.bidFree),
@@ -365,7 +391,7 @@ const Reports = () => {
           if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
           if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
           if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
-          if (header === 'Crédito Total Líquido') data.cell.styles.textColor = [29, 78, 216];
+          if (header === 'Vlr Líquido') data.cell.styles.textColor = [29, 78, 216];
           if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
         }
       }
@@ -488,12 +514,12 @@ const Reports = () => {
 
       const cards = [
         { label: 'Cotas', value: filteredForEmail.length, color: [71, 85, 105] },
-        { label: 'Valor Total da Carta', value: formatNumber(emailTotals.creditValue), color: [71, 85, 105] },
+        { label: 'Valor da Carta Atual', value: formatNumber(emailTotals.creditValue), color: [71, 85, 105] },
         { label: 'Valor Pago', value: formatNumber(emailTotals.saldoVencido), color: [5, 150, 105] },
         { label: 'Valor a Pagar', value: formatNumber(emailTotals.saldoAVencer), color: [220, 38, 38] },
         { label: 'Total Lances', value: formatNumber(emailTotals.bidTotal), color: [180, 83, 9] },
-        { label: 'Crédito total Bruto', value: formatNumber(emailTotals.creditAtContemplation), color: [71, 85, 105] },
-        { label: 'Crédito Total Líquido', value: formatNumber(emailTotals.valorRealCarta), color: [29, 78, 216] },
+        { label: 'Crédito', value: formatNumber(emailTotals.creditAtContemplation), color: [71, 85, 105] },
+        { label: 'Vlr Líquido', value: formatNumber(emailTotals.valorRealCarta), color: [29, 78, 216] },
         { label: 'Crédito Total Com Aplicação', value: formatNumber(emailTotals.creditoTotal), color: [30, 41, 59] },
         { label: 'Crédito Utilizado', value: formatNumber(emailTotals.creditoUtilizado), color: [194, 65, 12] },
         { label: 'Crédito Total Disponível', value: formatNumber(emailTotals.saldoDisponivel), color: [6, 95, 70] },
@@ -576,7 +602,7 @@ const Reports = () => {
             if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
             if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
             if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
-            if (header === 'Crédito Total Líquido') data.cell.styles.textColor = [29, 78, 216];
+            if (header === 'Vlr Líquido') data.cell.styles.textColor = [29, 78, 216];
             if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
 
             // Highlight Totals Row
@@ -671,12 +697,12 @@ const Reports = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3">
           {[
               { label: 'Cotas', value: sortedData.length, color: 'text-slate-700', bg: 'bg-white', isCurrency: false },
-              { label: 'Valor Total da Carta', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
+              { label: 'Valor da Carta Atual', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
               { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50', isCurrency: true },
               { label: 'Valor a Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50', isCurrency: true },
               { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50', isCurrency: true },
-              { label: 'Crédito total Bruto', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50', isCurrency: true },
-              { label: 'Crédito Total Líquido', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50', isCurrency: true },
+              { label: 'Crédito', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50', isCurrency: true },
+              { label: 'Vlr Líquido', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50', isCurrency: true },
               { label: 'Crédito Total Com Aplicação', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100', isCurrency: true },
               { label: 'Crédito Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50', isCurrency: true },
               { label: 'Crédito Total Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-50', isCurrency: true },
@@ -698,17 +724,19 @@ const Reports = () => {
                 <tr>
                   <SortHeader label="Grupo" sortKey="group" align="left" className="sticky left-0 bg-slate-800 z-10 border-r border-slate-700 print:static" />
                   <SortHeader label="Cota" sortKey="quotaNumber" align="left" className="sticky left-[50px] bg-slate-800 z-10 border-r border-slate-700 print:static" />
-                  <SortHeader label="Vlr Carta" sortKey="creditValue" />
+                  <SortHeader label="Valor da Carta Atual" sortKey="creditValue" />
                   <SortHeader label="Valor Pago" sortKey="saldoVencido" className="bg-emerald-900/30" />
+                  <SortHeader label="% Pago (efetivado)" sortKey="percentVencido" className="bg-emerald-900/20" />
                   <SortHeader label="Valor a Pagar" sortKey="saldoAVencer" className="bg-red-900/30" />
+                  <SortHeader label="% do valor a pagar" sortKey="percentAVencer" className="bg-red-900/20" />
                   <SortHeader label="Lance Tot." sortKey="bidTotal" className="bg-amber-900/30" />
-                  <th className="px-2 py-3 text-right bg-amber-900/20 text-[8px] font-bold">% Lance</th>
+                  <SortHeader label="% Lance" sortKey="percentBidTotal" className="bg-amber-900/20" />
                   <SortHeader label="Lance Livre" sortKey="bidFree" />
-                  <th className="px-2 py-3 text-right text-[8px] font-bold">% Liv</th>
-                  <SortHeader label="Crédito total Bruto" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
+                  <SortHeader label="% Liv" sortKey="percentBidFree" />
+                  <SortHeader label="Crédito" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
                   <SortHeader label="Lance Emb." sortKey="bidEmbedded" />
-                  <th className="px-2 py-3 text-right text-[8px] font-bold">% Emb</th>
-                  <SortHeader label="Crédito Total Líquido" sortKey="valorRealCarta" className="font-bold" />
+                  <SortHeader label="% Emb" sortKey="percentBidEmbedded" />
+                  <SortHeader label="Vlr Líquido" sortKey="valorRealCarta" className="font-bold" />
                   <SortHeader label="Aplicação financeira" sortKey="creditManualAdjustment" />
                   <SortHeader label="92% CDI" sortKey="bidFreeCorrection" />
                   <SortHeader label="Crédito Total Com Aplicação" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />
@@ -718,14 +746,16 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {loading ? (<tr><td colSpan={19} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) : 
+                {loading ? (<tr><td colSpan={21} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) : 
                  sortedData.map(row => (
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="p-2 font-bold text-slate-700 sticky left-0 bg-white border-r border-slate-100 shadow-sm print:static print:bg-transparent">{row.group}</td>
                     <td className="p-2 font-bold text-slate-700 sticky left-[50px] bg-white border-r border-slate-100 shadow-sm print:static print:bg-transparent">{row.quotaNumber}</td>
                     <td className="p-2 text-right">{formatNumber(row.creditValue)}</td>
                     <td className="p-2 text-right font-medium text-emerald-700 bg-emerald-50/30 print:bg-transparent">{formatNumber(row.saldoVencido)}</td>
+                    <td className="p-2 text-right text-emerald-600 font-bold">{row.percentVencido.toFixed(2)}%</td>
                     <td className="p-2 text-right font-medium text-red-600 bg-red-50/30 print:bg-transparent">{formatNumber(row.saldoAVencer)}</td>
+                    <td className="p-2 text-right text-red-500 font-bold">{row.percentAVencer.toFixed(2)}%</td>
                     <td className="p-2 text-right font-medium text-amber-600 bg-amber-50/30 print:bg-transparent">{formatNumber(row.bidTotal)}</td>
                     <td className="p-2 text-right text-amber-500 font-bold">{row.percentBidTotal.toFixed(2)}%</td>
                     <td className="p-2 text-right">{formatNumber(row.bidFree)}</td>
@@ -748,14 +778,16 @@ const Reports = () => {
                       <td className="p-2 sticky left-0 bg-slate-900 border-r border-slate-700 print:static print:bg-transparent" colSpan={2}>Totais ({sortedData.length})</td>
                       <td className="p-2 text-right">{formatNumber(totals.creditValue)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.saldoVencido)}</td>
+                      <td className="p-2 text-right text-emerald-400">{totals.percentVencidoAvg.toFixed(2)}%</td>
                       <td className="p-2 text-right">{formatNumber(totals.saldoAVencer)}</td>
+                      <td className="p-2 text-right text-red-400">{totals.percentAVencerAvg.toFixed(2)}%</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidTotal)}</td>
-                      <td className="p-2 text-right"></td>
+                      <td className="p-2 text-right text-amber-400">{totals.percentBidTotalAvg.toFixed(2)}%</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidFree)}</td>
-                      <td className="p-2 text-right"></td>
+                      <td className="p-2 text-right text-slate-400">{totals.percentBidFreeAvg.toFixed(2)}%</td>
                       <td className="p-2 text-right bg-slate-800 print:bg-transparent">{formatNumber(totals.creditAtContemplation)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidEmbedded)}</td>
-                      <td className="p-2 text-right"></td>
+                      <td className="p-2 text-right text-orange-400">{totals.percentBidEmbeddedAvg.toFixed(2)}%</td>
                       <td className="p-2 text-right bg-blue-900/40 print:bg-transparent">{formatNumber(totals.valorRealCarta)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.creditManualAdjustment)}</td>
                       <td className="p-2 text-right">{formatNumber(totals.bidFreeCorrection)}</td>

@@ -37,8 +37,8 @@ export async function generateReportPdf(data: any[], columns: any[], title: stri
       { label: 'TOTAL PAGO', value: formatNumber(summary.paid), color: [5, 150, 105] },
       { label: 'Saldo Devedor (Total)', value: formatNumber(summary.toPay), color: [220, 38, 38] },
       { label: 'Lance Livre (Total)', value: formatNumber(summary.bids), color: [180, 83, 9] },
-      { label: 'Crédito total Bruto', value: formatNumber(summary.creditBruto), color: [71, 85, 105] },
-      { label: 'Crédito Total Líquido', value: formatNumber(summary.creditLiquido), color: [29, 78, 216] },
+      { label: 'Crédito', value: formatNumber(summary.creditBruto), color: [71, 85, 105] },
+      { label: 'Vlr Líquido', value: formatNumber(summary.creditLiquido), color: [29, 78, 216] },
       { label: 'Crédito Total Com Aplicação', value: formatNumber(summary.creditTotal), color: [30, 41, 59] },
       { label: 'Crédito Utilizado', value: formatNumber(summary.creditUsed), color: [194, 65, 12] },
       { label: 'Crédito Total Disponível', value: formatNumber(summary.creditAvailable), color: [6, 95, 70] },
@@ -122,7 +122,7 @@ export async function generateReportPdf(data: any[], columns: any[], title: stri
         if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
         if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
         if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
-        if (header === 'Crédito Total Líquido') data.cell.styles.textColor = [29, 78, 216];
+        if (header === 'Vlr Líquido') data.cell.styles.textColor = [29, 78, 216];
         if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
 
         // Highlight Totals Row

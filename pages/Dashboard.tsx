@@ -115,7 +115,7 @@ const Dashboard = () => {
           // 1. Calcular Valor do Crédito Base (Correção congela na contemplação)
           // A função calculateCurrentCreditValue já lida internamente com:
           // Se contemplada -> data corte = contemplação. Se não -> data corte = hoje.
-          const baseCreditValue = calculateCurrentCreditValue(quota, indices);
+          const baseCreditValue = calculateCurrentCreditValue(quota, indices, undefined, true);
           
           // Gera cronograma apenas para cálculos de Fluxo (Pago vs A Pagar)
           const schedule = generateSchedule(quota, indices);
@@ -153,9 +153,12 @@ const Dashboard = () => {
           accCreditAtContemplation += baseCreditValue;
           accCorrectedCredit += (baseCreditValue + manualAdj);
 
-          if (quota.isContemplated && baseCreditValue > 0 && quota.bidTotal && quota.bidTotal > 0) {
-              const totalPct = (quota.bidTotal / baseCreditValue) * 100;
-              const freePct = (quota.bidFree || 0) / baseCreditValue * 100;
+          const vlrCartaAtual = calculateCurrentCreditValue(quota, indices, undefined, false);
+          const bidBase = quota.isContemplated ? baseCreditValue : vlrCartaAtual;
+          
+          if (bidBase > 0 && quota.bidTotal && quota.bidTotal > 0) {
+              const totalPct = (quota.bidTotal / bidBase) * 100;
+              const freePct = (quota.bidFree || 0) / bidBase * 100;
               sumTotalBidPct += totalPct;
               sumFreeBidPct += freePct;
               bidCount++;
@@ -336,7 +339,7 @@ const Dashboard = () => {
           description: "Saldo liberado e pronto para uso"
         },
         {
-          title: "Crédito total Bruto",
+          title: "Crédito",
           value: totals.totalCreditAtContemplation,
           icon: <DollarSign size={24} className="text-slate-600" />,
           bg: "bg-white",
@@ -345,7 +348,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Crédito Total Líquido",
+          title: "Vlr Líquido",
           value: totals.totalCredit,
           icon: <DollarSign size={24} className="text-slate-600" />,
           bg: "bg-white",

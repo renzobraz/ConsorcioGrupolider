@@ -25,6 +25,11 @@ export interface MarketAnalysis {
   realSavings: number; // Economia Real (Financiamento - Quota)
   isLowCET: boolean;
   isHighReserveFund: boolean;
+  remainingInstallments: number;
+  currentInstallmentValue: number;
+  totalInstallments: number;
+  adminFeeRate: number;
+  reserveFundRate: number;
 }
 
 export const calculateMarketAnalysis = (
@@ -34,7 +39,9 @@ export const calculateMarketAnalysis = (
   debtBalance: number,
   customAgio?: number, // Ágio definido pelo vendedor
   creditManualAdjustment: number = 0,
-  creditUsages: number = 0
+  creditUsages: number = 0,
+  remainingInstallments: number = 0,
+  currentInstallmentValue: number = 0
 ): MarketAnalysis => {
   const currentCreditValue = calculateCurrentCreditValue(quota, indices);
   
@@ -104,7 +111,12 @@ export const calculateMarketAnalysis = (
     bankFinancingCost,
     realSavings,
     isLowCET,
-    isHighReserveFund
+    isHighReserveFund,
+    remainingInstallments,
+    currentInstallmentValue,
+    totalInstallments: quota.termMonths,
+    adminFeeRate: quota.adminFeeRate,
+    reserveFundRate: quota.reserveFundRate
   };
 };
 

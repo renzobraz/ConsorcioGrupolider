@@ -56,7 +56,7 @@ export const calculateCDICorrection = (value: number, startDateStr: string | und
     return (value * accumulatedMultiplier) - value;
 };
 
-export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date): number => {
+export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date, forceContemplationFreeze: boolean = false, ignoreStopCorrection: boolean = false): number => {
   if (!quota) return 0;
   let currentCreditValue = Number(quota.creditValue) || 0;
   
@@ -66,16 +66,22 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
   if (!firstAssemblyStr) return currentCreditValue; // Congelado se não houver assembleia
   
   const firstAssemblyDate = createLocalDate(firstAssemblyStr);
-  const firstDueDate = createLocalDate(quota.firstDueDate || firstAssemblyStr);
   
   let cutoffDate = customCutoff || new Date();
   cutoffDate.setHours(23,59,59,999);
 
-  if (quota.isContemplated && quota.contemplationDate && quota.stopCreditCorrection) {
-      const contDate = createLocalDate(quota.contemplationDate);
-      contDate.setHours(23,59,59,999);
-      if (contDate < cutoffDate) {
-          cutoffDate = contDate;
+  if (quota.isContemplated && !ignoreStopCorrection) {
+      // Se contemplada mas sem data, congela no valor original (regra de segurança)
+      if (!quota.contemplationDate) {
+          return currentCreditValue;
+      }
+
+      if (quota.stopCreditCorrection || forceContemplationFreeze) {
+          const contDate = createLocalDate(quota.contemplationDate);
+          contDate.setHours(23,59,59,999);
+          if (contDate < cutoffDate) {
+              cutoffDate = contDate;
+          }
       }
   }
   

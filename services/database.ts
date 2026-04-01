@@ -175,6 +175,10 @@ export const db = {
         if (error.code === 'PGRST204' || error.message.toLowerCase().includes('column') || error.message.toLowerCase().includes('does not exist')) {
           return false;
         }
+        // Se for erro de permissão (403), a coluna provavelmente existe mas o RLS bloqueia o select
+        if (error.code === '42501' || error.message.toLowerCase().includes('permission denied') || error.message.toLowerCase().includes('forbidden')) {
+          return true;
+        }
       }
       return true;
     } catch (err) {
@@ -192,6 +196,10 @@ export const db = {
         if (error.code === 'PGRST204' || error.message.toLowerCase().includes('relation') || error.message.toLowerCase().includes('does not exist')) {
           return false;
         }
+        // Se for erro de permissão (403), a tabela provavelmente existe mas o RLS bloqueia o select
+        if (error.code === '42501' || error.message.toLowerCase().includes('permission denied') || error.message.toLowerCase().includes('forbidden')) {
+          return true;
+        }
       }
       return true;
     } catch (err) {
@@ -203,10 +211,33 @@ export const db = {
     const supabase = getSupabase();
     if (!supabase) return true;
     try {
-      const { data, error } = await supabase.storage.getBucket(bucketName);
-      if (error) return false;
-      return !!data;
+      // Tenta listar arquivos no bucket (mesmo que vazio) com limite 1
+      // Isso é mais confiável para detectar existência sem precisar de permissão de leitura de metadados do bucket
+      const { error } = await supabase.storage.from(bucketName).list('', { limit: 1 });
+      
+      if (error) {
+        // Se o erro for explicitamente "not found", o bucket realmente não existe
+        const msg = error.message.toLowerCase();
+        if (msg.includes('not found') || msg.includes('does not exist')) {
+          // Tenta o nome em português como fallback
+          if (bucketName === 'contracts') {
+            const { error: errorPt } = await supabase.storage.from('Contratos').list('', { limit: 1 });
+            if (!errorPt || (!errorPt.message.toLowerCase().includes('not found') && !errorPt.message.toLowerCase().includes('does not exist'))) {
+              return true;
+            }
+          }
+          return false;
+        }
+        // Se for qualquer outro erro (como 403 Forbidden), assumimos que o bucket existe 
+        // mas a chave anon não tem permissão para listar (o que é comum se não houver políticas de RLS)
+        return true;
+      }
+      
+      // Se não houve erro, o bucket existe
+      return true;
     } catch (err) {
+      // Em caso de exceção crítica, retornamos false para segurança, 
+      // mas o list() acima já deve cobrir a maioria dos casos
       return false;
     }
   },

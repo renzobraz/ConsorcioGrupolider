@@ -166,7 +166,7 @@ const CreditUsage = () => {
                   <DollarSign size={48} className="text-slate-600" />
               </div>
               <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 mb-1">
-                  Crédito total Bruto
+                  Crédito
               </p>
               <p className="text-lg font-bold text-slate-700">{formatCurrency(currentCredit)}</p>
               <p className="text-[10px] text-slate-400">Automático (INCC/IPCA)</p>
