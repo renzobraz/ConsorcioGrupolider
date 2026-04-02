@@ -56,11 +56,44 @@ export const calculateCDICorrection = (value: number, startDateStr: string | und
     return (value * accumulatedMultiplier) - value;
 };
 
-export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date, forceContemplationFreeze: boolean = false, ignoreStopCorrection: boolean = false): number => {
+export const calculateAverageIndices = (indices: MonthlyIndex[]): Record<string, number> => {
+  const averages: Record<string, number> = {};
+  const types = Object.values(CorrectionIndex);
+  
+  const today = new Date();
+  const threeYearsAgo = new Date();
+  threeYearsAgo.setFullYear(today.getFullYear() - 3);
+  
+  types.forEach(type => {
+    const relevantIndices = indices.filter(i => 
+      i.type === type && 
+      new Date(i.date) >= threeYearsAgo &&
+      new Date(i.date) <= today &&
+      i.rate !== 0
+    );
+    
+    if (relevantIndices.length > 0) {
+      const sum = relevantIndices.reduce((s, i) => s + i.rate, 0);
+      averages[type] = sum / relevantIndices.length;
+    } else {
+      // Fallback values if no historical data
+      if (type.includes('CDI')) averages[type] = 0.92;
+      else if (type.includes('IPCA')) averages[type] = 0.45;
+      else if (type.includes('INCC')) averages[type] = 0.5;
+      else averages[type] = 0.4;
+    }
+  });
+  
+  return averages;
+};
+
+export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date, forceContemplationFreeze: boolean = false, ignoreStopCorrection: boolean = false, projectFutureIndices: boolean = false): number => {
   if (!quota) return 0;
   let currentCreditValue = Number(quota.creditValue) || 0;
   
-  // REGRA DE OURO (Prompt Usuário): Trava na 1ª Assembleia
+  const avgIndices = projectFutureIndices ? calculateAverageIndices(indices) : {};
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
   // NUNCA iniciar o contador de reajuste anual com base na Data_Adesao ou data de pagamento da primeira parcela.
   const firstAssemblyStr = quota.firstAssemblyDate;
   if (!firstAssemblyStr) return currentCreditValue; // Congelado se não houver assembleia
@@ -118,6 +151,10 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
           if (monthlyIndex && monthlyIndex.rate !== 0) {
               accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
               hasAnyIndex = true;
+          } else if (projectFutureIndices) {
+              const avgRate = avgIndices[quota.correctionIndex] || 0;
+              accumulatedMultiplier = (1 + (avgRate / 100));
+              hasAnyIndex = true;
           }
       } else {
           const indexStartDate = addMonths(indexEndDate, -11); // 12 months total
@@ -131,6 +168,10 @@ export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[
               
               if (monthlyIndex && monthlyIndex.rate !== 0) {
                   accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                  hasAnyIndex = true;
+              } else if (projectFutureIndices) {
+                  const avgRate = avgIndices[quota.correctionIndex] || 0;
+                  accumulatedMultiplier *= (1 + (avgRate / 100));
                   hasAnyIndex = true;
               }
           }
@@ -161,6 +202,9 @@ export interface ScheduleSummary {
     interest: number;
     total: number;
     percent: number;
+    bidFree: number;
+    bidEmbedded: number;
+    manualEarnings: number;
   };
   toPay: {
     fc: number;
@@ -172,6 +216,9 @@ export interface ScheduleSummary {
     interest: number;
     total: number;
     percent: number;
+    bidFree: number;
+    bidEmbedded: number;
+    manualEarnings: number;
   };
   total: {
     fc: number;
@@ -189,8 +236,8 @@ export function calculateScheduleSummary(
   payments: Record<number, any>
 ): ScheduleSummary {
   const stats = {
-    paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0 },
-    toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0 },
+    paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
+    toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
   };
 
   const totalPercentContract = 100 + (quota.adminFeeRate || 0) + (quota.reserveFundRate || 0);
@@ -200,7 +247,12 @@ export function calculateScheduleSummary(
     const instPct = (inst.monthlyRateFC || 0) + (inst.monthlyRateFR || 0) + (inst.monthlyRateTA || 0);
 
     if (inst.isPaid) {
-      stats.paid.fc += inst.commonFund + (inst.manualEarnings || 0);
+      if (inst.isManualTransaction && inst.manualTransactionType === ManualTransactionType.EXTRA_PAYMENT) {
+        stats.paid.fc += (inst.realAmountPaid || 0);
+      } else {
+        stats.paid.fc += inst.commonFund + (inst.manualEarnings || 0);
+        stats.paid.manualEarnings += (inst.manualEarnings || 0);
+      }
       stats.paid.fr += inst.reserveFund;
       stats.paid.ta += inst.adminFee;
       stats.paid.insurance += (inst.insurance || 0);
@@ -227,26 +279,34 @@ export function calculateScheduleSummary(
       const embeddedBidPct = (inst.bidEmbeddedPercentFC || 0) + (inst.bidEmbeddedPercentFR || 0) + (inst.bidEmbeddedPercentTA || 0);
 
       if (isFreeBidPaid) {
+        const freeBidAmount = (inst.bidFreeAbatementFC || 0) + (inst.bidFreeAbatementFR || 0) + (inst.bidFreeAbatementTA || 0);
         stats.paid.fc += (inst.bidFreeAbatementFC || 0);
         stats.paid.fr += (inst.bidFreeAbatementFR || 0);
         stats.paid.ta += (inst.bidFreeAbatementTA || 0);
+        stats.paid.bidFree += freeBidAmount;
         stats.paid.percent += freeBidPct;
       } else {
+        const freeBidAmount = (inst.bidFreeAbatementFC || 0) + (inst.bidFreeAbatementFR || 0) + (inst.bidFreeAbatementTA || 0);
         stats.toPay.fc += (inst.bidFreeAbatementFC || 0);
         stats.toPay.fr += (inst.bidFreeAbatementFR || 0);
         stats.toPay.ta += (inst.bidFreeAbatementTA || 0);
+        stats.toPay.bidFree += freeBidAmount;
         stats.toPay.percent += freeBidPct;
       }
 
       if (isEmbeddedBidPaid) {
+        const embeddedBidAmount = (inst.bidEmbeddedAbatementFC || 0) + (inst.bidEmbeddedAbatementFR || 0) + (inst.bidEmbeddedAbatementTA || 0);
         stats.paid.fc += (inst.bidEmbeddedAbatementFC || 0);
         stats.paid.fr += (inst.bidEmbeddedAbatementFR || 0);
         stats.paid.ta += (inst.bidEmbeddedAbatementTA || 0);
+        stats.paid.bidEmbedded += embeddedBidAmount;
         stats.paid.percent += embeddedBidPct;
       } else {
+        const embeddedBidAmount = (inst.bidEmbeddedAbatementFC || 0) + (inst.bidEmbeddedAbatementFR || 0) + (inst.bidEmbeddedAbatementTA || 0);
         stats.toPay.fc += (inst.bidEmbeddedAbatementFC || 0);
         stats.toPay.fr += (inst.bidEmbeddedAbatementFR || 0);
         stats.toPay.ta += (inst.bidEmbeddedAbatementTA || 0);
+        stats.toPay.bidEmbedded += embeddedBidAmount;
         stats.toPay.percent += embeddedBidPct;
       }
     }
@@ -259,12 +319,18 @@ export function calculateScheduleSummary(
     paid: {
       ...stats.paid,
       total: paidTotal,
-      percent: totalPercentContract > 0 ? (stats.paid.percent / totalPercentContract) * 100 : 0
+      percent: totalPercentContract > 0 ? (stats.paid.percent / totalPercentContract) * 100 : 0,
+      bidFree: stats.paid.bidFree,
+      bidEmbedded: stats.paid.bidEmbedded,
+      manualEarnings: stats.paid.manualEarnings
     },
     toPay: {
       ...stats.toPay,
       total: toPayTotal,
-      percent: totalPercentContract > 0 ? (stats.toPay.percent / totalPercentContract) * 100 : 0
+      percent: totalPercentContract > 0 ? (stats.toPay.percent / totalPercentContract) * 100 : 0,
+      bidFree: stats.toPay.bidFree,
+      bidEmbedded: stats.toPay.bidEmbedded,
+      manualEarnings: stats.toPay.manualEarnings
     },
     total: {
       fc: stats.paid.fc + stats.toPay.fc,
@@ -277,9 +343,12 @@ export function calculateScheduleSummary(
   };
 }
 
-export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}, manualTransactionsOverride?: any[]): PaymentInstallment[] => {
+export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}, manualTransactionsOverride?: any[], projectFutureIndices: boolean = false): PaymentInstallment[] => {
   const schedule: PaymentInstallment[] = [];
   if (!quota || !quota.firstDueDate) return [];
+  
+  const avgIndices = projectFutureIndices ? calculateAverageIndices(indices) : {};
+  const today = new Date(); today.setHours(23, 59, 59, 999);
   
   const firstDueDate = createLocalDate(quota.firstDueDate);
   
@@ -316,7 +385,6 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
   }
 
   let bidProcessed = false;
-  const today = new Date(); today.setHours(23, 59, 59, 999);
 
   let deferredFC_Reais = 0;
   let deferredTA_Reais = 0;
@@ -440,7 +508,7 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
             
             const isAnnual = quota.correctionIndex.endsWith('_12');
 
-            if (shouldApply && indexEndDate <= today) {
+            if (shouldApply && (indexEndDate <= today || projectFutureIndices)) {
                 let accumulatedMultiplier = 1;
                 let hasAnyIndex = false;
                 
@@ -452,6 +520,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                     
                     if (monthlyIndex && monthlyIndex.rate !== 0) {
                         accumulatedMultiplier = (1 + (monthlyIndex.rate / 100));
+                        hasAnyIndex = true;
+                    } else if (projectFutureIndices) {
+                        const avgRate = avgIndices[quota.correctionIndex] || 0;
+                        accumulatedMultiplier = (1 + (avgRate / 100));
                         hasAnyIndex = true;
                     }
                 } else {
@@ -466,6 +538,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
                         
                         if (monthlyIndex && monthlyIndex.rate !== 0) {
                             accumulatedMultiplier *= (1 + (monthlyIndex.rate / 100));
+                            hasAnyIndex = true;
+                        } else if (projectFutureIndices) {
+                            const avgRate = avgIndices[quota.correctionIndex] || 0;
+                            accumulatedMultiplier *= (1 + (avgRate / 100));
                             hasAnyIndex = true;
                         }
                     }

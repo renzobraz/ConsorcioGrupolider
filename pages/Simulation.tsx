@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr, safeParseNumber, generateUUID } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer } from 'lucide-react';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PaymentStatus, ManualTransactionType } from '../types';
 import { calculateScheduleSummary } from '../services/calculationService';
@@ -1073,6 +1073,13 @@ const Simulation = () => {
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4 print:hidden">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => navigate('/reports/executive')} 
+                  className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200"
+                  title="Voltar ao relatório executivo"
+                >
+                  <ArrowLeft size={20} />
+                </button>
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600" /> Simulador e Extrato</h2>
                 {currentQuota && (
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${quotaStatus === 'Pré-Grupo' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
@@ -1248,8 +1255,8 @@ const Simulation = () => {
 
       {currentQuota && (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-xs text-left border-collapse min-w-[1400px]">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-[10px] uppercase sticky top-0 z-20">
                 <tr>
                   <th className="p-2 text-center bg-slate-100 sticky left-0 z-30 w-10">P</th>

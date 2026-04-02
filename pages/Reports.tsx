@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue, calculateScheduleSummary } from '../services/calculationService';
 import { db } from '../services/database';
 import { getTodayStr, formatNumber } from '../utils/formatters';
-import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2, Mail } from 'lucide-react';
+import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2, Mail, ArrowLeft } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -43,6 +44,7 @@ interface ReportRow {
 }
 
 const Reports = () => {
+  const navigate = useNavigate();
   const { quotas, indices, updateQuota, administrators, companies, allCreditUsages, allCreditUpdates, addCreditUpdate, deleteCreditUpdate, globalFilters, setGlobalFilters, sendReportEmail, smtpConfig, addScheduledReport } = useConsortium();
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,9 +182,7 @@ const Reports = () => {
     if (rowProduct === 'REAL_ESTATE') rowProduct = 'IMOVEL';
     
     const matchProduct = !globalFilters.productType || rowProduct === globalFilters.productType;
-    let matchStatus = true;
-    if (globalFilters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
-    else if (globalFilters.status === 'ACTIVE') matchStatus = !row.isContemplated;
+    const matchStatus = !globalFilters.status || (globalFilters.status === 'CONTEMPLATED' ? row.isContemplated : !row.isContemplated);
     return matchAdmin && matchComp && matchProduct && matchStatus;
   });
 
@@ -412,7 +412,6 @@ const Reports = () => {
       companyId?: string;
       administratorId?: string;
       productType?: string;
-      status?: string;
     };
     saveAsScheduled: boolean;
     frequency: any;
@@ -464,10 +463,7 @@ const Reports = () => {
         if (rowProduct === 'REAL_ESTATE') rowProduct = 'IMOVEL';
         
         const matchProduct = !config.filters.productType || rowProduct === config.filters.productType;
-        let matchStatus = true;
-        if (config.filters.status === 'CONTEMPLATED') matchStatus = row.isContemplated;
-        else if (config.filters.status === 'ACTIVE') matchStatus = !row.isContemplated;
-        return matchAdmin && matchComp && matchProduct && matchStatus;
+        return matchAdmin && matchComp && matchProduct;
       });
 
       if (filteredForEmail.length === 0) {
@@ -637,9 +633,18 @@ const Reports = () => {
   return (
     <div className="space-y-6 pb-10 print:p-0 print:space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-           <h1 className="text-2xl font-bold text-slate-800 print:text-xl">Relatório por Cota</h1>
-           <p className="text-slate-500 print:text-xs">Acompanhamento de saldos, lances e créditos disponíveis em {referenceDate}.</p>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate('/reports/executive')} 
+            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+            title="Voltar ao relatório executivo"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+             <h1 className="text-2xl font-bold text-slate-800 print:text-xl">Relatório por Cota</h1>
+             <p className="text-slate-500 print:text-xs">Acompanhamento de saldos, lances e créditos disponíveis em {referenceDate}.</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 print:hidden">
           <button 
@@ -691,10 +696,10 @@ const Reports = () => {
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
           <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Produto</label><select value={globalFilters.productType || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="VEICULO">Veículo</option><option value="IMOVEL">Imóvel</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todas</option><option value="CONTEMPLATED">Contempladas</option><option value="ACTIVE">Em Andamento</option></select></div>
+          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="ACTIVE">Ativas</option><option value="CONTEMPLATED">Contempladas</option></select></div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3 print:hidden">
           {[
               { label: 'Cotas', value: sortedData.length, color: 'text-slate-700', bg: 'bg-white', isCurrency: false },
               { label: 'Valor da Carta Atual', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
@@ -717,7 +722,7 @@ const Reports = () => {
           ))}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:shadow-none">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
           <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full text-[10px] text-left border-collapse print:text-[8px]">
               <thead className="bg-slate-800 text-white uppercase tracking-tighter print:bg-slate-800">
@@ -831,8 +836,7 @@ const Reports = () => {
           referenceDate,
           companyId: globalFilters.companyId,
           administratorId: globalFilters.administratorId,
-          productType: globalFilters.productType,
-          status: globalFilters.status
+          productType: globalFilters.productType
         }}
         companies={companies}
         administrators={administrators}

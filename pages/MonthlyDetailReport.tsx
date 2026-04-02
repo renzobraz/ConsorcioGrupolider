@@ -161,9 +161,9 @@ const MonthlyDetailReport = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <button 
-                        onClick={() => navigate('/reports/monthly')} 
+                        onClick={() => navigate('/reports/executive')} 
                         className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-                        title="Voltar ao relatório macro"
+                        title="Voltar ao relatório Executivo"
                     >
                         <ArrowLeft size={20} />
                     </button>
@@ -201,9 +201,9 @@ const MonthlyDetailReport = () => {
             </div>
 
             {/* TABLE */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left border-collapse">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
+                <div className="overflow-x-auto print:overflow-visible">
+                    <table className="w-full text-xs text-left border-collapse print:text-[10px]">
                         <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-wider sticky top-0">
                             <tr>
                                 <th className="px-4 py-4 font-bold border-r border-slate-700">Grupo / Cota</th>

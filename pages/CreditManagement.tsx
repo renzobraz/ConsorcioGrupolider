@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { calculateCurrentCreditValue } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
-import { ShoppingBag, Building2, Search, Filter, X, Printer, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { ShoppingBag, Building2, Search, Filter, X, Printer, ChevronUp, ChevronDown, ArrowUpDown, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const CreditManagement = () => {
@@ -51,18 +51,13 @@ const CreditManagement = () => {
           // 3. Company Filter (Global filter applied to items inside the group)
           const matchesCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
 
-          // 4. Status Filter
-          let matchesStatus = true;
-          if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
-          if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
-
           // 5. Column Filters
           const matchesQuotaCol = !columnFilters.quota || `${q.group}/${q.quotaNumber}`.toLowerCase().includes(columnFilters.quota.toLowerCase());
           
           const curCredit = calculateCurrentCreditValue(q, indices);
           const matchesCreditCol = !columnFilters.credit || curCredit.toString().includes(columnFilters.credit);
 
-          return matchesSearch && matchesAdmin && matchesCompany && matchesStatus && matchesQuotaCol && matchesCreditCol;
+          return matchesSearch && matchesAdmin && matchesCompany && matchesQuotaCol && matchesCreditCol;
       });
 
       // 2. Sort
@@ -249,19 +244,28 @@ const CreditManagement = () => {
 
   const clearFilters = () => {
       setSearch('');
-      setGlobalFilters({ companyId: '', administratorId: '', status: '' });
+      setGlobalFilters({ companyId: '', administratorId: '' });
   };
 
-  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status;
+  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-10 print:p-0 print:space-y-4 print:max-w-none">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
-            <ShoppingBag className="text-emerald-600" /> Gestão de Créditos
-            </h1>
-            <p className="text-slate-500 print:text-xs">Visão consolidada do uso de crédito por empresa.</p>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate('/reports/executive')} 
+            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+            title="Voltar ao relatório executivo"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+              <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
+              <ShoppingBag className="text-emerald-600" /> Gestão de Créditos
+              </h1>
+              <p className="text-slate-500 print:text-xs">Visão consolidada do uso de crédito por empresa.</p>
+          </div>
         </div>
         <button 
           onClick={() => window.print()} 
@@ -315,20 +319,6 @@ const CreditManagement = () => {
                     {administrators.map(a => (
                         <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
-                    <Filter size={12}/> Status
-                </label>
-                <select 
-                    value={globalFilters.status} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todos os Status</option>
-                    <option value="CONTEMPLATED">Contempladas</option>
-                    <option value="ACTIVE">Em Andamento</option>
                 </select>
             </div>
             
@@ -403,7 +393,7 @@ const CreditManagement = () => {
 
                       {/* QUOTAS LIST */}
                       <div className="p-0 overflow-x-auto print:overflow-visible">
-                          <table className="w-full text-xs text-left print:text-[8px]">
+                          <table className="w-full text-xs text-left border-collapse print:text-[8px]">
                               <thead className="bg-white text-slate-500 uppercase border-b border-slate-100 print:bg-slate-50">
                                   <tr>
                                       <th 

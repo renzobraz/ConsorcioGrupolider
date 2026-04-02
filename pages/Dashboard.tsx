@@ -73,13 +73,10 @@ const Dashboard = () => {
           const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
           const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
           const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
+          const matchStatus = !globalFilters.status || (globalFilters.status === 'CONTEMPLATED' ? q.isContemplated : !q.isContemplated);
           const matchQuota = !selectedQuotaId || q.id === selectedQuotaId;
           
-          let matchStatus = true;
-          if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
-          if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
-
-          return matchCompany && matchAdmin && matchProduct && matchQuota && matchStatus;
+          return matchCompany && matchAdmin && matchProduct && matchStatus && matchQuota;
         });
 
         let accContemplated = 0;
@@ -555,22 +552,6 @@ const Dashboard = () => {
             </div>
 
             <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
-              <Filter size={18} className="text-slate-400 ml-2" />
-              <select 
-                value={globalFilters.status} 
-                onChange={(e) => {
-                  setGlobalFilters({ ...globalFilters, status: e.target.value });
-                  setSelectedQuotaId(''); // Reset specific quota when status filter changes
-                }}
-                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-32 cursor-pointer"
-              >
-                <option value="">Status (Todos)</option>
-                <option value="ACTIVE">Em Andamento</option>
-                <option value="CONTEMPLATED">Contempladas</option>
-              </select>
-            </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
               <FileText size={18} className="text-slate-400 ml-2" />
               <select 
                 value={selectedQuotaId} 
@@ -583,10 +564,7 @@ const Dashboard = () => {
                     const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
                     const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
                     const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
-                    let matchStatus = true;
-                    if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
-                    if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
-                    return matchCompany && matchAdmin && matchProduct && matchStatus;
+                    return matchCompany && matchAdmin && matchProduct;
                   })
                   .map(q => (
                   <option key={q.id} value={q.id}>
@@ -674,8 +652,8 @@ const Dashboard = () => {
                           <X size={20} />
                       </button>
                   </div>
-                  <div className="p-0 overflow-y-auto flex-1">
-                      <table className="w-full text-sm text-left">
+                  <div className="p-0 overflow-x-auto custom-scrollbar flex-1">
+                      <table className="w-full text-sm text-left min-w-[600px]">
                           <thead className="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0">
                               <tr>
                                   <th className="px-6 py-3">Vencimento</th>

@@ -33,6 +33,7 @@ import CreditUsage from './pages/CreditUsage';
 import CreditManagement from './pages/CreditManagement';
 import CreditUsageReport from './pages/CreditUsageReport';
 import AccountsPayable from './pages/AccountsPayable';
+import ExecutiveReport from './pages/ExecutiveReport';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
 import { ConsortiumProvider, useConsortium } from './store/ConsortiumContext';
@@ -66,6 +67,7 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
     { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('canViewReports') },
     { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
     { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('canViewReports') },
+    { to: "/reports/executive", icon: <ShieldCheck size={20} />, label: "Relatório Executivo", show: hasPermission('canViewReports') },
     { to: "/accounts-payable", icon: <CalendarClock size={20} />, label: "Contas a Pagar", show: hasPermission('canViewReports') },
     { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
   ].filter(item => item.show);
@@ -499,6 +501,7 @@ const App = () => {
               <Route path="/reports/monthly" element={<ProtectedRoute permission="canViewReports"><MonthlyPaidReport /></ProtectedRoute>} />
               <Route path="/reports/monthly/:monthYear" element={<ProtectedRoute permission="canViewReports"><MonthlyDetailReport /></ProtectedRoute>} />
               <Route path="/reports/usage" element={<ProtectedRoute permission="canViewReports"><CreditUsageReport /></ProtectedRoute>} />
+              <Route path="/reports/executive" element={<ProtectedRoute permission="canViewReports"><ExecutiveReport /></ProtectedRoute>} />
               <Route path="/accounts-payable" element={<ProtectedRoute permission="canViewReports"><AccountsPayable /></ProtectedRoute>} />
               <Route path="/indices" element={<ProtectedRoute permission="canManageSettings"><CorrectionIndices /></ProtectedRoute>} />
               <Route path="/administrators" element={<ProtectedRoute permission="canManageSettings"><Administrators /></ProtectedRoute>} />

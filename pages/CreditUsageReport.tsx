@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { ShoppingBag, Printer, Filter, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShoppingBag, Printer, Filter, X, ArrowLeft } from 'lucide-react';
 
 const CreditUsageReport = () => {
+  const navigate = useNavigate();
   const { allCreditUsages, quotas, companies, administrators, globalFilters, setGlobalFilters } = useConsortium();
 
   // Combine Usage Data with Quota Info & Filter
@@ -45,11 +47,20 @@ const CreditUsageReport = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-10 print:max-w-none print:w-full print:pb-0 print:space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-                <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
-                    <ShoppingBag className="text-emerald-600" /> Relatório de Utilização
-                </h1>
-                <p className="text-slate-500 print:text-xs">Extrato de todas as utilizações de crédito.</p>
+            <div className="flex items-center gap-3">
+                <button 
+                    onClick={() => navigate('/reports/executive')} 
+                    className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+                    title="Voltar ao relatório executivo"
+                >
+                    <ArrowLeft size={20} />
+                </button>
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
+                        <ShoppingBag className="text-emerald-600" /> Relatório de Utilização
+                    </h1>
+                    <p className="text-slate-500 print:text-xs">Extrato de todas as utilizações de crédito.</p>
+                </div>
             </div>
             <button 
                 onClick={() => window.print()} 
@@ -98,7 +109,7 @@ const CreditUsageReport = () => {
         </div>
 
         {/* SUMMARY */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between print:shadow-none print:border-slate-300 print:p-4">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between print:hidden">
             <div className="flex items-center gap-3">
                 <div className="p-3 bg-amber-100 text-amber-600 rounded-full print:hidden">
                     <ShoppingBag size={24} />
@@ -115,7 +126,7 @@ const CreditUsageReport = () => {
         </div>
 
         {/* TABLE */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:shadow-none">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
             {reportData.length > 0 ? (
                 <div className="overflow-x-auto print:overflow-visible">
                     <table className="w-full text-sm text-left print:text-[8px]">

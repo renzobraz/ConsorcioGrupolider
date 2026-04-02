@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign, ArrowLeft } from 'lucide-react';
 import { ProductType, Quota } from '../types';
 import { calculateCurrentCreditValue, generateSchedule, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
 import { calculateMarketAnalysis, MarketAnalysis } from '../services/marketService';
@@ -64,11 +64,7 @@ const QuotaList = () => {
     
     const matchesProduct = !globalFilters.productType || qProduct === globalFilters.productType;
 
-    let matchesStatus = true;
-    if (globalFilters.status === 'CONTEMPLATED') matchesStatus = q.isContemplated;
-    if (globalFilters.status === 'ACTIVE') matchesStatus = !q.isContemplated;
-
-    return matchesSearch && matchesAdmin && matchesCompany && matchesProduct && matchesStatus;
+    return matchesSearch && matchesAdmin && matchesCompany && matchesProduct;
   });
 
   const sortedQuotas = [...filteredQuotas].sort((a, b) => {
@@ -156,17 +152,26 @@ const QuotaList = () => {
 
   const clearFilters = () => {
     setSearchParams({});
-    setGlobalFilters({ companyId: '', administratorId: '', status: '', productType: '' });
+    setGlobalFilters({ companyId: '', administratorId: '', productType: '' });
   };
 
-  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.status || globalFilters.productType;
+  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.productType;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Minhas Cotas</h1>
-          <p className="text-slate-500">Gerencie suas cotas cadastradas no banco de dados</p>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate('/')} 
+            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+            title="Voltar ao Dashboard"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Minhas Cotas</h1>
+            <p className="text-slate-500">Gerencie suas cotas cadastradas no banco de dados</p>
+          </div>
         </div>
         <button 
           onClick={() => navigate('/new')}
@@ -224,17 +229,6 @@ const QuotaList = () => {
                     <option value="IMOVEL">Imóvel</option>
                 </select>
             </div>
-            <div className="flex-1">
-                <select 
-                    value={globalFilters.status} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todos os Status</option>
-                    <option value="CONTEMPLATED">Contempladas</option>
-                    <option value="ACTIVE">Em Andamento</option>
-                </select>
-            </div>
             
             {hasActiveFilters && (
                 <button 
@@ -250,8 +244,8 @@ const QuotaList = () => {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {sortedQuotas.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse min-w-[1200px]">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-[10px] uppercase tracking-wider">
                 <tr>
                   <th className="p-4 font-semibold cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('product')}>

@@ -5,7 +5,7 @@ import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { formatCurrency, formatDate, formatDateToYYYYMMDD, getTodayStr } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Printer, Loader, Search, Filter, ArrowRight, Download, ChevronRight, TrendingUp, ExternalLink } from 'lucide-react';
+import { CalendarDays, Printer, Loader, Search, Filter, ArrowRight, Download, ChevronRight, TrendingUp, ExternalLink, ArrowLeft } from 'lucide-react';
 
 interface MonthlySummary {
     monthYear: string; // YYYY-MM
@@ -45,8 +45,11 @@ const MonthlyPaidReport = () => {
                 quotas.forEach(quota => {
                     if (globalFilters.companyId && quota.companyId !== globalFilters.companyId) return;
                     if (globalFilters.administratorId && quota.administratorId !== globalFilters.administratorId) return;
-                    if (globalFilters.status === 'ACTIVE' && quota.isContemplated) return;
-                    if (globalFilters.status === 'CONTEMPLATED' && !quota.isContemplated) return;
+                    if (globalFilters.status) {
+                        const isContemplated = !!quota.isContemplated;
+                        if (globalFilters.status === 'CONTEMPLATED' && !isContemplated) return;
+                        if (globalFilters.status === 'ACTIVE' && isContemplated) return;
+                    }
 
                     const schedule = generateSchedule(quota, indices);
                     const paymentMap = allPayments[quota.id] || {};
@@ -159,11 +162,20 @@ const MonthlyPaidReport = () => {
     return (
         <div className="w-full space-y-6 pb-10 print:p-0">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <CalendarDays className="text-emerald-600" /> Fluxo Mensal Financeiro
-                    </h1>
-                    <p className="text-slate-500">Relatório consolidado de parcelas e lances (Realizado + Projetado).</p>
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={() => navigate('/reports/executive')} 
+                        className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+                        title="Voltar ao relatório executivo"
+                    >
+                        <ArrowLeft size={20} />
+                    </button>
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                            <CalendarDays className="text-emerald-600" /> Fluxo Mensal Financeiro
+                        </h1>
+                        <p className="text-slate-500">Relatório consolidado de parcelas e lances (Realizado + Projetado).</p>
+                    </div>
                 </div>
                 <div className="flex gap-2 print:hidden">
                     <button onClick={() => window.print()} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium flex items-center gap-2 transition-colors">
@@ -214,22 +226,10 @@ const MonthlyPaidReport = () => {
                         {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Status</label>
-                    <select 
-                        value={globalFilters.status} 
-                        onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                        <option value="">Todos os Status</option>
-                        <option value="CONTEMPLATED">Contempladas</option>
-                        <option value="ACTIVE">Em Andamento</option>
-                    </select>
-                </div>
             </div>
 
             {/* CARDS SUMMARY */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                     <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Fundo Comum</p>
                     <p className="text-xl font-black text-slate-800">{formatCurrency(totals.commonFund)}</p>
@@ -249,9 +249,9 @@ const MonthlyPaidReport = () => {
             </div>
 
             {/* MAIN TABLE */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left border-collapse">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
+                <div className="overflow-x-auto print:overflow-visible">
+                    <table className="w-full text-sm text-left border-collapse print:text-[10px]">
                         <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-wider">
                             <tr>
                                 <th className="px-6 py-4 font-bold border-r border-slate-700">Mês de Referência</th>

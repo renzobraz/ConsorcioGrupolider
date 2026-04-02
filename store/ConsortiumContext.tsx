@@ -75,10 +75,10 @@ interface ConsortiumContextType {
   globalFilters: {
     companyId: string;
     administratorId: string;
-    status: string;
     productType: string;
+    status: string;
   };
-  setGlobalFilters: (filters: { companyId: string; administratorId: string; status: string; productType: string }) => void;
+  setGlobalFilters: (filters: { companyId: string; administratorId: string; productType: string; status: string }) => void;
 }
 
 const ConsortiumContext = createContext<ConsortiumContextType | undefined>(undefined);
@@ -115,8 +115,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [globalFilters, setGlobalFilters] = useState({
     companyId: '',
     administratorId: '',
-    status: '',
-    productType: ''
+    productType: '',
+    status: ''
   });
 
   const { user, isAdmin } = useAuth();

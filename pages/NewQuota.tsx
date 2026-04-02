@@ -431,7 +431,7 @@ const NewQuota = () => {
         <h1 className="text-2xl font-bold text-slate-800">
           {id ? 'Editar Cota' : replicateId ? 'Replicar Cota' : 'Cadastro de Nova Cota'}
         </h1>
-        <button onClick={() => navigate(-1)} className="text-slate-500 hover:text-slate-800 flex items-center gap-1">
+        <button onClick={() => navigate('/quotas')} className="text-slate-500 hover:text-slate-800 flex items-center gap-1">
           <ArrowLeft size={16} /> Voltar
         </button>
       </div>

@@ -8,8 +8,9 @@ import { formatCurrency, formatDate, formatPercent } from '../utils/formatters';
 import { 
   CalendarClock, Search, Filter, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, FileText, Printer, Building2, Briefcase, BadgeCheck, Clock, AlertCircle,
-  Check, X
+  Check, X, ArrowLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -48,6 +49,7 @@ interface PayableInstallment {
 }
 
 const AccountsPayable = () => {
+  const navigate = useNavigate();
   const { quotas, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
   const [installments, setInstallments] = useState<PayableInstallment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -435,11 +437,20 @@ const AccountsPayable = () => {
   return (
     <div className="space-y-6 pb-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <CalendarClock className="text-emerald-600" /> Contas a Pagar
-          </h1>
-          <p className="text-slate-500">Visualização de parcelas do consórcio por período e status.</p>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate('/reports/executive')} 
+            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+            title="Voltar ao relatório executivo"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <CalendarClock className="text-emerald-600" /> Contas a Pagar
+            </h1>
+            <p className="text-slate-500">Visualização de parcelas do consórcio por período e status.</p>
+          </div>
         </div>
         
         <div className="flex items-center gap-2">
@@ -527,7 +538,7 @@ const AccountsPayable = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-blue-50 rounded-full text-blue-600"><Clock size={24} /></div>
           <div>
@@ -708,7 +719,7 @@ const AccountsPayable = () => {
 
         {/* Pagination Controls */}
         {totalPages > 1 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-slate-200 sm:px-6 rounded-b-xl">
+          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-slate-200 sm:px-6 rounded-b-xl print:hidden">
             <div className="flex-1 flex justify-between sm:hidden">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
