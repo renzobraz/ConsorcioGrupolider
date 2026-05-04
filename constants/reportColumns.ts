@@ -11,7 +11,7 @@ export const REPORT_COLUMNS = [
   { id: 'creditAtContemplation', label: 'Crédito', key: 'creditAtContemplation', type: 'currency' },
   { id: 'bidEmbedded', label: 'Lance Emb.', key: 'bidEmbedded', type: 'currency' },
   { id: 'percentBidEmbedded', label: '% Emb', key: 'percentBidEmbedded', type: 'percent' },
-  { id: 'valorRealCarta', label: 'Vlr Líquido', key: 'valorRealCarta', type: 'currency' },
+  { id: 'valorRealCarta', label: 'CRÉDITO TOTAL SEM CORREÇÃO', key: 'valorRealCarta', type: 'currency' },
   { id: 'creditManualAdjustment', label: 'Aplicação', key: 'creditManualAdjustment', type: 'currency' },
   { id: 'bidFreeCorrection', label: '92% CDI', key: 'bidFreeCorrection', type: 'currency' },
   { id: 'creditoTotal', label: 'Corrigido', key: 'creditoTotal', type: 'currency' },

@@ -6,13 +6,12 @@ import {
   List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp, 
   AlertCircle, FileBarChart, Building2, Briefcase, BookOpen, 
   ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays,
-  CalendarClock, Tag, ShieldCheck,
+  CalendarClock, Tag, ShieldCheck, ChevronDown,
   Activity, Loader, CheckCircle 
 } from 'lucide-react';
 
 // Components
 import Dashboard from './pages/Dashboard';
-import ManagementDashboard from './pages/ManagementDashboard';
 import SellerDashboard from './pages/SellerDashboard';
 import Marketplace from './pages/Marketplace';
 import NegotiationRoom from './pages/NegotiationRoom';
@@ -50,6 +49,12 @@ interface SidebarProps {
 const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarProps) => {
   const location = useLocation();
   const { hasPermission, isAdmin, user } = useAuth();
+  const [isQuotasOpen, setIsQuotasOpen] = useState(() => {
+    return location.pathname === '/quotas' || location.pathname === '/new' || location.pathname.startsWith('/edit/');
+  });
+  const [isReportsOpen, setIsReportsOpen] = useState(() => {
+    return location.pathname.startsWith('/reports') || location.pathname === '/accounts-payable';
+  });
   
   const isActive = (path: string) => location.pathname === path 
     ? "bg-emerald-600 text-white shadow-lg" 
@@ -57,19 +62,26 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
 
   const navItems = [
     { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('canViewDashboard') },
-    { to: "/dashboard/gerencial", icon: <Activity size={20} />, label: "Dashboard Gerencial", show: hasPermission('canViewDashboard') },
     { to: "/marketplace", icon: <ShoppingBag size={20} />, label: "Marketplace", show: true },
-    { to: "/seller-dashboard", icon: <Tag size={20} />, label: "Painel de Revenda", show: true },
-    { to: "/quotas", icon: <List size={20} />, label: "Minhas Cotas", show: true },
+  ].filter(item => item.show);
+
+  const quotaManagementItems = [
+    { to: "/quotas", icon: <List size={20} />, label: "Lista de Cotas", show: true },
     { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('canManageQuotas') },
+  ].filter(item => item.show);
+
+  const operationItems = [
     { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('canSimulate') },
+    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
+    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
+  ].filter(item => item.show);
+
+  const reportItems = [
     { to: "/reports", icon: <FileBarChart size={20} />, label: "Relatório por Cota", show: hasPermission('canViewReports') },
     { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('canViewReports') },
-    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
     { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('canViewReports') },
     { to: "/reports/executive", icon: <ShieldCheck size={20} />, label: "Relatório Executivo", show: hasPermission('canViewReports') },
     { to: "/accounts-payable", icon: <CalendarClock size={20} />, label: "Contas a Pagar", show: hasPermission('canViewReports') },
-    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
   ].filter(item => item.show);
 
   const registryItems = [
@@ -135,6 +147,86 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
             {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
           </Link>
         ))}
+
+        {/* Submenu Minhas Cotas */}
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={() => setIsQuotasOpen(!isQuotasOpen)}
+            title={isCollapsed ? "Minhas Cotas" : ""}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-slate-300 hover:bg-slate-800 hover:text-white ${isCollapsed ? 'justify-center' : 'justify-between'}`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="shrink-0"><List size={20} /></span>
+              {!isCollapsed && <span className="font-medium text-sm truncate">Minhas Cotas</span>}
+            </div>
+            {!isCollapsed && (
+              <span className={`transition-transform duration-200 ${isQuotasOpen ? 'rotate-180' : ''}`}>
+                <ChevronDown size={14} />
+              </span>
+            )}
+          </button>
+          
+          {(isQuotasOpen && !isCollapsed) && (
+            <div className="flex flex-col gap-1 ml-4 pl-4 border-l border-slate-800 py-1">
+              {quotaManagementItems.map((item) => (
+                <Link 
+                  key={item.to} 
+                  to={item.to} 
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${isActive(item.to)}`}
+                >
+                  <span className="shrink-0">{item.icon}</span>
+                  <span className="font-medium text-xs truncate">{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {operationItems.map((item) => (
+          <Link 
+            key={item.to} 
+            to={item.to} 
+            title={isCollapsed ? item.label : ""}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive(item.to)} ${isCollapsed ? 'justify-center' : ''}`}
+          >
+            <span className="shrink-0">{item.icon}</span>
+            {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
+          </Link>
+        ))}
+
+        {/* Submenu Relatórios */}
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={() => setIsReportsOpen(!isReportsOpen)}
+            title={isCollapsed ? "Relatórios" : ""}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-slate-300 hover:bg-slate-800 hover:text-white ${isCollapsed ? 'justify-center' : 'justify-between'}`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="shrink-0"><FileBarChart size={20} /></span>
+              {!isCollapsed && <span className="font-medium text-sm truncate">Relatórios</span>}
+            </div>
+            {!isCollapsed && (
+              <span className={`transition-transform duration-200 ${isReportsOpen ? 'rotate-180' : ''}`}>
+                <ChevronDown size={14} />
+              </span>
+            )}
+          </button>
+          
+          {(isReportsOpen && !isCollapsed) && (
+            <div className="flex flex-col gap-1 ml-4 pl-4 border-l border-slate-800 py-1">
+              {reportItems.map((item) => (
+                <Link 
+                  key={item.to} 
+                  to={item.to} 
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${isActive(item.to)}`}
+                >
+                  <span className="shrink-0">{item.icon}</span>
+                  <span className="font-medium text-xs truncate">{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className={`my-4 border-t border-slate-800 transition-all ${isCollapsed ? 'mx-2' : 'mx-1'}`}></div>
         {!isCollapsed && <p className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Cadastros</p>}
@@ -394,6 +486,33 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user, logout, isLoading } = useAuth();
+  const location = useLocation();
+
+  const getPageTitle = (pathname: string) => {
+    if (pathname === '/') return 'Dashboard';
+    if (pathname === '/marketplace') return 'Marketplace';
+    if (pathname === '/quotas') return 'Minhas Cotas';
+    if (pathname === '/new') return 'Novo Cadastro';
+    if (pathname.startsWith('/edit/')) return 'Editar Cota';
+    if (pathname.startsWith('/usage/')) return 'Uso de Crédito';
+    if (pathname === '/simulate') return 'Simulador / Extrato';
+    if (pathname === '/reports') return 'Relatório por Cota';
+    if (pathname === '/reports/monthly') return 'Fluxo Mensal Pago';
+    if (pathname.startsWith('/reports/monthly/')) return 'Detalhamento Mensal';
+    if (pathname === '/reports/usage') return 'Relatório Uso de Créditos';
+    if (pathname === '/reports/executive') return 'Relatório Executivo';
+    if (pathname === '/accounts-payable') return 'Contas a Pagar';
+    if (pathname === '/calculator') return 'Calculadora Avulsa';
+    if (pathname === '/administrators') return 'Administradoras';
+    if (pathname === '/companies') return 'Empresas';
+    if (pathname === '/indices') return 'Índices de Correção';
+    if (pathname === '/manual') return 'Manual do Sistema';
+    if (pathname === '/settings') return 'Configurações';
+    if (pathname === '/users') return 'Usuários';
+    if (pathname.startsWith('/negotiation/')) return 'Sala de Negociação';
+    if (pathname === '/admin/moderation') return 'Moderação de Anúncios';
+    return 'Painel Administrativo';
+  };
 
   // Auto-collapse on smaller screens but not mobile
   useEffect(() => {
@@ -436,12 +555,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       
       <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} print:ml-0`}>
         <header className="bg-white h-16 border-b border-slate-200 flex items-center justify-between px-4 md:px-8 sticky top-0 z-20 shadow-sm print:hidden">
-          <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-slate-600 hover:bg-slate-100 p-2 rounded-lg">
-            <Menu size={24} />
-          </button>
-          
-          <div className="hidden md:block">
-             <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Painel Administrativo</h2>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-slate-600 hover:bg-slate-100 p-2 rounded-lg">
+              <Menu size={24} />
+            </button>
+            
+            <div className="hidden md:block">
+               <h2 className="text-lg font-black text-slate-800 tracking-tight">{getPageTitle(location.pathname)}</h2>
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
@@ -487,8 +608,6 @@ const App = () => {
           <Layout>
             <Routes>
               <Route path="/" element={<ProtectedRoute permission="canViewDashboard"><Dashboard /></ProtectedRoute>} />
-              <Route path="/dashboard/gerencial" element={<ProtectedRoute permission="canViewDashboard"><ManagementDashboard /></ProtectedRoute>} />
-              <Route path="/seller-dashboard" element={<ProtectedRoute><SellerDashboard /></ProtectedRoute>} />
               <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
               <Route path="/negotiation/:id" element={<ProtectedRoute><NegotiationRoom /></ProtectedRoute>} />
               <Route path="/admin/moderation" element={<ProtectedRoute><AdModeration /></ProtectedRoute>} />

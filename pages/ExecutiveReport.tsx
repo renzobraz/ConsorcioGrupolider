@@ -2,6 +2,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { generateSchedule, calculateCurrentCreditValue, calculateScheduleSummary } from '../services/calculationService';
 import { db } from '../services/database';
 import { formatNumber } from '../utils/formatters';
@@ -43,7 +44,7 @@ import {
   Area,
   ReferenceLine
 } from 'recharts';
-import { Quota, ProductType } from '../types';
+import { Quota, ProductType, ProjectionConfig } from '../types';
 
 interface ExecutiveAnalysis {
   quota: Quota;
@@ -93,7 +94,7 @@ const ExecutiveReport = () => {
   const [selectedStrategy, setSelectedStrategy] = useState<ExecutiveAnalysis | null>(null);
   const [selectedCalculation, setSelectedCalculation] = useState<ExecutiveAnalysis | null>(null);
   const [selectedProjection, setSelectedProjection] = useState<ExecutiveAnalysis | null>(null);
-  const [projectFutureIndices, setProjectFutureIndices] = useState(false);
+  const [projectionConfig, setProjectionConfig] = useState<ProjectionConfig>({ enabled: false, periodMonths: 36 });
   const [showAllMonths, setShowAllMonths] = useState(false);
 
   const buildAnalysis = useCallback(async () => {
@@ -118,7 +119,7 @@ const ExecutiveReport = () => {
         db.getManualTransactions(quota.id)
       ]);
 
-      const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments, undefined, projectFutureIndices);
+      const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments, undefined, projectionConfig);
       const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
       
       const debtBalance = summary.toPay.total || 0;
@@ -127,18 +128,18 @@ const ExecutiveReport = () => {
       // Current installment (next one to pay)
       const nextInstallment = schedule.find(i => !i.isPaid && i.installmentNumber > 0);
       const lastInstallment = schedule.length > 0 ? schedule[schedule.length - 1] : null;
-      const currentInstallment = projectFutureIndices && lastInstallment ? lastInstallment.totalInstallment : (nextInstallment ? nextInstallment.totalInstallment : 0);
+      const currentInstallment = projectionConfig.enabled && lastInstallment ? lastInstallment.totalInstallment : (nextInstallment ? nextInstallment.totalInstallment : 0);
 
-      // Available Credit (Valor Líquido na Contemplação)
+      // Available Credit (CRÉDITO TOTAL SEM CORREÇÃO na Contemplação)
       // Conforme solicitado pelo usuário: Valor da carta na data da contemplação menos o lance embutido.
       const lastInstallmentDate = schedule.length > 0 ? new Date(schedule[schedule.length - 1].dueDate) : new Date(referenceDate);
       const currentCredit = calculateCurrentCreditValue(
         quota, 
         indices, 
-        projectFutureIndices ? lastInstallmentDate : new Date(referenceDate), 
-        projectFutureIndices ? false : true, // Don't freeze if projecting future
+        projectionConfig.enabled ? lastInstallmentDate : new Date(referenceDate), 
+        projectionConfig.enabled ? false : true, // Don't freeze if projecting future
         false, 
-        projectFutureIndices
+        projectionConfig
       ) || 0;
       const quotaUsages = allCreditUsages.filter(u => u.quotaId === quota.id);
       const usedCredit = quotaUsages.reduce((sum, u) => sum + (u.amount || 0), 0);
@@ -263,9 +264,9 @@ const ExecutiveReport = () => {
         
         if (isYielding) {
           let currentAvailableCredit = availableCredit;
-          if (projectFutureIndices && inst) {
+          if (projectionConfig.enabled && inst) {
             // Se estiver projetando, recalculamos o crédito para a data futura
-            const projectedCredit = calculateCurrentCreditValue(quota, indices, new Date(inst.dueDate), false, false, true);
+            const projectedCredit = calculateCurrentCreditValue(quota, indices, new Date(inst.dueDate), false, false, projectionConfig);
             currentAvailableCredit = projectedCredit - (quota.bidEmbedded || 0) - usedCredit;
           }
           monthlyYieldValue = currentAvailableCredit * 0.0092;
@@ -294,7 +295,7 @@ const ExecutiveReport = () => {
       }
 
       const finalProjection = projection[projection.length - 1];
-      const realGainVsCDI = projectFutureIndices ? finalProjection.netResult : (availableCredit - debtBalance) - (totalDisbursed + opportunityCostCDI);
+      const realGainVsCDI = projectionConfig.enabled ? finalProjection.netResult : (availableCredit - debtBalance) - (totalDisbursed + opportunityCostCDI);
 
       // 4. Simulação de Ágio para Venda
       const breakEvenAgio = totalDisbursed + opportunityCostCDI;
@@ -353,11 +354,11 @@ const ExecutiveReport = () => {
 
     setAnalysisData(data);
     setLoading(false);
-  }, [quotas, indices, allCreditUsages, referenceDate, globalFilters, projectFutureIndices]);
+  }, [quotas, indices, allCreditUsages, referenceDate, globalFilters, projectionConfig]);
 
   useEffect(() => {
     buildAnalysis();
-  }, [buildAnalysis, projectFutureIndices]);
+  }, [buildAnalysis, projectionConfig]);
 
   const portfolioSummary = useMemo(() => {
     if (analysisData.length === 0) return null;
@@ -410,13 +411,6 @@ const ExecutiveReport = () => {
             </button>
           )}
           <button 
-            onClick={() => navigate('/reports')}
-            className="px-8 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-all flex items-center gap-2"
-          >
-            <ArrowLeft size={18} />
-            Voltar para Relatórios
-          </button>
-          <button 
             onClick={() => navigate('/new')}
             className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center gap-2"
           >
@@ -437,107 +431,55 @@ const ExecutiveReport = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/')} 
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-            title="Voltar ao Dashboard"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="text-emerald-600" />
-              Relatório Executivo de Performance
-            </h1>
-            <p className="text-slate-500">Análise estratégica de ativos, arbitragem de fluxo e custo de capital.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white border border-slate-200 p-1 rounded-xl shadow-sm">
-            <button 
-              onClick={() => setProjectFutureIndices(false)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${!projectFutureIndices ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              Valores Atuais
-            </button>
-            <button 
-              onClick={() => setProjectFutureIndices(true)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${projectFutureIndices ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              Projetar Futuro (Média 3 anos)
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              <Download size={16} />
-              Exportar PDF
-            </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm">
-              <Printer size={16} />
-              Imprimir
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print:hidden">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-            <div className="flex-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Empresa</p>
-                <select 
-                    value={globalFilters.companyId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Empresas</option>
-                    {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Administradora</p>
-                <select 
-                    value={globalFilters.administratorId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Administradoras</option>
-                    {administrators.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Produto</p>
-                <select 
-                    value={globalFilters.productType} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todos os Produtos</option>
-                    <option value="VEICULO">Veículo</option>
-                    <option value="IMOVEL">Imóvel</option>
-                </select>
+      <ConsortiumFilterBar 
+        showQuotaFilter={false} 
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-sm">
+              <button 
+                onClick={() => setProjectionConfig({ ...projectionConfig, enabled: false })}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${!projectionConfig.enabled ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                Valores Atuais
+              </button>
+              <button 
+                onClick={() => setProjectionConfig({ ...projectionConfig, enabled: true })}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${projectionConfig.enabled ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                Projetar Futuro
+              </button>
             </div>
             
-            {(globalFilters.administratorId || globalFilters.companyId || globalFilters.productType) && (
-                <div className="flex flex-col">
-                    <p className="text-[10px] font-bold text-transparent mb-1">.</p>
-                    <button 
-                        onClick={() => setGlobalFilters({ companyId: '', administratorId: '', productType: '' })}
-                        className="px-4 py-2 text-slate-500 hover:text-red-500 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-200 transition-colors flex items-center justify-center gap-1 text-sm font-medium whitespace-nowrap"
-                    >
-                        <X size={16} /> Limpar
-                    </button>
-                </div>
+            {projectionConfig.enabled && (
+              <div className="flex items-center gap-2 bg-indigo-50 p-1 rounded-xl border border-indigo-100 h-9">
+                <select 
+                  value={projectionConfig.periodMonths}
+                  onChange={(e) => setProjectionConfig({ ...projectionConfig, periodMonths: Number(e.target.value) })}
+                  className="bg-transparent text-[10px] font-bold text-indigo-700 outline-none px-2"
+                >
+                  <option value={12}>12 Meses</option>
+                  <option value={24}>24 Meses</option>
+                  <option value={36}>36 Meses</option>
+                </select>
+              </div>
             )}
-        </div>
-      </div>
+            
+            <div className="flex items-center gap-2">
+              <button className="flex items-center justify-center gap-2 px-3 h-9 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap">
+                <Download size={16} />
+                Exportar PDF
+              </button>
+              <button 
+                onClick={() => window.print()}
+                className="flex items-center justify-center gap-2 px-3 h-9 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition-colors shadow-sm whitespace-nowrap"
+              >
+                <Printer size={16} />
+                Imprimir
+              </button>
+            </div>
+          </div>
+        }
+      />
 
       {/* Executive Summary Cards */}
       {portfolioSummary && (
@@ -554,11 +496,11 @@ const ExecutiveReport = () => {
                 {portfolioSummary.healthStatus}
               </span>
             </div>
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectFutureIndices ? 'Liquidez Projetada' : 'Liquidez Total'}</p>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectionConfig.enabled ? 'Liquidez Projetada' : 'Liquidez Total'}</p>
             <h3 className="text-xl font-black text-slate-900">{formatNumber(portfolioSummary.totalCredit)}</h3>
             <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-400">
               <Info size={12} />
-              <span>{projectFutureIndices ? 'Crédito projetado ao fim do plano' : 'Crédito disponível atualizado'}</span>
+              <span>{projectionConfig.enabled ? 'Crédito projetado ao fim do plano' : 'Crédito disponível atualizado'}</span>
             </div>
           </div>
 
@@ -569,11 +511,11 @@ const ExecutiveReport = () => {
               </div>
               <span className="text-[10px] font-bold text-blue-600">ROI MENSAL</span>
             </div>
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectFutureIndices ? 'Rendimento Projetado' : 'Rendimento Nominal'}</p>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectionConfig.enabled ? 'Rendimento Projetado' : 'Rendimento Nominal'}</p>
             <h3 className="text-xl font-black text-slate-900">{formatNumber(portfolioSummary.totalYield)}</h3>
             <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-600 font-bold">
               <ArrowUpRight size={12} />
-              <span>{projectFutureIndices ? 'Rendimento mensal projetado' : '0.92% a.m. fixo'}</span>
+              <span>{projectionConfig.enabled ? 'Rendimento mensal projetado' : '0.92% a.m. fixo'}</span>
             </div>
           </div>
 
@@ -588,10 +530,10 @@ const ExecutiveReport = () => {
                 {portfolioSummary.netCashFlow > 0 ? 'SUPERÁVIT' : 'DÉFICIT'}
               </span>
             </div>
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectFutureIndices ? 'Arbitragem Projetada' : 'Arbitragem Líquida'}</p>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{projectionConfig.enabled ? 'Arbitragem Projetada' : 'Arbitragem Líquida'}</p>
             <h3 className="text-xl font-black text-slate-900">{formatNumber(portfolioSummary.netCashFlow)}</h3>
             <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-400">
-              <span>{projectFutureIndices ? 'Rendimento - Parcelas (Projetado)' : 'Rendimento - Parcelas'}</span>
+              <span>{projectionConfig.enabled ? 'Rendimento - Parcelas (Projetado)' : 'Rendimento - Parcelas'}</span>
             </div>
           </div>
 
@@ -642,7 +584,7 @@ const ExecutiveReport = () => {
             <thead>
               <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                 <th className="px-6 py-4">Ativo / Cota</th>
-                <th className="px-6 py-4 text-right">Crédito Líquido</th>
+                <th className="px-6 py-4 text-right">CRÉDITO TOTAL SEM CORREÇÃO</th>
                 <th className="px-6 py-4 text-right">Parcela Mensal</th>
                 <th className="px-6 py-4 text-right">Rendimento (0.92%)</th>
                 <th className="px-6 py-4 text-right">Arbitragem</th>
@@ -757,7 +699,7 @@ const ExecutiveReport = () => {
                   <p className="text-sm font-bold text-slate-700">Cota {data.quota.group}/{data.quota.quotaNumber}</p>
                   <div className={`flex items-center gap-1 text-xs font-bold ${data.realGainVsCDI > 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
                     {data.realGainVsCDI > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                    {projectFutureIndices ? (data.realGainVsCDI > 0 ? 'ROI Projetado Positivo' : 'ROI Projetado Negativo') : (data.realGainVsCDI > 0 ? 'Acima do CDI' : 'Abaixo do CDI')}
+                    {projectionConfig.enabled ? (data.realGainVsCDI > 0 ? 'ROI Projetado Positivo' : 'ROI Projetado Negativo') : (data.realGainVsCDI > 0 ? 'Acima do CDI' : 'Abaixo do CDI')}
                   </div>
                 </div>
                 
@@ -793,7 +735,7 @@ const ExecutiveReport = () => {
                     </button>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">{projectFutureIndices ? 'Ganho Projetado Final' : 'Ganho Real sobre Capital'}</p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">{projectionConfig.enabled ? 'Ganho Projetado Final' : 'Ganho Real sobre Capital'}</p>
                     <p className={`text-lg font-black ${data.realGainVsCDI > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
                       {formatNumber(data.realGainVsCDI)}
                     </p>
@@ -975,7 +917,7 @@ const ExecutiveReport = () => {
                   <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Métricas de Liquidez</h5>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="text-sm text-slate-600">Crédito Líquido Disponível</span>
+                      <span className="text-sm text-slate-600">CRÉDITO TOTAL SEM CORREÇÃO Disponível</span>
                       <span className="text-sm font-bold text-slate-800">{formatNumber(selectedStrategy.availableCredit)}</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -1070,20 +1012,20 @@ const ExecutiveReport = () => {
             </div>
 
             <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
-              {projectFutureIndices && (
+              {projectionConfig.enabled && (
                 <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center gap-3 text-indigo-700 text-sm font-medium">
                   <div className="p-2 bg-white rounded-lg shadow-sm">
                     <TrendingUp size={18} className="text-indigo-600" />
                   </div>
-                  <p>Esta análise está utilizando <strong>projeções futuras</strong> baseadas na média dos últimos 3 anos dos índices ({selectedCalculation.quota.correctionIndex}).</p>
+                  <p>Esta análise está utilizando <strong>projeções futuras</strong> baseadas na média dos últimos {projectionConfig.periodMonths} meses dos índices ({selectedCalculation.quota.correctionIndex}).</p>
                 </div>
               )}
 
-              {/* 1. Crédito Líquido */}
+              {/* 1. CRÉDITO TOTAL SEM CORREÇÃO */}
               <section className="space-y-4">
                 <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px]">1</div>
-                  Cálculo do Crédito Líquido (Base na Contemplação)
+                  Cálculo do CRÉDITO TOTAL SEM CORREÇÃO (Base na Contemplação)
                 </h4>
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
                   <div className="flex justify-between text-sm">
@@ -1099,11 +1041,11 @@ const ExecutiveReport = () => {
                     <span className="font-mono font-bold text-red-500">-{formatNumber(allCreditUsages.filter(u => u.quotaId === selectedCalculation.quota.id).reduce((sum, u) => sum + (u.amount || 0), 0))}</span>
                   </div>
                   <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-                    <span className="text-sm font-bold text-slate-900">(=) Crédito Líquido Disponível</span>
+                    <span className="text-sm font-bold text-slate-900">(=) CRÉDITO TOTAL SEM CORREÇÃO Disponível</span>
                     <span className="text-lg font-black text-indigo-600">{formatNumber(selectedCalculation.availableCredit)}</span>
                   </div>
                   <p className="text-[10px] text-slate-400 italic mt-2">
-                    * {projectFutureIndices ? 'Valor projetado ao final do plano com base nos índices médios.' : 'Conforme regra de negócio: O valor da carta é congelado na data da contemplação, subtraindo-se o lance embutido e as utilizações efetivadas.'}
+                    * {projectionConfig.enabled ? 'Valor projetado ao final do plano com base nos índices médios.' : 'Conforme regra de negócio: O valor da carta é congelado na data da contemplação, subtraindo-se o lance embutido e as utilizações efetivadas.'}
                   </p>
                 </div>
               </section>
@@ -1116,7 +1058,7 @@ const ExecutiveReport = () => {
                 </h4>
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Base de Cálculo (Crédito Líquido)</span>
+                    <span className="text-slate-500">Base de Cálculo (CRÉDITO TOTAL SEM CORREÇÃO)</span>
                     <span className="font-mono font-bold text-slate-700">{formatNumber(selectedCalculation.availableCredit)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -1235,12 +1177,12 @@ const ExecutiveReport = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-8">
-              {projectFutureIndices && (
+              {projectionConfig.enabled && (
                 <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center gap-3 text-indigo-700 text-sm font-medium">
                   <div className="p-2 bg-white rounded-lg shadow-sm">
                     <TrendingUp size={18} className="text-indigo-600" />
                   </div>
-                  <p>Esta projeção está utilizando <strong>índices projetados</strong> baseados na média dos últimos 3 anos ({selectedProjection.quota.correctionIndex}).</p>
+                  <p>Esta projeção está utilizando <strong>índices projetados</strong> baseados na média dos últimos {projectionConfig.periodMonths} meses ({selectedProjection.quota.correctionIndex}).</p>
                 </div>
               )}
 

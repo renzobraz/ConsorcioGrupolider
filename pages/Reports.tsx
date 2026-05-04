@@ -4,12 +4,13 @@ import { useConsortium } from '../store/ConsortiumContext';
 import { generateSchedule, calculateCDICorrection, calculateCurrentCreditValue, calculateScheduleSummary } from '../services/calculationService';
 import { db } from '../services/database';
 import { getTodayStr, formatNumber } from '../utils/formatters';
-import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2, Mail, ArrowLeft } from 'lucide-react';
+import { FileBarChart, Loader, AlertTriangle, Filter, CheckCircle2, Clock, Sheet, Calendar, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Printer, Download, FileText, BadgeCheck, X, Trash2, Mail, ArrowLeft, ArrowRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { SendEmailModal } from '../components/SendEmailModal';
 import { AVAILABLE_REPORT_COLUMNS } from '../constants/reportAvailableColumns';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 interface ReportRow {
   id: string;
@@ -183,7 +184,14 @@ const Reports = () => {
     
     const matchProduct = !globalFilters.productType || rowProduct === globalFilters.productType;
     const matchStatus = !globalFilters.status || (globalFilters.status === 'CONTEMPLATED' ? row.isContemplated : !row.isContemplated);
-    return matchAdmin && matchComp && matchProduct && matchStatus;
+    
+    const search = (globalFilters.searchText || '').toLowerCase();
+    const matchSearch = !search || 
+      (row.group || '').toLowerCase().includes(search) || 
+      (row.quotaNumber || '').toLowerCase().includes(search) ||
+      (row.contractNumber || '').toLowerCase().includes(search);
+
+    return matchAdmin && matchComp && matchProduct && matchStatus && matchSearch;
   });
 
   const sortedData = useMemo(() => {
@@ -239,14 +247,17 @@ const Reports = () => {
     percentAVencerSum: 0,
   });
 
-  const totals = {
-    ...sums,
-    percentBidTotalAvg: sortedData.length > 0 ? sums.percentBidTotalSum / sortedData.length : 0,
-    percentBidFreeAvg: sortedData.length > 0 ? sums.percentBidFreeSum / sortedData.length : 0,
-    percentBidEmbeddedAvg: sortedData.length > 0 ? sums.percentBidEmbeddedSum / sortedData.length : 0,
-    percentVencidoAvg: sortedData.length > 0 ? sums.percentVencidoSum / sortedData.length : 0,
-    percentAVencerAvg: sortedData.length > 0 ? sums.percentAVencerSum / sortedData.length : 0,
-  };
+  const totals = useMemo(() => {
+    const baseForPercents = sums.saldoVencido + sums.saldoAVencer;
+    return {
+      ...sums,
+      percentBidTotalAvg: sortedData.length > 0 ? sums.percentBidTotalSum / sortedData.length : 0,
+      percentBidFreeAvg: sortedData.length > 0 ? sums.percentBidFreeSum / sortedData.length : 0,
+      percentBidEmbeddedAvg: sortedData.length > 0 ? sums.percentBidEmbeddedSum / sortedData.length : 0,
+      percentVencidoAvg: baseForPercents > 0 ? (sums.saldoVencido / baseForPercents) * 100 : 0,
+      percentAVencerAvg: baseForPercents > 0 ? (sums.saldoAVencer / baseForPercents) * 100 : 0,
+    };
+  }, [sums, sortedData.length]);
 
   const SortHeader = ({ label, sortKey, align = 'right', className = '' }: { label: string, sortKey: keyof ReportRow, align?: 'left'|'right', className?: string }) => (
       <th className={`px-2 py-3 cursor-pointer hover:bg-slate-800 transition-colors group select-none ${className} ${align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => setSortConfig({ key: sortKey, direction: sortConfig?.key === sortKey && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
@@ -276,7 +287,7 @@ const Reports = () => {
       'Crédito': row.creditAtContemplation,
       'Lance Emb.': row.bidEmbedded,
       '% Emb': row.percentBidEmbedded,
-      'Vlr Líquido': row.valorRealCarta,
+      'CRÉDITO TOTAL SEM CORREÇÃO': row.valorRealCarta,
       'Aplicação financeira': row.creditManualAdjustment,
       '92% CDI': row.bidFreeCorrection,
       'Crédito Total Com Aplicação': row.creditoTotal,
@@ -286,6 +297,32 @@ const Reports = () => {
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
+    
+    // Add Totals line
+    XLSX.utils.sheet_add_json(ws, [{
+      'Grupo': 'TOTAIS',
+      'Cota': `(${sortedData.length})`,
+      'Valor da Carta Atual': totals.creditValue,
+      'Valor Pago': totals.saldoVencido,
+      '% Pago (efetivado)': totals.percentVencidoAvg,
+      'Valor a Pagar': totals.saldoAVencer,
+      '% do valor a pagar': totals.percentAVencerAvg,
+      'Lance Tot.': totals.bidTotal,
+      '% Lance': totals.percentBidTotalAvg,
+      'Lance Livre': totals.bidFree,
+      '% Liv': totals.percentBidFreeAvg,
+      'Crédito': totals.creditAtContemplation,
+      'Lance Emb.': totals.bidEmbedded,
+      '% Emb': totals.percentBidEmbeddedAvg,
+      'CRÉDITO TOTAL SEM CORREÇÃO': totals.valorRealCarta,
+      'Aplicação financeira': totals.creditManualAdjustment,
+      '92% CDI': totals.bidFreeCorrection,
+      'Crédito Total Com Aplicação': totals.creditoTotal,
+      'Crédito Utilizado': totals.creditoUtilizado,
+      'Crédito Total Disponível': totals.saldoDisponivel,
+      'Data Contemplação': ''
+    }], { skipHeader: true, origin: -1 });
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Relatório por Cota');
     XLSX.writeFile(wb, `Relatorio_por_Cota_${referenceDate}.xlsx`);
@@ -317,11 +354,11 @@ const Reports = () => {
     const cards = [
       { label: 'Cotas', value: sortedData.length, color: [71, 85, 105] },
       { label: 'Valor da Carta Atual', value: formatNumber(totals.creditValue), color: [71, 85, 105] },
-      { label: 'Valor Pago', value: formatNumber(totals.saldoVencido), color: [5, 150, 105] },
-      { label: 'Valor a Pagar', value: formatNumber(totals.saldoAVencer), color: [220, 38, 38] },
+      { label: 'Valor Pago', value: `${formatNumber(totals.saldoVencido)} (${totals.percentVencidoAvg.toFixed(2)}%)`, color: [5, 150, 105] },
+      { label: 'Valor a Pagar', value: `${formatNumber(totals.saldoAVencer)} (${totals.percentAVencerAvg.toFixed(2)}%)`, color: [220, 38, 38] },
       { label: 'Total Lances', value: formatNumber(totals.bidTotal), color: [180, 83, 9] },
       { label: 'Crédito', value: formatNumber(totals.creditAtContemplation), color: [71, 85, 105] },
-      { label: 'Vlr Líquido', value: formatNumber(totals.valorRealCarta), color: [29, 78, 216] },
+      { label: 'CRÉDITO TOTAL SEM CORREÇÃO', value: formatNumber(totals.valorRealCarta), color: [29, 78, 216] },
       { label: 'Crédito Total Com Aplicação', value: formatNumber(totals.creditoTotal), color: [30, 41, 59] },
       { label: 'Crédito Utilizado', value: formatNumber(totals.creditoUtilizado), color: [194, 65, 12] },
       { label: 'Crédito Total Disponível', value: formatNumber(totals.saldoDisponivel), color: [6, 95, 70] },
@@ -350,7 +387,7 @@ const Reports = () => {
 
     const tableColumn = [
       "Grupo", "Cota", "Valor da Carta Atual", "Valor Pago", "% Pago", "Valor a Pagar", "% a Pagar", "Lance Tot.", "% Lance", 
-      "Lance Livre", "% Liv", "Crédito", "Lance Emb.", "% Emb", "Vlr Líquido", "Aplicação", "92% CDI", 
+      "Lance Livre", "% Liv", "Crédito", "Lance Emb.", "% Emb", "CRÉDITO TOTAL SEM CORREÇÃO", "Aplicação", "92% CDI", 
       "Corrigido", "Crédito Utilizado", "Crédito Total Disponível", "Contemplação"
     ];
     
@@ -378,6 +415,31 @@ const Reports = () => {
       row.isContemplated && row.contemplationDate ? new Date(row.contemplationDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''
     ]);
 
+    // Add Totals Row
+    tableRows.push([
+      "TOTAIS",
+      `(${sortedData.length})`,
+      formatNumber(totals.creditValue),
+      formatNumber(totals.saldoVencido),
+      `${totals.percentVencidoAvg.toFixed(2)}%`,
+      formatNumber(totals.saldoAVencer),
+      `${totals.percentAVencerAvg.toFixed(2)}%`,
+      formatNumber(totals.bidTotal),
+      `${totals.percentBidTotalAvg.toFixed(2)}%`,
+      formatNumber(totals.bidFree),
+      `${totals.percentBidFreeAvg.toFixed(2)}%`,
+      formatNumber(totals.creditAtContemplation),
+      formatNumber(totals.bidEmbedded),
+      `${totals.percentBidEmbeddedAvg.toFixed(2)}%`,
+      formatNumber(totals.valorRealCarta),
+      formatNumber(totals.creditManualAdjustment),
+      formatNumber(totals.bidFreeCorrection),
+      formatNumber(totals.creditoTotal),
+      formatNumber(totals.creditoUtilizado),
+      formatNumber(totals.saldoDisponivel),
+      ""
+    ]);
+
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
@@ -391,7 +453,7 @@ const Reports = () => {
           if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
           if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
           if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
-          if (header === 'Vlr Líquido') data.cell.styles.textColor = [29, 78, 216];
+          if (header === 'CRÉDITO TOTAL SEM CORREÇÃO') data.cell.styles.textColor = [29, 78, 216];
           if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
         }
       }
@@ -488,6 +550,10 @@ const Reports = () => {
         contemplatedAvailableCredit: acc.contemplatedAvailableCredit + (row.isContemplated ? row.saldoDisponivel : 0)
       }), { creditValue: 0, saldoAVencer: 0, saldoVencido: 0, bidTotal: 0, bidFree: 0, bidEmbedded: 0, creditAtContemplation: 0, valorRealCarta: 0, creditoTotal: 0, creditoUtilizado: 0, saldoDisponivel: 0, creditManualAdjustment: 0, bidFreeCorrection: 0, contemplatedAvailableCredit: 0 });
 
+      const emailTotalsBase = emailTotals.saldoVencido + emailTotals.saldoAVencer;
+      const emailPercentVencido = emailTotalsBase > 0 ? (emailTotals.saldoVencido / emailTotalsBase) * 100 : 0;
+      const emailPercentAVencer = emailTotalsBase > 0 ? (emailTotals.saldoAVencer / emailTotalsBase) * 100 : 0;
+
       const doc = new jsPDF('l', 'mm', 'a4');
       const title = config.subject || `Relatório por Cota`;
       
@@ -511,11 +577,11 @@ const Reports = () => {
       const cards = [
         { label: 'Cotas', value: filteredForEmail.length, color: [71, 85, 105] },
         { label: 'Valor da Carta Atual', value: formatNumber(emailTotals.creditValue), color: [71, 85, 105] },
-        { label: 'Valor Pago', value: formatNumber(emailTotals.saldoVencido), color: [5, 150, 105] },
-        { label: 'Valor a Pagar', value: formatNumber(emailTotals.saldoAVencer), color: [220, 38, 38] },
+        { label: 'Valor Pago', value: `${formatNumber(emailTotals.saldoVencido)} (${emailPercentVencido.toFixed(2)}%)`, color: [5, 150, 105] },
+        { label: 'Valor a Pagar', value: `${formatNumber(emailTotals.saldoAVencer)} (${emailPercentAVencer.toFixed(2)}%)`, color: [220, 38, 38] },
         { label: 'Total Lances', value: formatNumber(emailTotals.bidTotal), color: [180, 83, 9] },
         { label: 'Crédito', value: formatNumber(emailTotals.creditAtContemplation), color: [71, 85, 105] },
-        { label: 'Vlr Líquido', value: formatNumber(emailTotals.valorRealCarta), color: [29, 78, 216] },
+        { label: 'CRÉDITO TOTAL SEM CORREÇÃO', value: formatNumber(emailTotals.valorRealCarta), color: [29, 78, 216] },
         { label: 'Crédito Total Com Aplicação', value: formatNumber(emailTotals.creditoTotal), color: [30, 41, 59] },
         { label: 'Crédito Utilizado', value: formatNumber(emailTotals.creditoUtilizado), color: [194, 65, 12] },
         { label: 'Crédito Total Disponível', value: formatNumber(emailTotals.saldoDisponivel), color: [6, 95, 70] },
@@ -571,6 +637,10 @@ const Reports = () => {
           totalsRow.push('TOTAIS');
         } else if (['creditValue', 'saldoAVencer', 'saldoVencido', 'bidTotal', 'bidFree', 'bidEmbedded', 'creditAtContemplation', 'valorRealCarta', 'creditoTotal', 'creditoUtilizado', 'saldoDisponivel', 'creditManualAdjustment', 'bidFreeCorrection', 'contemplatedAvailableCredit'].includes(colId)) {
           totalsRow.push(formatNumber(emailTotals[colId as keyof typeof emailTotals]));
+        } else if (colId === 'percentVencido') {
+          totalsRow.push(`${emailPercentVencido.toFixed(2)}%`);
+        } else if (colId === 'percentAVencer') {
+          totalsRow.push(`${emailPercentAVencer.toFixed(2)}%`);
         } else {
           totalsRow.push('');
         }
@@ -598,7 +668,7 @@ const Reports = () => {
             if (header === 'Valor Pago') data.cell.styles.textColor = [5, 150, 105];
             if (header === 'Valor a Pagar') data.cell.styles.textColor = [220, 38, 38];
             if (header === 'Lance Tot.') data.cell.styles.textColor = [180, 83, 9];
-            if (header === 'Vlr Líquido') data.cell.styles.textColor = [29, 78, 216];
+            if (header === 'CRÉDITO TOTAL SEM CORREÇÃO') data.cell.styles.textColor = [29, 78, 216];
             if (header === 'Crédito Total Disponível') data.cell.styles.textColor = [6, 95, 70];
 
             // Highlight Totals Row
@@ -632,53 +702,6 @@ const Reports = () => {
 
   return (
     <div className="space-y-6 pb-10 print:p-0 print:space-y-4">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/reports/executive')} 
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-            title="Voltar ao relatório executivo"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-             <h1 className="text-2xl font-bold text-slate-800 print:text-xl">Relatório por Cota</h1>
-             <p className="text-slate-500 print:text-xs">Acompanhamento de saldos, lances e créditos disponíveis em {referenceDate}.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 print:hidden">
-          <button 
-            onClick={exportToExcel}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-            title="Exportar para Excel"
-          >
-            <Download size={20} />
-          </button>
-          <button 
-            onClick={exportToPDF}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-            title="Exportar para PDF"
-          >
-            <FileText size={20} />
-          </button>
-          <button 
-            onClick={() => setIsEmailModalOpen(true)}
-            disabled={sendingEmail}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors disabled:opacity-50"
-            title="Enviar por E-mail"
-          >
-            {sendingEmail ? <Loader size={20} className="animate-spin" /> : <Mail size={20} />}
-          </button>
-          <button 
-            onClick={handlePrint}
-            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-            title="Imprimir"
-          >
-            <Printer size={20} />
-          </button>
-        </div>
-      </div>
-
       {emailStatus && (
         <div className={`p-4 rounded-lg flex items-center justify-between ${emailStatus.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
           <div className="flex items-center gap-2">
@@ -691,38 +714,139 @@ const Reports = () => {
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 print:hidden">
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Fechamento</label><input type="date" value={referenceDate} onChange={(e) => setReferenceDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" /></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label><select value={globalFilters.companyId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Administradora</label><select value={globalFilters.administratorId || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">{administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">Todas</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Produto</label><select value={globalFilters.productType || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="VEICULO">Veículo</option><option value="IMOVEL">Imóvel</option></select></div>
-          <div><label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label><select value={globalFilters.status || ''} onChange={(e) => setGlobalFilters({ ...globalFilters, status: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none"><option value="">Todos</option><option value="ACTIVE">Ativas</option><option value="CONTEMPLATED">Contempladas</option></select></div>
-      </div>
+      <ConsortiumFilterBar 
+        showQuotaFilter={false} 
+        showDateFilter={true} 
+        referenceDate={referenceDate} 
+        onDateChange={setReferenceDate} 
+        actions={
+          <>
+            <button 
+              onClick={exportToExcel}
+              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white"
+              title="Exportar para Excel"
+            >
+              <Download size={18} />
+            </button>
+            <button 
+              onClick={exportToPDF}
+              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white"
+              title="Exportar para PDF"
+            >
+              <FileText size={18} />
+            </button>
+            <button 
+              onClick={() => setIsEmailModalOpen(true)}
+              disabled={sendingEmail}
+              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors disabled:opacity-50 shadow-sm bg-white"
+              title="Enviar por E-mail"
+            >
+              {sendingEmail ? <Loader size={18} className="animate-spin" /> : <Mail size={18} />}
+            </button>
+            <button 
+              onClick={handlePrint}
+              className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white"
+              title="Imprimir"
+            >
+              <Printer size={18} />
+            </button>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-3 print:hidden">
+      {/* Cards de Resumo - Otimizados para Mobile (Scroll horizontal) */}
+      <div className="flex overflow-x-auto pb-4 gap-3 md:grid md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 md:overflow-visible print:grid print:grid-cols-6 scrollbar-hide">
           {[
               { label: 'Cotas', value: sortedData.length, color: 'text-slate-700', bg: 'bg-white', isCurrency: false },
-              { label: 'Valor da Carta Atual', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
-              { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50', isCurrency: true },
-              { label: 'Valor a Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50', isCurrency: true },
-              { label: 'Total Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50', isCurrency: true },
+              { label: 'Carta Atual', value: totals.creditValue, color: 'text-slate-700', bg: 'bg-white', isCurrency: true },
+              { label: 'Valor Pago', value: totals.saldoVencido, color: 'text-emerald-700', bg: 'bg-emerald-50', isCurrency: true, percent: totals.percentVencidoAvg },
+              { label: 'A Pagar', value: totals.saldoAVencer, color: 'text-red-700', bg: 'bg-red-50', isCurrency: true, percent: totals.percentAVencerAvg },
+              { label: 'Lances', value: totals.bidTotal, color: 'text-amber-700', bg: 'bg-amber-50', isCurrency: true },
               { label: 'Crédito', value: totals.creditAtContemplation, color: 'text-slate-600', bg: 'bg-slate-50', isCurrency: true },
-              { label: 'Vlr Líquido', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50', isCurrency: true },
-              { label: 'Crédito Total Com Aplicação', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100', isCurrency: true },
-              { label: 'Crédito Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50', isCurrency: true },
-              { label: 'Crédito Total Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-50', isCurrency: true },
-              { label: 'Créditos Disponível Utilização', value: totals.contemplatedAvailableCredit, color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200', isCurrency: true },
+              { label: 'Líq. Total', value: totals.valorRealCarta, color: 'text-blue-700', bg: 'bg-blue-50', isCurrency: true },
+              { label: 'Corrigido', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100', isCurrency: true },
+              { label: 'Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50', isCurrency: true },
+              { label: 'Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-50', isCurrency: true },
+              { label: 'Liberado', value: totals.contemplatedAvailableCredit, color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200', isCurrency: true },
           ].map((t, i) => (
-              <div key={i} className={`${t.bg} border border-slate-200/60 p-3 rounded-lg shadow-sm print:shadow-none print:border print:border-slate-300 flex flex-col justify-between`}>
-                  <p className="text-[9px] font-bold text-slate-500 uppercase mb-1 leading-tight">{t.label}</p>
-                  <p className={`text-sm font-black ${t.color}`}>
-                    {t.isCurrency ? formatNumber(t.value) : t.value}
-                  </p>
+              <div key={i} className={`${t.bg} border border-slate-200/60 p-3 rounded-lg shadow-sm print:shadow-none print:border print:border-slate-300 flex flex-col justify-between min-w-[120px] md:min-w-0`}>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase mb-1 leading-tight truncate">{t.label}</p>
+                  <div className="flex flex-col">
+                    <p className="text-xs md:text-sm font-black whitespace-nowrap overflow-hidden text-ellipsis">
+                      <span className={t.color}>{t.isCurrency ? formatNumber(t.value) : t.value}</span>
+                    </p>
+                    {t.percent !== undefined && (
+                      <p className={`text-[9px] font-bold ${t.label === 'Valor Pago' ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {t.percent.toFixed(1)}%
+                      </p>
+                    )}
+                  </div>
               </div>
           ))}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
+      {/* Visualização Mobile (Cards) - Aparece apenas em celular */}
+      <div className="block md:hidden space-y-4 print:hidden">
+        {sortedData.map((row) => (
+          <div key={row.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className={`px-4 py-3 border-b border-slate-100 flex justify-between items-center ${row.isContemplated ? 'bg-emerald-50/50' : 'bg-slate-50'}`}>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Grupo / Cota</span>
+                <span className="text-sm font-black text-slate-800">{row.group} / {row.quotaNumber}</span>
+              </div>
+              {row.isContemplated ? (
+                <div className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-bold flex items-center gap-1">
+                  <BadgeCheck size={12} /> CONTEMPLADA
+                </div>
+              ) : (
+                <div className="px-2 py-1 bg-slate-200 text-slate-600 rounded-md text-[10px] font-bold flex items-center gap-1">
+                  <Clock size={12} /> ATIVA
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-4">
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Crédito Atual</span>
+                <span className="text-xs font-bold text-slate-700">{formatNumber(row.creditValue)}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Vlr Pago</span>
+                <span className="text-xs font-bold text-emerald-600">{formatNumber(row.saldoVencido)} <span className="text-[10px] opacity-70">({row.percentVencido.toFixed(1)}%)</span></span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Vlr a Pagar</span>
+                <span className="text-xs font-bold text-red-500">{formatNumber(row.saldoAVencer)} <span className="text-[10px] opacity-70">({row.percentAVencer.toFixed(1)}%)</span></span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Disponível</span>
+                <span className="text-xs font-bold text-indigo-600">{formatNumber(row.saldoDisponivel)}</span>
+              </div>
+              <div className="col-span-2 pt-3 border-t border-slate-50 flex justify-between items-end">
+                <div className="flex flex-col">
+                   <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Crédito Total Corrigido</span>
+                   <span className="text-sm font-black text-slate-800">{formatNumber(row.creditoTotal)}</span>
+                </div>
+                <button 
+                   onClick={() => navigate(`/quotas/${row.id}`)}
+                   className="flex items-center gap-1.5 text-[10px] font-bold text-white bg-indigo-600 px-3 py-2 rounded-lg shadow-sm active:scale-95 transition-transform"
+                >
+                   Ver Detalhes <ArrowRight size={12} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {sortedData.length === 0 && (
+          <div className="p-10 text-center bg-white rounded-xl border border-dashed border-slate-300">
+            <p className="text-sm text-slate-400">Nenhum dado encontrado para os filtros selecionados.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Visualização Desktop (Tabela) - Escondida em celular */}
+      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
           <div className="overflow-x-auto print:overflow-visible">
             <table className="w-full text-[10px] text-left border-collapse print:text-[8px]">
               <thead className="bg-slate-800 text-white uppercase tracking-tighter print:bg-slate-800">
@@ -741,7 +865,7 @@ const Reports = () => {
                   <SortHeader label="Crédito" sortKey="creditAtContemplation" className="bg-slate-700 print:bg-slate-700" />
                   <SortHeader label="Lance Emb." sortKey="bidEmbedded" />
                   <SortHeader label="% Emb" sortKey="percentBidEmbedded" />
-                  <SortHeader label="Vlr Líquido" sortKey="valorRealCarta" className="font-bold" />
+                  <SortHeader label="CRÉDITO TOTAL SEM CORREÇÃO" sortKey="valorRealCarta" className="font-bold" />
                   <SortHeader label="Aplicação financeira" sortKey="creditManualAdjustment" />
                   <SortHeader label="92% CDI" sortKey="bidFreeCorrection" />
                   <SortHeader label="Crédito Total Com Aplicação" sortKey="creditoTotal" className="bg-slate-700 font-bold print:bg-slate-700" />

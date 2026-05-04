@@ -6,6 +6,7 @@ import { db } from '../services/database';
 import { formatCurrency, formatDate, formatDateToYYYYMMDD, getTodayStr } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Printer, Loader, Search, Filter, ArrowRight, Download, ChevronRight, TrendingUp, ExternalLink, ArrowLeft } from 'lucide-react';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 interface MonthlySummary {
     monthYear: string; // YYYY-MM
@@ -161,95 +162,96 @@ const MonthlyPaidReport = () => {
 
     return (
         <div className="w-full space-y-6 pb-10 print:p-0">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                    <button 
-                        onClick={() => navigate('/reports/executive')} 
-                        className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-                        title="Voltar ao relatório executivo"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                            <CalendarDays className="text-emerald-600" /> Fluxo Mensal Financeiro
-                        </h1>
-                        <p className="text-slate-500">Relatório consolidado de parcelas e lances (Realizado + Projetado).</p>
+
+        <ConsortiumFilterBar 
+          showQuotaFilter={false} 
+          showRangeDateFilter={true}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+          actions={
+            <button 
+              onClick={() => window.print()} 
+              className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white"
+              title="Imprimir Relatório"
+            >
+              <Printer size={18} />
+            </button>
+          }
+        />
+
+            {/* CARDS SUMMARY - Mobile Friendly */}
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
+                <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase mb-1">Fundo Comum</p>
+                    <p className="text-sm sm:text-xl font-black text-slate-800 truncate">{formatCurrency(totals.commonFund)}</p>
+                </div>
+                <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase mb-1">Taxas (TA+FR)</p>
+                    <p className="text-sm sm:text-xl font-black text-slate-800 truncate">{formatCurrency(totals.fees)}</p>
+                </div>
+                <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[9px] sm:text-[10px] font-bold text-amber-600 uppercase mb-1">Lances</p>
+                    <p className="text-sm sm:text-xl font-black text-amber-700 truncate">{formatCurrency(totals.bids)}</p>
+                </div>
+                <div className="bg-emerald-600 p-4 sm:p-5 rounded-xl border border-emerald-700 shadow-lg shadow-emerald-100 col-span-2 lg:col-span-1">
+                    <p className="text-[9px] sm:text-[10px] font-bold text-emerald-100 uppercase mb-1">Total Período</p>
+                    <p className="text-sm sm:text-xl font-black text-white truncate">{formatCurrency(totals.total)}</p>
+                </div>
+            </div>
+
+            {/* Visualização Mobile (Cards) - Fluxo Mensal */}
+            <div className="block md:hidden space-y-4 print:hidden">
+                {loading ? (
+                    <div className="p-10 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
+                        <Loader className="animate-spin mx-auto mb-2" /> Carregando fluxo...
                     </div>
-                </div>
-                <div className="flex gap-2 print:hidden">
-                    <button onClick={() => window.print()} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium flex items-center gap-2 transition-colors">
-                        <Printer size={18} /> Imprimir
-                    </button>
-                </div>
+                ) : monthlyData.length > 0 ? (
+                    monthlyData.map((row) => (
+                        <div key={row.monthYear} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                                <span className="font-black text-slate-800">{formatMonth(row.monthYear)}</span>
+                                <button 
+                                    onClick={() => handleDetailNavigation(row.monthYear)}
+                                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-emerald-600 hover:bg-emerald-50"
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
+                            <div className="p-4 grid grid-cols-2 gap-4">
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Fundo Comum</span>
+                                    <span className="text-xs font-bold text-slate-700">{formatCurrency(row.commonFund)}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Taxas</span>
+                                    <span className="text-xs font-bold text-slate-700">{formatCurrency(row.fees)}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Lances</span>
+                                    <span className="text-xs font-bold text-amber-600">{row.bids > 0 ? formatCurrency(row.bids) : '-'}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">Encargos</span>
+                                    <span className="text-xs font-bold text-red-500">{row.others > 0 ? formatCurrency(row.others) : '-'}</span>
+                                </div>
+                                <div className="col-span-2 pt-3 border-t border-slate-50 flex justify-between items-center">
+                                    <span className="text-xs font-black text-slate-400 uppercase">Total do Mês</span>
+                                    <span className="text-base font-black text-slate-900">{formatCurrency(row.total)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="p-10 text-center bg-white rounded-xl border border-dashed border-slate-300">
+                        Nenhum registro encontrado.
+                    </div>
+                )}
             </div>
 
-            {/* FILTERS */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden">
-                <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Início do Período</label>
-                    <input 
-                        type="date" 
-                        value={startDate} 
-                        onChange={(e) => setStartDate(e.target.value)} 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Fim do Período</label>
-                    <input 
-                        type="date" 
-                        value={endDate} 
-                        onChange={(e) => setEndDate(e.target.value)} 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Empresa</label>
-                    <select 
-                        value={globalFilters.companyId} 
-                        onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                        <option value="">Todas as Empresas</option>
-                        {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Administradora</label>
-                    <select 
-                        value={globalFilters.administratorId} 
-                        onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                        <option value="">Todas as Administradoras</option>
-                        {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                </div>
-            </div>
-
-            {/* CARDS SUMMARY */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Fundo Comum</p>
-                    <p className="text-xl font-black text-slate-800">{formatCurrency(totals.commonFund)}</p>
-                </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Taxas (TA+FR)</p>
-                    <p className="text-xl font-black text-slate-800">{formatCurrency(totals.fees)}</p>
-                </div>
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Lances</p>
-                    <p className="text-xl font-black text-amber-700">{formatCurrency(totals.bids)}</p>
-                </div>
-                <div className="bg-emerald-600 p-5 rounded-xl border border-emerald-700 shadow-lg shadow-emerald-100">
-                    <p className="text-[10px] font-bold text-emerald-100 uppercase mb-1">Total Período</p>
-                    <p className="text-xl font-black text-white">{formatCurrency(totals.total)}</p>
-                </div>
-            </div>
-
-            {/* MAIN TABLE */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
+            {/* MAIN TABLE - Desktop Only */}
+            <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
                 <div className="overflow-x-auto print:overflow-visible">
                     <table className="w-full text-sm text-left border-collapse print:text-[10px]">
                         <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-wider">

@@ -1,25 +1,53 @@
 
 // Fix React import from named to default export
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr, safeParseNumber, generateUUID } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer, ArrowLeft } from 'lucide-react';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer, ArrowLeft, Settings, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { PaymentStatus, ManualTransactionType } from '../types';
-import { calculateScheduleSummary } from '../services/calculationService';
+import { PaymentStatus, ManualTransactionType, CorrectionIndex, ProjectionConfig } from '../types';
+import { calculateScheduleSummary, calculateAverageIndices } from '../services/calculationService';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 const Simulation = () => {
-  const { quotas, currentQuota, setCurrentQuota, installments, payments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters, manualTransactions, addManualTransaction, updateManualTransaction, deleteManualTransaction } = useConsortium();
+  const { 
+    quotas, 
+    currentQuota, 
+    setCurrentQuota, 
+    installments, 
+    payments, 
+    updateInstallmentPayment, 
+    companies, 
+    administrators, 
+    indices, 
+    globalFilters, 
+    setGlobalFilters, 
+    manualTransactions, 
+    addManualTransaction, 
+    updateManualTransaction, 
+    deleteManualTransaction,
+    projectionConfig,
+    setProjectionConfig
+  } = useConsortium();
   const navigate = useNavigate();
   
-  const [searchText, setSearchText] = useState('');
+  // Sync with Global Filters
+  useEffect(() => {
+    if (globalFilters.quotaId && (!currentQuota || currentQuota.id !== globalFilters.quotaId)) {
+      const quota = quotas.find(q => q.id === globalFilters.quotaId);
+      if (quota) setCurrentQuota(quota);
+    }
+  }, [globalFilters.quotaId, quotas]);
+
   const [editingCell, setEditingCell] = useState<{ id: number, field: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [isBidModal, setIsBidModal] = useState(false);
   const [isEmbeddedBidModal, setIsEmbeddedBidModal] = useState(false);
+  const [isProjectionSettingsOpen, setIsProjectionSettingsOpen] = useState(false);
 
   // Manual Transaction Modal State
   const [isManualTxModalOpen, setIsManualTxModalOpen] = useState(false);
@@ -418,10 +446,87 @@ const Simulation = () => {
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    
+    if (projectionConfig.enabled) {
+      const note = `* VALORES PROJETADOS: Simulação com base em ${projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.`;
+      XLSX.utils.sheet_add_aoa(ws, [[""]], { origin: -1 });
+      XLSX.utils.sheet_add_aoa(ws, [[note]], { origin: -1 });
+    }
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Extrato');
     XLSX.writeFile(wb, `Extrato_${currentQuota.group}_${currentQuota.quotaNumber}.xlsx`);
   };
+
+  const chartData = useMemo(() => {
+    if (!installments || installments.length === 0) return [];
+    return installments.map(inst => ({
+      name: `P${inst.installmentNumber}`,
+      valor: inst.totalInstallment,
+      credito: inst.correctedCreditValue || inst.commonFund * (100 / (inst.monthlyRateFC || 1))
+    }));
+  }, [installments]);
+
+  const avgRates = useMemo(() => {
+    if (!indices || indices.length === 0) return {};
+    return calculateAverageIndices(indices, projectionConfig.periodMonths);
+  }, [indices, projectionConfig.periodMonths]);
+
+  const currentAvgRate = useMemo(() => {
+    if (!currentQuota) return 0;
+    if (projectionConfig.customRate) {
+      return (Math.pow(1 + (projectionConfig.customRate / 100), 1/12) - 1) * 100;
+    }
+    return avgRates[currentQuota.correctionIndex] || 0;
+  }, [currentQuota, avgRates, projectionConfig.customRate]);
+
+  const originalTotal = useMemo(() => {
+    if (!currentQuota || !installments) return 0;
+    // Calculate total without future projections
+    // This is a bit tricky since generateSchedule is already using projectionConfig
+    // We can estimate it by taking the last non-projected credit value
+    const lastPaid = [...installments].reverse().find(inst => inst.isPaid);
+    const baseCredit = lastPaid?.correctedCreditValue || currentQuota.creditValue;
+    
+    let total = 0;
+    installments.forEach(inst => {
+      if (inst.isPaid) {
+        total += inst.totalInstallment;
+      } else {
+        // Estimate remaining installments based on current credit
+        const fc = (baseCredit * (inst.monthlyRateFC || 0)) / 100;
+        const fr = (baseCredit * (inst.monthlyRateFR || 0)) / 100;
+        const ta = (baseCredit * (inst.monthlyRateTA || 0)) / 100;
+        total += fc + fr + ta + (inst.insurance || 0) + (inst.amortization || 0);
+      }
+    });
+    return total;
+  }, [currentQuota, installments]);
+
+  const finalProjectedCredit = useMemo(() => {
+    if (!installments || installments.length === 0) return 0;
+    return installments[installments.length - 1].correctedCreditValue || 0;
+  }, [installments]);
+
+  const detailedSummary = useMemo(() => {
+    if (!currentQuota) return {
+        paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
+        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
+        total: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, total: 0 },
+        counts: { total: 0 }
+    };
+
+    const summary = calculateScheduleSummary(currentQuota, installments, payments);
+    return {
+      ...summary,
+      counts: {
+        total: installments.filter(i => !i.isPaid && i.installmentNumber > 0).length
+      }
+    };
+  }, [currentQuota, installments, payments]);
+
+  const projectedTotal = detailedSummary?.total?.total || 0;
+  const inflationCost = projectedTotal - originalTotal;
 
   const exportToPDF = () => {
     if (!currentQuota || !installments.length) return;
@@ -553,6 +658,16 @@ const Simulation = () => {
       }
     });
 
+    if (projectionConfig.enabled) {
+      const note = `* VALORES PROJETADOS: Simulação com base em ${projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.`;
+      autoTable(doc, {
+        body: [[note]],
+        startY: (doc as any).lastAutoTable.finalY + 5,
+        theme: 'plain',
+        styles: { fontSize: 6, textColor: [180, 83, 9], fontStyle: 'bold' }
+      });
+    }
+
     doc.save(`Extrato_${currentQuota.group}_${currentQuota.quotaNumber}.pdf`);
   };
 
@@ -571,19 +686,6 @@ const Simulation = () => {
       alert(error.message || "Erro ao excluir transação manual. Verifique sua conexão.");
     }
   };
-
-  const filteredOptions = useMemo(() => {
-    return quotas.filter(q => {
-      const textMatch = (q.group || '').toLowerCase().includes(searchText.toLowerCase()) || (q.quotaNumber || '').toLowerCase().includes(searchText.toLowerCase());
-      const companyMatch = globalFilters.companyId ? q.companyId === globalFilters.companyId : true;
-      const adminMatch = globalFilters.administratorId ? q.administratorId === globalFilters.administratorId : true;
-      const productMatch = globalFilters.productType ? q.productType === globalFilters.productType : true;
-      let statusMatch = true;
-      if (globalFilters.status === 'ACTIVE') statusMatch = !q.isContemplated;
-      if (globalFilters.status === 'CONTEMPLATED') statusMatch = q.isContemplated;
-      return textMatch && companyMatch && adminMatch && productMatch && statusMatch;
-    });
-  }, [quotas, searchText, globalFilters]);
 
   const todayStr = getTodayStr();
 
@@ -617,22 +719,6 @@ const Simulation = () => {
     
     return today < firstAssembly ? 'Pré-Grupo' : 'Grupo Ativo';
   }, [currentQuota]);
-
-  const detailedSummary = useMemo(() => {
-    if (!currentQuota) return {
-        paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0 },
-        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0 },
-        counts: { total: 0 }
-    };
-
-    const summary = calculateScheduleSummary(currentQuota, installments, payments);
-    return {
-      ...summary,
-      counts: {
-        total: installments.filter(i => !i.isPaid && i.installmentNumber > 0).length
-      }
-    };
-  }, [currentQuota, installments, payments]);
 
   const footerTotals = useMemo(() => {
     const totals = installments.reduce((acc, inst) => {
@@ -704,6 +790,8 @@ const Simulation = () => {
 
   return (
     <div className="space-y-6">
+      <ConsortiumFilterBar showQuotaFilter={true} />
+
       {/* Payment Modal */}
       {isPaymentModalOpen && selectedInstallment && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1070,165 +1158,155 @@ const Simulation = () => {
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4 print:hidden">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => navigate('/reports/executive')} 
-                  className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200"
-                  title="Voltar ao relatório executivo"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600" /> Simulador e Extrato</h2>
-                {currentQuota && (
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${quotaStatus === 'Pré-Grupo' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
-                        {quotaStatus}
-                    </span>
-                )}
+      <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div className="flex items-center gap-3">
+          {currentQuota && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-0.5">Status Quota</span>
+              <span className={`px-2 py-1 rounded-md text-[11px] font-bold uppercase ${quotaStatus === 'Pré-Grupo' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                {quotaStatus}
+              </span>
             </div>
-              <div className="flex items-center gap-2">
-                {currentQuota && (
-                  <button 
-                    onClick={() => {
-                      setManualTxFormData({
-                        date: getTodayStr(),
-                        amount: '0',
-                        type: ManualTransactionType.EARNING,
-                        description: '',
-                        fc: '0',
-                        fr: '0',
-                        ta: '0',
-                        insurance: '0',
-                        amortization: '0',
-                        fine: '0',
-                        interest: '0'
-                      });
-                      setIsManualTxModalOpen(true);
-                    }} 
-                    className="px-3 py-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-200 text-sm font-medium flex items-center gap-2"
-                  >
-                    <Plus size={16} /> Transação Manual
-                  </button>
-                )}
-                {currentQuota && (
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={exportToExcel}
-                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-                      title="Exportar para Excel"
-                    >
-                      <Download size={18} />
-                    </button>
-                    <button 
-                      onClick={exportToPDF}
-                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-                      title="Exportar para PDF"
-                    >
-                      <FileText size={18} />
-                    </button>
-                    <button 
-                      onClick={handlePrint}
-                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
-                      title="Imprimir"
-                    >
-                      <Printer size={18} />
-                    </button>
-                  </div>
-                )}
-                {currentQuota && <button onClick={() => navigate(`/edit/${currentQuota.id}`)} className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 text-sm font-medium flex items-center gap-2"><Pencil size={16} /> Editar Cota</button>}
-              </div>
+          )}
         </div>
-        
-        {/* FILTERS ROW */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-             {/* Search */}
-             <div className="md:col-span-2 relative">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                 <input type="text" placeholder="Pesquisar..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500" />
-             </div>
-             
-             {/* Company Filter */}
-             <div className="md:col-span-2 relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.companyId || ''}
-                    onChange={(e) => {
-                        setGlobalFilters({ ...globalFilters, companyId: e.target.value });
-                        setCurrentQuota(null); // Reset selection
-                    }}
-                >
-                    <option value="">Empresa</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-             </div>
 
-             {/* Administrator Filter */}
-             <div className="md:col-span-2 relative">
-                <Gavel className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.administratorId || ''}
-                    onChange={(e) => {
-                        setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
-                        setCurrentQuota(null); // Reset selection
-                    }}
-                >
-                    <option value="">Administradora</option>
-                    {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-             </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {currentQuota && (
+            <div className="flex items-center gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg">
+              <button 
+                onClick={() => setProjectionConfig({ ...projectionConfig, enabled: !projectionConfig.enabled })}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${
+                  projectionConfig.enabled 
+                    ? 'bg-amber-100 text-amber-700 border border-amber-200 shadow-sm' 
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+                title="Simular correções futuras"
+              >
+                <TrendingUp size={14} className={projectionConfig.enabled ? 'animate-pulse' : ''} />
+                {projectionConfig.enabled ? 'Projeção Ativa' : 'Simular Futuro'}
+              </button>
+              
+              <button
+                onClick={() => setIsProjectionSettingsOpen(!isProjectionSettingsOpen)}
+                className={`p-1.5 rounded-md border transition-all ${
+                  isProjectionSettingsOpen ? 'bg-white border-blue-300 text-blue-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+                title="Configurar Projeção"
+              >
+                <Settings size={14} />
+              </button>
 
-             {/* Product Filter */}
-             <div className="md:col-span-2 relative">
-                <ShoppingBag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
-                    value={globalFilters.productType || ''}
-                    onChange={(e) => {
-                        setGlobalFilters({ ...globalFilters, productType: e.target.value });
-                        setCurrentQuota(null); // Reset selection
-                    }}
-                >
-                    <option value="">Produto</option>
-                    <option value="VEICULO">Veículo</option>
-                    <option value="IMOVEL">Imóvel</option>
-                </select>
-             </div>
+              {isProjectionSettingsOpen && (
+                <div className="absolute top-20 right-4 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-50">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Configurar Projeção</h4>
+                    <button onClick={() => setIsProjectionSettingsOpen(false)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1 ml-0.5">Período da Média</label>
+                      <select 
+                        value={projectionConfig.periodMonths}
+                        onChange={(e) => setProjectionConfig({ ...projectionConfig, periodMonths: Number(e.target.value), customRate: undefined })}
+                        className="w-full text-xs border border-slate-200 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value={12}>Últimos 12 meses</option>
+                        <option value={24}>Últimos 24 meses</option>
+                        <option value={36}>Últimos 36 meses (3 anos)</option>
+                      </select>
+                    </div>
 
-             {/* Status Filter */}
-             <div className="md:col-span-2 relative">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <select 
-                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white"
-                    value={globalFilters.status}
-                    onChange={(e) => {
-                        setGlobalFilters({ ...globalFilters, status: e.target.value });
-                        setCurrentQuota(null); // Reset selection
-                    }}
-                >
-                    <option value="">Status</option>
-                    <option value="CONTEMPLATED">Contempladas</option>
-                    <option value="ACTIVE">Em Andamento</option>
-                </select>
-             </div>
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1 ml-0.5">Taxa Anual Fixa (%)</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="number"
+                          step="0.1"
+                          placeholder="Ex: 5.0"
+                          value={projectionConfig.customRate || ''}
+                          onChange={(e) => setProjectionConfig({ ...projectionConfig, customRate: e.target.value ? Number(e.target.value) : undefined })}
+                          className="flex-1 text-xs border border-slate-200 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none font-bold"
+                        />
+                        {projectionConfig.customRate && (
+                          <button 
+                            onClick={() => setProjectionConfig({ ...projectionConfig, customRate: undefined })}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-md"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 mt-1 italic">Ignora a média histórica se preenchido.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
-             {/* Quota Select */}
-             <div className="md:col-span-2">
-                 <select 
-                    className="w-full py-2 px-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md outline-none cursor-pointer" 
-                    value={currentQuota?.id || ''} 
-                    onChange={(e) => { const found = quotas.find(q => q.id === e.target.value); setCurrentQuota(found || null); }}
+          {currentQuota && (
+            <div className="h-6 w-px bg-slate-200 mx-1 hidden md:block"></div>
+          )}
+
+          {currentQuota && (
+            <div className="flex items-center gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg">
+              <button 
+                onClick={() => {
+                  setManualTxFormData({
+                    date: getTodayStr(),
+                    amount: '0',
+                    type: ManualTransactionType.EARNING,
+                    description: '',
+                    fc: '0',
+                    fr: '0',
+                    ta: '0',
+                    insurance: '0',
+                    amortization: '0',
+                    fine: '0',
+                    interest: '0'
+                  });
+                  setIsManualTxModalOpen(true);
+                }} 
+                className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 text-xs font-bold flex items-center gap-2 transition-all"
+              >
+                <Plus size={14} /> Transação Manual
+              </button>
+
+              <div className="flex items-center gap-1 border-l border-slate-200 ml-1 pl-1">
+                <button 
+                  onClick={exportToExcel}
+                  className="p-1.5 text-slate-500 hover:bg-white hover:text-emerald-600 rounded-md transition-all"
+                  title="Exportar Excel"
                 >
-                    <option value="">Cota ({filteredOptions.length})</option>
-                    {filteredOptions.map(q => (
-                        <option key={q.id} value={q.id}>
-                            {q.group}-{q.quotaNumber}
-                        </option>
-                    ))}
-                 </select>
-             </div>
+                  <Download size={16} />
+                </button>
+                <button 
+                  onClick={exportToPDF}
+                  className="p-1.5 text-slate-500 hover:bg-white hover:text-red-600 rounded-md transition-all"
+                  title="Exportar PDF"
+                >
+                  <FileText size={16} />
+                </button>
+                <button 
+                  onClick={handlePrint}
+                  className="p-1.5 text-slate-500 hover:bg-white hover:text-blue-600 rounded-md transition-all"
+                  title="Imprimir"
+                >
+                  <Printer size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {currentQuota && (
+            <button 
+              onClick={() => navigate(`/edit/${currentQuota.id}`)} 
+              className="px-3 py-2 bg-white text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
+            >
+              <Pencil size={14} /> Editar Cota
+            </button>
+          )}
         </div>
       </div>
 
@@ -1500,35 +1578,106 @@ const Simulation = () => {
       )}
 
       {currentQuota && (
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-12 print:border-none">
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-12 print:border-none relative">
+                {projectionConfig.enabled && (
+                  <div className="absolute top-0 left-0 right-0 bg-amber-50 border-b border-amber-200 px-4 py-1 text-[10px] text-amber-700 font-bold flex items-center justify-center gap-2">
+                    <TrendingUp size={12} />
+                    VALORES PROJETADOS: Simulação com base em {projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.
+                  </div>
+                )}
                 <div className="space-y-4">
                     <h3 className="text-sm font-medium text-slate-700 uppercase border-b border-slate-300 pb-1">Resumo Pago (Histórico)</h3>
                     <div className="space-y-1.5 text-xs font-medium text-slate-800">
-                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.paid.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.paid.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.paid.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fine.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{detailedSummary.paid.interest.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL PAGO</span> <div className="flex gap-12"><span>{detailedSummary.paid.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.paid.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fc || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.fc || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.ta || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.ta || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fr || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.fr || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.insurance || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.amortization || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fine || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.interest || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL PAGO</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{((detailedSummary?.paid?.total || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
+
+                    {projectionConfig.enabled && (
+                      <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                          <Calculator size={12} /> Impacto da Projeção
+                        </h4>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Total s/ Projeção:</span>
+                            <span className="font-medium">{formatCurrency(originalTotal)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Total c/ Projeção:</span>
+                            <span className="font-medium">{formatCurrency(projectedTotal)}</span>
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-slate-200 text-amber-700 font-bold">
+                            <span>Custo da Inflação:</span>
+                            <span>{formatCurrency(inflationCost)}</span>
+                          </div>
+                        </div>
+                        <div className="pt-2 flex justify-between items-center text-[10px]">
+                          <span className="text-slate-500">Crédito Final Est.:</span>
+                          <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{formatCurrency(finalProjectedCredit)}</span>
+                        </div>
+                      </div>
+                    )}
                 </div>
                 <div className="space-y-4">
                     <h3 className="text-sm font-medium text-slate-700 uppercase border-b border-slate-300 pb-1">Resumo a Pagar (Saldo)</h3>
                     <div className="space-y-1.5 text-xs font-medium text-slate-800">
-                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fine.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.interest.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL A VENCER</span> <div className="flex gap-12"><span>{detailedSummary.toPay.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.toPay.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fc || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.fc || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.ta || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.ta || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fr || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.fr || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.insurance || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.amortization || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fine || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.interest || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL A VENCER</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{((detailedSummary?.toPay?.total || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-slate-300 flex justify-between text-xs font-black">
                         <span>Qtde Parcelas Restantes:</span>
-                        <span className="text-sm">{detailedSummary.counts.total.toFixed(2).replace('.', ',')}</span>
+                        <span className="text-sm">{(detailedSummary?.counts?.total ?? 0).toFixed(2).replace('.', ',')}</span>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-slate-200">
+                      <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
+                        <TrendingUp size={12} /> Evolução das Parcelas
+                      </h4>
+                      <div className="h-32 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={chartData}>
+                            <defs>
+                              <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis 
+                              dataKey="name" 
+                              hide 
+                            />
+                            <YAxis 
+                              hide 
+                              domain={['auto', 'auto']}
+                            />
+                            <Tooltip 
+                              contentStyle={{ fontSize: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                              formatter={(value: number) => [formatCurrency(value), 'Parcela']}
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="valor" 
+                              stroke="#3b82f6" 
+                              fillOpacity={1} 
+                              fill="url(#colorVal)" 
+                              strokeWidth={2}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
                 </div>
           </div>

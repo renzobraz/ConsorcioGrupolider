@@ -426,15 +426,7 @@ const NewQuota = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">
-          {id ? 'Editar Cota' : replicateId ? 'Replicar Cota' : 'Cadastro de Nova Cota'}
-        </h1>
-        <button onClick={() => navigate('/quotas')} className="text-slate-500 hover:text-slate-800 flex items-center gap-1">
-          <ArrowLeft size={16} /> Voltar
-        </button>
-      </div>
+    <div className="max-w-4xl mx-auto pt-4">
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="mb-8 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
@@ -749,7 +741,7 @@ const NewQuota = () => {
                     onChange={handleChange}
                     className="w-full bg-white border border-emerald-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                      <option value={BidBaseType.CREDIT_ONLY}>Valor da Carta (Crédito Líquido)</option>
+                      <option value={BidBaseType.CREDIT_ONLY}>Valor da Carta (CRÉDITO TOTAL SEM CORREÇÃO)</option>
                       <option value={BidBaseType.TOTAL_PROJECT}>Valor Total (Crédito + Taxa Adm + F. Reserva)</option>
                   </select>
               </div>

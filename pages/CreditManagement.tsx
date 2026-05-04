@@ -5,13 +5,13 @@ import { calculateCurrentCreditValue } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
 import { ShoppingBag, Building2, Search, Filter, X, Printer, ChevronUp, ChevronDown, ArrowUpDown, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 const CreditManagement = () => {
   const { quotas, companies, administrators, indices, allCreditUsages, allCreditUpdates, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
 
   // Filter States
-  const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState({
     quota: '',
     credit: '',
@@ -41,6 +41,7 @@ const CreditManagement = () => {
       // 1. Filter
       let result = list.filter(q => {
           // 1. Text Search (Group / Quota)
+          const search = globalFilters.searchText || '';
           const matchesSearch = 
             q.group.toLowerCase().includes(search.toLowerCase()) || 
             q.quotaNumber.toLowerCase().includes(search.toLowerCase());
@@ -243,29 +244,15 @@ const CreditManagement = () => {
   const visibleGroups = companyGroups.filter(g => g.details.length > 0);
 
   const clearFilters = () => {
-      setSearch('');
-      setGlobalFilters({ companyId: '', administratorId: '' });
+      setGlobalFilters({ companyId: '', administratorId: '', searchText: '' });
   };
 
-  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId;
+  const hasActiveFilters = globalFilters.searchText || globalFilters.administratorId || globalFilters.companyId;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-10 print:p-0 print:space-y-4 print:max-w-none">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/reports/executive')} 
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-            title="Voltar ao relatório executivo"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-              <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
-              <ShoppingBag className="text-emerald-600" /> Gestão de Créditos
-              </h1>
-              <p className="text-slate-500 print:text-xs">Visão consolidada do uso de crédito por empresa.</p>
-          </div>
         </div>
         <button 
           onClick={() => window.print()} 
@@ -275,63 +262,8 @@ const CreditManagement = () => {
         </button>
       </div>
 
-      {/* FILTER BAR */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4 print:hidden">
-        {/* Search Input */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Buscar por Grupo ou Cota..." 
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {/* Dropdown Filters */}
-        <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
-                    <Building2 size={12}/> Empresa
-                </label>
-                <select 
-                    value={globalFilters.companyId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Empresas</option>
-                    {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
-                    <Filter size={12}/> Administradora
-                </label>
-                <select 
-                    value={globalFilters.administratorId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Administradoras</option>
-                    {administrators.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                </select>
-            </div>
-            
-            {hasActiveFilters && (
-                <button 
-                    onClick={clearFilters}
-                    className="self-end px-4 py-2 text-slate-500 hover:text-red-500 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-200 transition-colors flex items-center justify-center gap-1 text-sm font-medium whitespace-nowrap"
-                >
-                    <X size={16} /> Limpar
-                </button>
-            )}
-        </div>
-      </div>
+      {/* Standardized Filter Bar with Search Integration */}
+      <ConsortiumFilterBar showQuotaFilter={false} />
 
       <div className="grid grid-cols-1 gap-8 print:gap-4">
           {visibleGroups.length > 0 ? visibleGroups.map(group => {

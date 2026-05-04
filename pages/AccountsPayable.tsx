@@ -5,6 +5,7 @@ import { generateSchedule, calculateScheduleSummary } from '../services/calculat
 import { db } from '../services/database';
 import { PaymentStatus } from '../types';
 import { formatCurrency, formatDate, formatPercent } from '../utils/formatters';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { 
   CalendarClock, Search, Filter, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, FileText, Printer, Building2, Briefcase, BadgeCheck, Clock, AlertCircle,
@@ -436,106 +437,33 @@ const AccountsPayable = () => {
 
   return (
     <div className="space-y-6 pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/reports/executive')} 
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-            title="Voltar ao relatório executivo"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <CalendarClock className="text-emerald-600" /> Contas a Pagar
-            </h1>
-            <p className="text-slate-500">Visualização de parcelas do consórcio por período e status.</p>
+      <ConsortiumFilterBar 
+        showQuotaFilter={false}
+        showRangeDateFilter={true}
+        showQuickDateFilter={true}
+        showPaymentStatusFilter={true}
+        startDate={dateStart}
+        endDate={dateEnd}
+        onStartDateChange={(val) => { setDateStart(val); setQuickFilter('CUSTOM'); }}
+        onEndDateChange={(val) => { setDateEnd(val); setQuickFilter('CUSTOM'); }}
+        quickDateValue={quickFilter}
+        onQuickDateChange={setQuickFilter}
+        paymentStatusValue={paymentStatusFilter}
+        onPaymentStatusChange={(val) => setPaymentStatusFilter(val as any)}
+        actions={
+          <div className="flex items-center gap-2">
+            <button onClick={exportToExcel} className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white" title="Exportar Excel">
+              <Download size={18} />
+            </button>
+            <button onClick={exportToPDF} className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white" title="Exportar PDF">
+              <FileText size={18} />
+            </button>
+            <button onClick={() => window.print()} className="p-2.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-sm bg-white" title="Imprimir">
+              <Printer size={18} />
+            </button>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <button onClick={exportToExcel} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title="Exportar Excel">
-            <Download size={20} />
-          </button>
-          <button onClick={exportToPDF} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title="Exportar PDF">
-            <FileText size={20} />
-          </button>
-          <button onClick={() => window.print()} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors" title="Imprimir">
-            <Printer size={20} />
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-8 gap-4 print:hidden">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Filtro Padrão</label>
-          <select 
-            value={quickFilter} 
-            onChange={e => setQuickFilter(e.target.value)} 
-            className="w-full bg-emerald-50 border border-emerald-200 rounded p-2 text-sm outline-none font-medium text-emerald-800"
-          >
-            <option value="VENCIDOS">Vencidos</option>
-            <option value="MES_ANTERIOR">Mês Anterior</option>
-            <option value="DIA_ATUAL">Dias Atual</option>
-            <option value="SEMANA_CORRENTE">Semana corrente</option>
-            <option value="MES_ATUAL">Mês atual</option>
-            <option value="PROXIMO_MES">Próximo Mês</option>
-            <option value="PROXIMOS_60">Próximos 60 dias</option>
-            <option value="TODAS">Todas Datas</option>
-            {quickFilter === 'CUSTOM' && <option value="CUSTOM">Personalizado</option>}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Status Pagamento</label>
-          <select 
-            value={paymentStatusFilter} 
-            onChange={e => setPaymentStatusFilter(e.target.value as any)} 
-            className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none font-medium text-slate-800"
-          >
-            <option value="PENDING">Pendentes</option>
-            <option value="PAID">Efetivados</option>
-            <option value="ALL">Todos</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Período Início</label>
-          <input type="date" value={dateStart} onChange={e => { setDateStart(e.target.value); setQuickFilter('CUSTOM'); }} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Período Fim</label>
-          <input type="date" value={dateEnd} onChange={e => { setDateEnd(e.target.value); setQuickFilter('CUSTOM'); }} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Empresa</label>
-          <select value={globalFilters.companyId} onChange={e => setGlobalFilters({...globalFilters, companyId: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">
-            <option value="">Todas</option>
-            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Administradora</label>
-          <select value={globalFilters.administratorId} onChange={e => setGlobalFilters({...globalFilters, administratorId: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">
-            <option value="">Todas</option>
-            {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Status Cota</label>
-          <select value={globalFilters.status} onChange={e => setGlobalFilters({...globalFilters, status: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm outline-none">
-            <option value="">Todos</option>
-            <option value="ACTIVE">Em Andamento</option>
-            <option value="CONTEMPLATED">Contempladas</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Cota / Grupo</label>
-          <div className="relative">
-            <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" value={searchQuota} onChange={e => setSearchQuota(e.target.value)} placeholder="Buscar..." className="w-full bg-slate-50 border border-slate-200 rounded pl-8 pr-2 py-2 text-sm outline-none" />
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">

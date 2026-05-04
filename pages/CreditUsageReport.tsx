@@ -3,6 +3,7 @@ import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingBag, Printer, Filter, X, ArrowLeft } from 'lucide-react';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 const CreditUsageReport = () => {
   const navigate = useNavigate();
@@ -46,66 +47,21 @@ const CreditUsageReport = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-10 print:max-w-none print:w-full print:pb-0 print:space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-                <button 
-                    onClick={() => navigate('/reports/executive')} 
-                    className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-                    title="Voltar ao relatório executivo"
-                >
-                    <ArrowLeft size={20} />
-                </button>
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2 print:text-xl">
-                        <ShoppingBag className="text-emerald-600" /> Relatório de Utilização
-                    </h1>
-                    <p className="text-slate-500 print:text-xs">Extrato de todas as utilizações de crédito.</p>
-                </div>
-            </div>
+        <ConsortiumFilterBar 
+          showQuotaFilter={false} 
+          actions={
             <button 
                 onClick={() => window.print()} 
-                className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium flex items-center gap-2 print:hidden self-start"
+                className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors font-medium flex items-center gap-2 print:hidden whitespace-nowrap h-10 shadow-sm border border-slate-200"
             >
                 <Printer size={18} /> Imprimir
             </button>
-        </div>
+          }
+        />
 
-        {/* FILTERS */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-end print:hidden">
-            <div className="flex-1 w-full md:w-auto">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Empresa</label>
-                <select 
-                    value={globalFilters.companyId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                >
-                    <option value="">Todas</option>
-                    {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                </select>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
             </div>
-            <div className="flex-1 w-full md:w-auto">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Administradora</label>
-                <select 
-                    value={globalFilters.administratorId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                >
-                    <option value="">Todas</option>
-                    {administrators.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                </select>
-            </div>
-            {(globalFilters.administratorId || globalFilters.companyId) && (
-                <button 
-                    onClick={() => setGlobalFilters({ ...globalFilters, administratorId: '', companyId: '' })}
-                    className="text-slate-500 hover:text-red-500 text-sm font-medium px-2 py-2 flex items-center gap-1"
-                >
-                    <X size={16}/> Limpar
-                </button>
-            )}
         </div>
 
         {/* SUMMARY */}

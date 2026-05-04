@@ -15,7 +15,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Mock initial admin user
 const DEFAULT_ADMIN: User = {
-  id: 'admin-1',
+  id: '00000000-0000-0000-0000-000000000000',
   email: 'renzo.amaral@gmail.com',
   name: 'Administrador Geral',
   password: '123',
@@ -38,18 +38,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const users = await db.getUsers();
+        let users: User[] = [];
+        try {
+          users = await db.getUsers();
+        } catch (fetchError) {
+          console.warn("Retrying fetch users...", fetchError);
+          // Wait a bit and retry once (maybe RLS is being applied)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            users = await db.getUsers();
+          } catch (e) {
+            console.error("Fetch users failed after retry", e);
+          }
+        }
         
-        // If no users exist (e.g., first run locally), create default admin
-        if (users.length === 0) {
-          await db.saveUser(DEFAULT_ADMIN);
+        // If no administrators exist, attempt to create default admin
+        const hasAdmin = users.some(u => u.role === UserRole.ADMIN);
+        if (!hasAdmin) {
+          try {
+            await db.saveUser(DEFAULT_ADMIN);
+            // Refresh users list after saving default admin
+            users = await db.getUsers();
+          } catch (saveError) {
+            console.error("Policy blocking initial user creation. Check RLS settings and run SQL script.", saveError);
+          }
         }
 
-        // Check if there's a logged in user
+        // Check if there's a logged in user in local storage
         const loggedInUserId = localStorage.getItem('consortium_logged_in_user');
         if (loggedInUserId) {
-          const currentUsers = await db.getUsers();
-          const foundUser = currentUsers.find(u => u.id === loggedInUserId && u.isActive);
+          const foundUser = users.find(u => u.id === loggedInUserId && u.isActive);
           if (foundUser) {
             setUser(foundUser);
           } else {

@@ -382,3 +382,9 @@ export interface ScheduledReport {
   isActive: boolean;
   createdAt: string;
 }
+
+export interface ProjectionConfig {
+  enabled: boolean;
+  periodMonths: number; // 12, 24, 36
+  customRate?: number; // Annual rate (%)
+}

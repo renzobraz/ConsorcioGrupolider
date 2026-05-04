@@ -4,14 +4,7 @@ import { BookOpen, AlertCircle, CheckCircle2, Calculator, TrendingUp, PieChart, 
 
 const Manual = () => {
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-           < BookOpen className="text-emerald-600" /> Manual de Regras de Cálculo
-        </h1>
-        <p className="text-slate-500">Documentação técnica sobre as fórmulas e lógicas financeiras do ConsorcioManager Pro.</p>
-      </div>
-
+    <div className="max-w-4xl mx-auto space-y-8 pb-12 pt-4">
       {/* Seção 0: Composição da Parcela */}
       <section className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">

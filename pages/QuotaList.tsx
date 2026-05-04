@@ -8,6 +8,7 @@ import { ProductType, Quota } from '../types';
 import { calculateCurrentCreditValue, generateSchedule, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
 import { calculateMarketAnalysis, MarketAnalysis } from '../services/marketService';
 import { db } from '../services/database';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 const QuotaList = () => {
   const { quotas, deleteQuota, updateQuota, setCurrentQuota, administrators, companies, indices, allCreditUpdates, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
@@ -17,11 +18,18 @@ const QuotaList = () => {
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   
-  // Filter States - Lendo search da URL, mas usando globalFilters para o resto
-  const search = searchParams.get('q') || '';
+  // Sync URL search params with global filters
+  React.useEffect(() => {
+    const q = searchParams.get('q');
+    if (q && q !== globalFilters.searchText) {
+      setGlobalFilters(prev => ({ ...prev, searchText: q }));
+    }
+  }, []);
 
-  // Função auxiliar para atualizar a URL apenas para a busca
-  const updateSearch = (value: string) => {
+  React.useEffect(() => {
+    const value = globalFilters.searchText || '';
+    const currentQ = searchParams.get('q') || '';
+    if (value !== currentQ) {
       setSearchParams(prev => {
           const newParams = new URLSearchParams(prev);
           if (value) {
@@ -31,7 +39,8 @@ const QuotaList = () => {
           }
           return newParams;
       }, { replace: true });
-  };
+    }
+  }, [globalFilters.searchText, searchParams, setSearchParams]);
 
   // Delete Modal State
   const [quotaToDelete, setQuotaToDelete] = useState<{ id: string, label: string } | null>(null);
@@ -49,6 +58,7 @@ const QuotaList = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const filteredQuotas = quotas.filter(q => {
+    const search = globalFilters.searchText || '';
     const matchesSearch = 
       (q.group || '').toLowerCase().includes(search.toLowerCase()) || 
       (q.quotaNumber || '').toLowerCase().includes(search.toLowerCase()) || 
@@ -155,23 +165,12 @@ const QuotaList = () => {
     setGlobalFilters({ companyId: '', administratorId: '', productType: '' });
   };
 
-  const hasActiveFilters = search || globalFilters.administratorId || globalFilters.companyId || globalFilters.productType;
+  const hasActiveFilters = globalFilters.searchText || globalFilters.administratorId || globalFilters.companyId || globalFilters.productType;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/')} 
-            className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-            title="Voltar ao Dashboard"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Minhas Cotas</h1>
-            <p className="text-slate-500">Gerencie suas cotas cadastradas no banco de dados</p>
-          </div>
         </div>
         <button 
           onClick={() => navigate('/new')}
@@ -181,65 +180,8 @@ const QuotaList = () => {
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-            <div className="flex-1 relative min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                    type="text" 
-                    placeholder="Buscar..." 
-                    className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                    value={search}
-                    onChange={(e) => updateSearch(e.target.value)}
-                />
-            </div>
-            <div className="flex-1">
-                <select 
-                    value={globalFilters.companyId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, companyId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Empresas</option>
-                    {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <select 
-                    value={globalFilters.administratorId} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, administratorId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todas as Administradoras</option>
-                    {administrators.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                </select>
-            </div>
-            <div className="flex-1">
-                <select 
-                    value={globalFilters.productType} 
-                    onChange={(e) => setGlobalFilters({ ...globalFilters, productType: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 text-slate-600"
-                >
-                    <option value="">Todos os Produtos</option>
-                    <option value="VEICULO">Veículo</option>
-                    <option value="IMOVEL">Imóvel</option>
-                </select>
-            </div>
-            
-            {hasActiveFilters && (
-                <button 
-                    onClick={clearFilters}
-                    className="px-4 py-2 text-slate-500 hover:text-red-500 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-200 transition-colors flex items-center justify-center gap-1 text-sm font-medium whitespace-nowrap"
-                >
-                    <X size={16} /> Limpar
-                </button>
-            )}
-        </div>
-      </div>
+      {/* Standardized Filter Bar with Search Integration */}
+      <ConsortiumFilterBar showQuotaFilter={false} />
 
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { formatCurrency } from '../utils/formatters';
@@ -158,28 +159,15 @@ const MonthlyDetailReport = () => {
 
     return (
         <div className="w-full space-y-6 pb-10 print:p-0">
+            <ConsortiumFilterBar showQuotaFilter={false} />
+
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <button 
-                        onClick={() => navigate('/reports/executive')} 
-                        className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
-                        title="Voltar ao relatório Executivo"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                            <LayoutList className="text-emerald-600" /> Detalhes: {displayMonth}
-                        </h1>
-                        <div className="flex items-center gap-2">
-                             <p className="text-slate-500">Fluxo analítico individualizado por cota.</p>
-                             {activeCompanyFilterName && (
-                                 <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md text-[10px] font-bold border border-emerald-100 animate-pulse">
-                                     <Filter size={10} /> Filtrado por: {activeCompanyFilterName}
-                                 </span>
-                             )}
+                    {activeCompanyFilterName && (
+                        <div className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md text-[10px] font-bold border border-emerald-100 animate-pulse">
+                            <Filter size={10} /> Filtrado por: {activeCompanyFilterName}
                         </div>
-                    </div>
+                    )}
                 </div>
                 <div className="flex gap-2 print:hidden">
                     <button onClick={() => window.print()} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium flex items-center gap-2 transition-colors">

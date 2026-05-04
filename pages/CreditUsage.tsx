@@ -144,13 +144,6 @@ const CreditUsage = () => {
     <div className="max-w-7xl mx-auto space-y-6 pb-10">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-            <button 
-              onClick={() => navigate('/reports/executive')} 
-              className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200"
-              title="Voltar ao relatório executivo"
-            >
-                <ArrowLeft size={20} />
-            </button>
             <div>
                 <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                     <ShoppingBag className="text-emerald-600" /> Gestão de Uso do Crédito

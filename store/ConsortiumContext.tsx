@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate, SMTPConfig } from '../types';
+import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate, SMTPConfig, ProjectionConfig } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { useAuth } from './AuthContext';
@@ -71,14 +71,20 @@ interface ConsortiumContextType {
 
   refreshData: () => Promise<void>;
 
+  // Future Projection
+  projectionConfig: ProjectionConfig;
+  setProjectionConfig: (config: ProjectionConfig) => void;
+
   // Global Filters
   globalFilters: {
     companyId: string;
     administratorId: string;
     productType: string;
     status: string;
+    quotaId: string;
+    searchText: string;
   };
-  setGlobalFilters: (filters: { companyId: string; administratorId: string; productType: string; status: string }) => void;
+  setGlobalFilters: (filters: { companyId: string; administratorId: string; productType: string; status: string; quotaId: string, searchText: string }) => void;
 }
 
 const ConsortiumContext = createContext<ConsortiumContextType | undefined>(undefined);
@@ -110,13 +116,19 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [projectionConfig, setProjectionConfig] = useState<ProjectionConfig>({
+    enabled: false,
+    periodMonths: 36
+  });
 
   // Global Filters State
   const [globalFilters, setGlobalFilters] = useState({
     companyId: '',
     administratorId: '',
     productType: '',
-    status: ''
+    status: '',
+    quotaId: '',
+    searchText: ''
   });
 
   const { user, isAdmin } = useAuth();
@@ -305,16 +317,16 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         
         setPayments(savedPayments);
         setManualTransactions(manualTransactions);
-        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments);
+        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments, undefined, projectionConfig);
         setInstallments(schedule);
 
       } catch (err: any) {
-         console.error("Failed to generate schedule/payments", err);
-         if (db.isCloudEnabled()) {
-            setConnectionError(err.message || "Erro ao carregar pagamentos");
-         }
-         // Fallback to basic schedule
-         setInstallments(generateSchedule(quota, indices));
+        console.error("Failed to generate schedule/payments", err);
+        if (db.isCloudEnabled()) {
+           setConnectionError(err.message || "Erro ao carregar pagamentos");
+        }
+        // Fallback to basic schedule
+        setInstallments(generateSchedule(quota, indices, {}, undefined, projectionConfig));
       } finally {
          setIsLoading(false);
       }
@@ -373,11 +385,11 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     // 3. Re-generate Schedule
-    const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments);
+    const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments, undefined, projectionConfig);
     setInstallments(schedule);
     setConnectionError(null);
 
-  }, [currentQuota, installments, indices, payments, manualTransactions]); // dependencies
+  }, [currentQuota, installments, indices, payments, manualTransactions, projectionConfig]); // dependencies
 
   const addIndex = useCallback(async (index: MonthlyIndex) => {
     setIndices(prev => {
@@ -484,7 +496,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       await db.saveManualTransaction(transaction);
-      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
       setInstallments(schedule);
     } catch (err: any) {
       console.error("Failed to save manual transaction", err);
@@ -494,7 +506,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (db.isCloudEnabled()) setConnectionError(err.message);
       throw err;
     }
-  }, [currentQuota, manualTransactions, indices, payments]);
+  }, [currentQuota, manualTransactions, indices, payments, projectionConfig]);
 
   const updateManualTransaction = useCallback(async (transaction: ManualTransaction) => {
     if (!currentQuota) return;
@@ -504,7 +516,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       await db.saveManualTransaction(transaction);
-      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
       setInstallments(schedule);
     } catch (err: any) {
       console.error("Failed to update manual transaction", err);
@@ -513,7 +525,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (db.isCloudEnabled()) setConnectionError(err.message);
       throw err;
     }
-  }, [currentQuota, manualTransactions, indices, payments]);
+  }, [currentQuota, manualTransactions, indices, payments, projectionConfig]);
 
   const deleteManualTransaction = useCallback(async (id: string) => {
     if (!currentQuota) return;
@@ -523,7 +535,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       await db.deleteManualTransaction(id);
-      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
       setInstallments(schedule);
     } catch (err: any) {
       console.error("Failed to delete manual transaction", err);
@@ -633,6 +645,14 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
+  // Update schedule when projection toggle changes
+  useEffect(() => {
+    if (currentQuota) {
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, payments, undefined, projectionConfig);
+      setInstallments(schedule);
+    }
+  }, [projectionConfig, currentQuota, indices, payments, manualTransactions]);
+
   const filteredQuotas = React.useMemo(() => {
     if (!user) return [];
     if (isAdmin) return quotas;
@@ -683,6 +703,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addScheduledReport,
       deleteScheduledReport,
       refreshData,
+      projectionConfig,
+      setProjectionConfig,
       globalFilters,
       setGlobalFilters
     }}>

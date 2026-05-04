@@ -6,19 +6,31 @@ import { generateSchedule } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
 import { TrendingUp, Tag, DollarSign, PieChart, ArrowUpRight, Briefcase, Info } from 'lucide-react';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
 const SellerDashboard = () => {
-  const { quotas, indices } = useConsortium();
+  const { quotas, indices, globalFilters } = useConsortium();
+
+  const filteredQuotas = useMemo(() => {
+    return quotas.filter(q => {
+      const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
+      const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+      const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
+      const matchStatus = !globalFilters.status || (globalFilters.status === 'CONTEMPLATED' ? q.isContemplated : !q.isContemplated);
+      const matchQuota = !globalFilters.quotaId || q.id === globalFilters.quotaId;
+      return matchCompany && matchAdmin && matchProduct && matchStatus && matchQuota;
+    });
+  }, [quotas, globalFilters]);
 
   const portfolioAnalysis = useMemo(() => {
-    return quotas.map(quota => {
+    return filteredQuotas.map(quota => {
       const schedule = generateSchedule(quota, indices);
       const paidAmount = schedule.filter(i => i.isPaid).reduce((sum, i) => sum + (i.realAmountPaid || i.totalInstallment) + (i.bidFreeApplied || 0), 0);
       const debtBalance = schedule.filter(i => !i.isPaid).reduce((sum, i) => sum + i.totalInstallment, 0);
       const analysis = calculateMarketAnalysis(quota, indices, paidAmount, debtBalance);
       return { quota, analysis };
     });
-  }, [quotas, indices]);
+  }, [filteredQuotas, indices]);
 
   const totals = useMemo(() => {
     return portfolioAnalysis.reduce((acc, item) => ({
@@ -40,11 +52,9 @@ const SellerDashboard = () => {
     .slice(0, 5);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Painel de Revenda</h1>
-        <p className="text-slate-500">Analise o valor de mercado das suas cotas e identifique oportunidades de lucro</p>
-      </div>
+    <div className="space-y-6 pt-4">
+      {/* Normalized Filters */}
+      <ConsortiumFilterBar showQuotaFilter={true} />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

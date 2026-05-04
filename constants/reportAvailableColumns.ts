@@ -13,7 +13,7 @@ export const AVAILABLE_REPORT_COLUMNS = [
   { id: 'creditAtContemplation', label: 'Crédito', type: 'currency' },
   { id: 'bidEmbedded', label: 'Lance Emb.', type: 'currency' },
   { id: 'percentBidEmbedded', label: '% Emb', type: 'percent' },
-  { id: 'valorRealCarta', label: 'Vlr Líquido', type: 'currency' },
+  { id: 'valorRealCarta', label: 'CRÉDITO TOTAL SEM CORREÇÃO', type: 'currency' },
   { id: 'creditManualAdjustment', label: 'Aplicação', type: 'currency' },
   { id: 'bidFreeCorrection', label: '92% CDI', type: 'currency' },
   { id: 'creditoTotal', label: 'Corrigido', type: 'currency' },

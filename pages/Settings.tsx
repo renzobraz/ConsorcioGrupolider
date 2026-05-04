@@ -226,8 +226,8 @@ const Settings = () => {
               if(data.manual_transactions) localStorage.setItem('consortium_manual_transactions_db', JSON.stringify(data.manual_transactions));
               if(data.users) localStorage.setItem('consortium_users_db', JSON.stringify(data.users));
               
-              alert('Backup restaurado com sucesso! A página será recarregada.');
-              window.location.reload();
+              alert('Backup restaurado com sucesso! Se estiver conectado à nuvem, você pode usar o botão "Sincronizar Local -> Nuvem" para subir esses dados.');
+              refreshData();
           } catch (err) {
               console.error("Import failed:", err);
               alert("Falha ao importar arquivo. Verifique se o formato está correto.");
@@ -236,43 +236,74 @@ const Settings = () => {
       reader.readAsText(file);
   };
 
+  const handleCloudMigration = async () => {
+    if (!isCloudConnected) {
+      alert("Conecte ao Supabase primeiro.");
+      return;
+    }
+
+    if (!window.confirm("Isso irá enviar todos os seus dados locais para o banco de dados na nuvem. Deseja continuar?")) {
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      // 1. Get local data
+      const localData = {
+        quotas: JSON.parse(localStorage.getItem('consortium_quotas_db') || '[]'),
+        indices: JSON.parse(localStorage.getItem('consortium_indices_db') || '[]'),
+        administrators: JSON.parse(localStorage.getItem('consortium_admins_db') || '[]'),
+        companies: JSON.parse(localStorage.getItem('consortium_companies_db') || '[]'),
+        credit_usages: JSON.parse(localStorage.getItem('consortium_credit_usages_db') || '[]'),
+        manual_transactions: JSON.parse(localStorage.getItem('consortium_manual_transactions_db') || '[]'),
+        users: JSON.parse(localStorage.getItem('consortium_users_db') || '[]'),
+        payments: Object.keys(localStorage).reduce((acc, key) => {
+          if (key.startsWith('payments_')) {
+            acc[key] = JSON.parse(localStorage.getItem(key) || '{}');
+          }
+          return acc;
+        }, {} as any)
+      };
+
+      console.log("Migrando dados...", localData);
+
+      // 2. Migration logic
+      for (const admin of localData.administrators) await db.saveAdministrator(admin);
+      for (const comp of localData.companies) await db.saveCompany(comp);
+      for (const user of localData.users) await db.saveUser(user);
+      for (const idx of localData.indices) await db.saveIndex(idx);
+      for (const usage of localData.credit_usages) await db.saveCreditUsage(usage);
+      for (const tx of localData.manual_transactions) await db.saveManualTransaction(tx);
+      
+      for (const quota of localData.quotas) {
+        await db.saveQuota(quota);
+        const pKey = `payments_${quota.id}`;
+        if (localData.payments[pKey]) {
+          const qPayments = localData.payments[pKey];
+          for (const instNum of Object.keys(qPayments)) {
+            await db.savePayment(quota.id, parseInt(instNum), qPayments[instNum]);
+          }
+        }
+      }
+
+      alert("✅ Sincronização concluída com sucesso!");
+      refreshData();
+    } catch (err: any) {
+      console.error("Migration failed:", err);
+      alert(`❌ Falha na sincronização: ${err.message}`);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const sqlScript = `
--- COMANDO PARA LIBERAR ACESSO (Execute se receber erro 'Forbidden')
+-- 1. PERMISSÕES BÁSICAS (ESSENCIAL PARA FUNCIONAR)
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
--- Tabela de Configuração SMTP
-CREATE TABLE IF NOT EXISTS smtp_config (
-  id TEXT PRIMARY KEY DEFAULT 'default',
-  host TEXT NOT NULL,
-  port INTEGER NOT NULL,
-  secure BOOLEAN DEFAULT FALSE,
-  user_name TEXT NOT NULL,
-  password TEXT NOT NULL,
-  from_name TEXT,
-  from_email TEXT,
-  report_recipient TEXT NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-);
-
--- Tabela de Relatórios Agendados
-CREATE TABLE IF NOT EXISTS scheduled_reports (
-  id UUID PRIMARY KEY,
-  name TEXT NOT NULL,
-  recipient TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  message TEXT,
-  frequency TEXT NOT NULL,
-  selected_columns JSONB NOT NULL,
-  filters JSONB NOT NULL,
-  last_sent TIMESTAMP WITH TIME ZONE,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Tabela de Administradoras
+-- 2. CRIAÇÃO DAS TABELAS
 CREATE TABLE IF NOT EXISTS administrators (
   id UUID PRIMARY KEY,
   name TEXT NOT NULL,
@@ -280,7 +311,6 @@ CREATE TABLE IF NOT EXISTS administrators (
   email TEXT
 );
 
--- Tabela de Empresas Compradoras
 CREATE TABLE IF NOT EXISTS companies (
   id UUID PRIMARY KEY,
   name TEXT NOT NULL,
@@ -288,7 +318,16 @@ CREATE TABLE IF NOT EXISTS companies (
   email TEXT
 );
 
--- Tabela de Cotas
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  name TEXT,
+  password TEXT,
+  role TEXT,
+  permissions JSONB,
+  is_active BOOLEAN DEFAULT TRUE
+);
+
 CREATE TABLE IF NOT EXISTS quotas (
   id UUID PRIMARY KEY,
   group_code VARCHAR(50) NOT NULL,
@@ -311,8 +350,8 @@ CREATE TABLE IF NOT EXISTS quotas (
   bid_embedded DECIMAL(12, 2) DEFAULT 0,
   bid_total DECIMAL(12, 2) DEFAULT 0,
   credit_manual_adjustment DECIMAL(12, 2) DEFAULT 0,
-  administrator_id UUID REFERENCES administrators(id),
-  company_id UUID REFERENCES companies(id),
+  administrator_id UUID REFERENCES administrators(id) ON DELETE SET NULL,
+  company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
   bid_free_correction DECIMAL(12, 2) DEFAULT 0,
   calculation_method VARCHAR(30) DEFAULT 'LINEAR',
   index_table JSONB,
@@ -325,76 +364,22 @@ CREATE TABLE IF NOT EXISTS quotas (
   bid_base VARCHAR(20),
   anticipate_correction_month BOOLEAN DEFAULT FALSE,
   prioritize_fees_in_bid BOOLEAN DEFAULT FALSE,
-  UNIQUE(group_code, quota_number) -- PREVENÇÃO DE DUPLICIDADE
+  is_announced BOOLEAN DEFAULT FALSE,
+  announced_at TIMESTAMP WITH TIME ZONE,
+  market_value_override DECIMAL(12, 2),
+  market_status VARCHAR(20) DEFAULT 'DRAFT',
+  market_notes TEXT,
+  contract_file_url TEXT,
+  is_draw_contemplation BOOLEAN DEFAULT FALSE,
+  UNIQUE(group_code, quota_number)
 );
 
--- Migração: Adicionar colunas se não existirem em quotas
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'due_day') THEN
-        ALTER TABLE quotas ADD COLUMN due_day INTEGER DEFAULT 25;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'credit_manual_adjustment') THEN
-        ALTER TABLE quotas ADD COLUMN credit_manual_adjustment DECIMAL(12, 2) DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'administrator_id') THEN
-        ALTER TABLE quotas ADD COLUMN administrator_id UUID REFERENCES administrators(id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'company_id') THEN
-        ALTER TABLE quotas ADD COLUMN company_id UUID REFERENCES companies(id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'bid_free_correction') THEN
-        ALTER TABLE quotas ADD COLUMN bid_free_correction DECIMAL(12, 2) DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'calculation_method') THEN
-        ALTER TABLE quotas ADD COLUMN calculation_method VARCHAR(30) DEFAULT 'LINEAR';
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'index_table') THEN
-        ALTER TABLE quotas ADD COLUMN index_table JSONB;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'acquired_from_third_party') THEN
-        ALTER TABLE quotas ADD COLUMN acquired_from_third_party BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'assumed_installment') THEN
-        ALTER TABLE quotas ADD COLUMN assumed_installment INTEGER;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'pre_paid_fc_percent') THEN
-        ALTER TABLE quotas ADD COLUMN pre_paid_fc_percent DECIMAL(10, 4);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'acquisition_cost') THEN
-        ALTER TABLE quotas ADD COLUMN acquisition_cost DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'correction_rate_cap') THEN
-        ALTER TABLE quotas ADD COLUMN correction_rate_cap DECIMAL(10, 4);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'index_reference_month') THEN
-        ALTER TABLE quotas ADD COLUMN index_reference_month INTEGER;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'bid_base') THEN
-        ALTER TABLE quotas ADD COLUMN bid_base VARCHAR(20);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'anticipate_correction_month') THEN
-        ALTER TABLE quotas ADD COLUMN anticipate_correction_month BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'prioritize_fees_in_bid') THEN
-        ALTER TABLE quotas ADD COLUMN prioritize_fees_in_bid BOOLEAN DEFAULT FALSE;
-    END IF;
-    
-    -- Adicionar Restrição de Unicidade se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name = 'quotas' AND constraint_type = 'UNIQUE') THEN
-        ALTER TABLE quotas ADD CONSTRAINT unique_group_quota UNIQUE (group_code, quota_number);
-    END IF;
-    ALTER TABLE quotas ALTER COLUMN admin_fee_rate TYPE DECIMAL(10, 4);
-END
-$$;
-
--- Tabela de Pagamentos
 CREATE TABLE IF NOT EXISTS payments (
   id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
   quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
   installment_number INTEGER NOT NULL,
   amount_paid DECIMAL(12, 2),
-  payment_date TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  payment_date TIMESTAMP WITH TIME ZONE,
   manual_fc DECIMAL(12, 2),
   manual_fr DECIMAL(12, 2),
   manual_ta DECIMAL(12, 2),
@@ -407,43 +392,22 @@ CREATE TABLE IF NOT EXISTS payments (
   UNIQUE(quota_id, installment_number)
 );
 
--- Migração: Adicionar colunas se não existirem em payments
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fc') THEN
-        ALTER TABLE payments ADD COLUMN manual_fc DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fr') THEN
-        ALTER TABLE payments ADD COLUMN manual_fr DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_ta') THEN
-        ALTER TABLE payments ADD COLUMN manual_ta DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fine') THEN
-        ALTER TABLE payments ADD COLUMN manual_fine DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_interest') THEN
-        ALTER TABLE payments ADD COLUMN manual_interest DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_insurance') THEN
-        ALTER TABLE payments ADD COLUMN manual_insurance DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_amortization') THEN
-        ALTER TABLE payments ADD COLUMN manual_amortization DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_earnings') THEN
-        ALTER TABLE payments ADD COLUMN manual_earnings DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'status') THEN
-        ALTER TABLE payments ADD COLUMN status VARCHAR(20) DEFAULT 'PREVISTO';
-    END IF;
-    
-    -- Make amount_paid nullable if it is currently NOT NULL
-    ALTER TABLE payments ALTER COLUMN amount_paid DROP NOT NULL;
-END
-$$;
+CREATE TABLE IF NOT EXISTS manual_transactions (
+  id UUID PRIMARY KEY,
+  quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  amount DECIMAL(12, 2) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  description TEXT,
+  fc DECIMAL(12, 2),
+  fr DECIMAL(12, 2),
+  ta DECIMAL(12, 2),
+  insurance DECIMAL(12, 2),
+  amortization DECIMAL(12, 2),
+  fine DECIMAL(12, 2),
+  interest DECIMAL(12, 2)
+);
 
--- Tabela de Uso do Crédito (Compras)
 CREATE TABLE IF NOT EXISTS credit_usages (
   id UUID PRIMARY KEY,
   quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
@@ -453,17 +417,13 @@ CREATE TABLE IF NOT EXISTS credit_usages (
   seller TEXT
 );
 
--- Tabela de Lançamentos Manuais (Ajustes de Saldo)
-CREATE TABLE IF NOT EXISTS manual_transactions (
+CREATE TABLE IF NOT EXISTS credit_updates (
   id UUID PRIMARY KEY,
   quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
   date DATE NOT NULL,
-  amount DECIMAL(12, 2) NOT NULL,
-  type VARCHAR(20) NOT NULL,
-  description TEXT
+  value DECIMAL(12, 2) NOT NULL
 );
 
--- Tabela de Índices de Correção
 CREATE TABLE IF NOT EXISTS correction_indices (
   id UUID PRIMARY KEY,
   type VARCHAR(10) NOT NULL,
@@ -471,53 +431,109 @@ CREATE TABLE IF NOT EXISTS correction_indices (
   rate DECIMAL(10, 4) NOT NULL
 );
 
--- Tabela de Usuários
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  name TEXT,
-  password TEXT,
-  role TEXT,
-  permissions JSONB,
-  is_active BOOLEAN DEFAULT TRUE
+CREATE TABLE IF NOT EXISTS smtp_config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  secure BOOLEAN DEFAULT FALSE,
+  user_name TEXT NOT NULL,
+  password TEXT NOT NULL,
+  from_name TEXT,
+  from_email TEXT,
+  report_recipient TEXT NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Políticas de Segurança (Row Level Security)
-ALTER TABLE quotas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE correction_indices ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS scheduled_reports (
+  id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  message TEXT,
+  frequency TEXT NOT NULL,
+  selected_columns JSONB NOT NULL,
+  filters JSONB NOT NULL,
+  last_sent TIMESTAMP WITH TIME ZONE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 3. POLÍTICAS DE SEGURANÇA (RLS) - LIMPEZA E APLICAÇÃO SEGURA
+-- Primeiro, desativamos o RLS para garantir uma limpeza total
+ALTER TABLE administrators DISABLE ROW LEVEL SECURITY;
+ALTER TABLE companies DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quotas DISABLE ROW LEVEL SECURITY;
+ALTER TABLE payments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE manual_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_usages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_updates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE correction_indices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE smtp_config DISABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_reports DISABLE ROW LEVEL SECURITY;
+
+-- Removemos QUALQUER política que possa estar causando recursão
+-- (Tentamos nomes comuns de políticas que podem ter sido criados manualmente)
+DO $$ 
+DECLARE 
+    pol record;
+BEGIN
+    FOR pol IN (SELECT policyname, tablename FROM pg_policies WHERE schemaname = 'public') LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
+    END LOOP;
+END $$;
+
+-- Reativamos o RLS
 ALTER TABLE administrators ENABLE ROW LEVEL SECURITY;
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE credit_usages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE manual_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE manual_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_usages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE correction_indices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE smtp_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 
--- Remove políticas antigas se existirem para evitar erro de duplicidade
-DROP POLICY IF EXISTS "Public access for demo" ON quotas;
-DROP POLICY IF EXISTS "Public access for demo" ON payments;
-DROP POLICY IF EXISTS "Public access for demo" ON correction_indices;
-DROP POLICY IF EXISTS "Public access for demo" ON administrators;
-DROP POLICY IF EXISTS "Public access for demo" ON companies;
-DROP POLICY IF EXISTS "Public access for demo" ON credit_usages;
-DROP POLICY IF EXISTS "Public access for demo" ON manual_transactions;
-DROP POLICY IF EXISTS "Public access for demo" ON users;
-DROP POLICY IF EXISTS "Public access for demo" ON smtp_config;
-DROP POLICY IF EXISTS "Public access for demo" ON scheduled_reports;
+-- Aplicamos políticas ULTRA-SIMPLES (Sem subqueries para evitar recursão)
+CREATE POLICY "safe_access_admin" ON administrators FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_companies" ON companies FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_users" ON users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_quotas" ON quotas FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_payments" ON payments FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_manual" ON manual_transactions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_usages" ON credit_usages FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_updates" ON credit_updates FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_indices" ON correction_indices FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_smtp" ON smtp_config FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "safe_access_reports" ON scheduled_reports FOR ALL USING (true) WITH CHECK (true);
 
--- Cria as políticas novamente
-CREATE POLICY "Public access for demo" ON quotas FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON payments FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON correction_indices FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON administrators FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON companies FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON credit_usages FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON manual_transactions FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON smtp_config FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON scheduled_reports FOR ALL USING (true);
-`;
+-- 4. USUÁRIO ADMINISTRADOR PADRÃO (Garante que ele tenha acesso total)
+INSERT INTO users (id, email, name, password, role, is_active, permissions)
+VALUES (
+  '00000000-0000-0000-0000-000000000000', 
+  'renzo.amaral@gmail.com', 
+  'Administrador Geral', 
+  '123', 
+  'ADMIN', 
+  true, 
+  '{"canViewDashboard": true, "canManageQuotas": true, "canSimulate": true, "canViewReports": true, "canManageSettings": true, "canMarkQuotas": true}'
+)
+ON CONFLICT (email) DO UPDATE SET 
+  is_active = EXCLUDED.is_active,
+  role = EXCLUDED.role;
+
+-- 5. MIGRATIONS / UPDATES DE COLUNAS (OPCIONAL SE JÁ EXISTIREM)
+DO $$
+BEGIN
+    -- Exemplo de adição de coluna se não existir
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'manual_transactions' AND column_name = 'fc') THEN
+        ALTER TABLE manual_transactions ADD COLUMN fc DECIMAL(12, 2), ADD COLUMN fr DECIMAL(12, 2), ADD COLUMN ta DECIMAL(12, 2), ADD COLUMN insurance DECIMAL(12, 2), ADD COLUMN amortization DECIMAL(12, 2), ADD COLUMN fine DECIMAL(12, 2), ADD COLUMN interest DECIMAL(12, 2);
+    END IF;
+END
+$$;
+  `;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(sqlScript);
@@ -525,12 +541,7 @@ CREATE POLICY "Public access for demo" ON scheduled_reports FOR ALL USING (true)
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-10">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Configurações</h1>
-        <p className="text-slate-500">Conecte seu aplicativo a um banco de dados PostgreSQL na nuvem ou gerencie backups.</p>
-      </div>
-
+    <div className="max-w-4xl mx-auto space-y-8 pb-10 pt-4">
       {/* Email Config */}
       <EmailSettings />
 
@@ -747,13 +758,16 @@ CREATE POLICY "Public access for demo" ON scheduled_reports FOR ALL USING (true)
           </button>
         </div>
         
-        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions') || connectionError.includes('smtp_config')) && (
+        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions') || connectionError.includes('smtp_config') || connectionError.includes('recursion')) && (
             <div className="bg-amber-600/20 border border-amber-600 text-amber-100 p-3 rounded mb-4 text-sm flex items-start gap-2">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
-                <p>
-                    <strong>Ação Necessária:</strong> Sua estrutura de banco de dados está desatualizada ou faltam tabelas.
-                    Copie o SQL abaixo e rode no SQL Editor do Supabase para corrigir tabelas, colunas e restrições.
-                </p>
+                <div>
+                    <p className="font-bold">Ação Necessária: Estrutura ou Permissões Desatualizadas</p>
+                    <p className="mt-1">
+                        Se você encontrar erros de <strong>"infinite recursion"</strong> ou tabelas ausentes, copie o SQL abaixo e rode no SQL Editor do Supabase. 
+                        Isso corrigirá as políticas de segurança e a estrutura das tabelas.
+                    </p>
+                </div>
             </div>
         )}
 
@@ -792,6 +806,17 @@ CREATE POLICY "Public access for demo" ON scheduled_reports FOR ALL USING (true)
                 <Upload size={18}/> Restaurar Backup Local
                 <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
             </label>
+
+            {isCloudConnected && (
+              <button 
+                onClick={handleCloudMigration} 
+                disabled={isTesting}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {isTesting ? <Activity size={18} className="animate-spin" /> : <Cloud size={18}/>}
+                Sincronizar Local {"->"} Nuvem
+              </button>
+            )}
 
             <button 
               onClick={() => {

@@ -1,5 +1,5 @@
 
-import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus, ManualTransactionType } from '../types';
+import { Quota, PaymentInstallment, PaymentPlanType, MonthlyIndex, CorrectionIndex, BidBaseType, CalculationMethod, PaymentStatus, ManualTransactionType, ProjectionConfig } from '../types';
 import { addMonths, getNextBusinessDay, createLocalDate, safeParseNumber } from '../utils/formatters';
 
 // Removed local createLocalDate definition
@@ -56,18 +56,18 @@ export const calculateCDICorrection = (value: number, startDateStr: string | und
     return (value * accumulatedMultiplier) - value;
 };
 
-export const calculateAverageIndices = (indices: MonthlyIndex[]): Record<string, number> => {
+export const calculateAverageIndices = (indices: MonthlyIndex[], periodMonths: number = 36): Record<string, number> => {
   const averages: Record<string, number> = {};
   const types = Object.values(CorrectionIndex);
   
   const today = new Date();
-  const threeYearsAgo = new Date();
-  threeYearsAgo.setFullYear(today.getFullYear() - 3);
+  const startDate = new Date();
+  startDate.setMonth(today.getMonth() - periodMonths);
   
   types.forEach(type => {
     const relevantIndices = indices.filter(i => 
       i.type === type && 
-      new Date(i.date) >= threeYearsAgo &&
+      new Date(i.date) >= startDate &&
       new Date(i.date) <= today &&
       i.rate !== 0
     );
@@ -87,11 +87,16 @@ export const calculateAverageIndices = (indices: MonthlyIndex[]): Record<string,
   return averages;
 };
 
-export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date, forceContemplationFreeze: boolean = false, ignoreStopCorrection: boolean = false, projectFutureIndices: boolean = false): number => {
+export const calculateCurrentCreditValue = (quota: Quota, indices: MonthlyIndex[] = [], customCutoff?: Date, forceContemplationFreeze: boolean = false, ignoreStopCorrection: boolean = false, projectionConfig?: ProjectionConfig): number => {
   if (!quota) return 0;
   let currentCreditValue = Number(quota.creditValue) || 0;
   
-  const avgIndices = projectFutureIndices ? calculateAverageIndices(indices) : {};
+  const projectFutureIndices = projectionConfig?.enabled || false;
+  const avgIndices = projectFutureIndices 
+    ? (projectionConfig?.customRate 
+        ? { [quota.correctionIndex]: (Math.pow(1 + (projectionConfig.customRate / 100), 1/12) - 1) * 100 }
+        : calculateAverageIndices(indices, projectionConfig?.periodMonths || 36)) 
+    : {};
   const today = new Date();
   today.setHours(23, 59, 59, 999);
   // NUNCA iniciar o contador de reajuste anual com base na Data_Adesao ou data de pagamento da primeira parcela.
@@ -343,11 +348,16 @@ export function calculateScheduleSummary(
   };
 }
 
-export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}, manualTransactionsOverride?: any[], projectFutureIndices: boolean = false): PaymentInstallment[] => {
+export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], payments: Record<number, any> = {}, manualTransactionsOverride?: any[], projectionConfig?: ProjectionConfig): PaymentInstallment[] => {
   const schedule: PaymentInstallment[] = [];
   if (!quota || !quota.firstDueDate) return [];
   
-  const avgIndices = projectFutureIndices ? calculateAverageIndices(indices) : {};
+  const projectFutureIndices = projectionConfig?.enabled || false;
+  const avgIndices = projectFutureIndices 
+    ? (projectionConfig?.customRate 
+        ? { [quota.correctionIndex]: (Math.pow(1 + (projectionConfig.customRate / 100), 1/12) - 1) * 100 }
+        : calculateAverageIndices(indices, projectionConfig?.periodMonths || 36)) 
+    : {};
   const today = new Date(); today.setHours(23, 59, 59, 999);
   
   const firstDueDate = createLocalDate(quota.firstDueDate);
