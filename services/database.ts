@@ -1046,6 +1046,7 @@ export const db = {
           selectedColumns: r.selected_columns,
           filters: r.filters,
           lastSent: r.last_sent,
+          lastError: r.last_error,
           isActive: r.is_active,
           createdAt: r.created_at
         }));
@@ -1071,6 +1072,7 @@ export const db = {
           selected_columns: report.selectedColumns,
           filters: report.filters,
           last_sent: report.lastSent,
+          last_error: report.lastError,
           is_active: report.isActive,
           created_at: report.createdAt
         });

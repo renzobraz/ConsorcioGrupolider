@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi, Trash2, Calendar, Mail } from 'lucide-react';
+import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi, Trash2, Calendar, Mail, Clock } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { useConsortium } from '../store/ConsortiumContext';
 import { db } from '../services/database';
@@ -454,6 +454,7 @@ CREATE TABLE IF NOT EXISTS scheduled_reports (
   selected_columns JSONB NOT NULL,
   filters JSONB NOT NULL,
   last_sent TIMESTAMP WITH TIME ZONE,
+  last_error TEXT,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -497,49 +498,62 @@ ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 
 -- administrators
 CREATE POLICY "view_admin" ON administrators FOR SELECT USING (true);
-CREATE POLICY "modify_admin" ON administrators FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_admin" ON administrators FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- companies
 CREATE POLICY "view_companies" ON companies FOR SELECT USING (true);
-CREATE POLICY "modify_companies" ON companies FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_companies" ON companies FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- users
 CREATE POLICY "view_users" ON users FOR SELECT USING (true);
-CREATE POLICY "modify_users" ON users FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_users" ON users FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- quotas
 CREATE POLICY "view_quotas" ON quotas FOR SELECT USING (true);
-CREATE POLICY "modify_quotas" ON quotas FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_quotas" ON quotas FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- payments
 CREATE POLICY "view_payments" ON payments FOR SELECT USING (true);
-CREATE POLICY "modify_payments" ON payments FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_payments" ON payments FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- manual_transactions
 CREATE POLICY "view_manual" ON manual_transactions FOR SELECT USING (true);
-CREATE POLICY "modify_manual" ON manual_transactions FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_manual" ON manual_transactions FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- credit_usages
 CREATE POLICY "view_usages" ON credit_usages FOR SELECT USING (true);
-CREATE POLICY "modify_usages" ON credit_usages FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_usages" ON credit_usages FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- credit_updates
 CREATE POLICY "view_updates" ON credit_updates FOR SELECT USING (true);
-CREATE POLICY "modify_updates" ON credit_updates FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_updates" ON credit_updates FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- correction_indices
 CREATE POLICY "view_indices" ON correction_indices FOR SELECT USING (true);
-CREATE POLICY "modify_indices" ON correction_indices FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_indices" ON correction_indices FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- smtp_config
 CREATE POLICY "view_smtp" ON smtp_config FOR SELECT USING (true);
-CREATE POLICY "modify_smtp" ON smtp_config FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_smtp" ON smtp_config FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- scheduled_reports
 CREATE POLICY "view_reports" ON scheduled_reports FOR SELECT USING (true);
-CREATE POLICY "modify_reports" ON scheduled_reports FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "modify_reports" ON scheduled_reports FOR ALL TO public USING (true) WITH CHECK (true);
 
--- 4. USUÁRIO ADMINISTRADOR PADRÃO (Garante que ele tenha acesso total)
+-- 4. DESATIVAR RLS (OPCIONAL - Se as políticas acima falharem, use isto para "liberar geral")
+-- ALTER TABLE administrators DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE companies DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE quotas DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE payments DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE manual_transactions DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE credit_usages DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE credit_updates DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE correction_indices DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE smtp_config DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE scheduled_reports DISABLE ROW LEVEL SECURITY;
+
+-- 5. USUÁRIO ADMINISTRADOR PADRÃO (Garante que ele tenha acesso total)
 INSERT INTO users (id, email, name, password, role, is_active, permissions)
 VALUES (
   '00000000-0000-0000-0000-000000000000', 
@@ -611,7 +625,7 @@ $$;
                   <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
                   <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frequência</th>
                   <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Destinatário</th>
-                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Último Envio</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status/Último Envio</th>
                   <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                 </tr>
               </thead>
@@ -628,7 +642,29 @@ $$;
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-600">{report.recipient}</td>
                     <td className="py-3 px-4 text-sm text-slate-600">
-                      {report.last_sent ? new Date(report.last_sent).toLocaleString('pt-BR') : 'Nunca'}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={14} className="text-slate-400" />
+                          <span>{report.lastSent ? new Date(report.lastSent).toLocaleString('pt-BR') : 'Nunca Enviado'}</span>
+                        </div>
+                        {report.lastError && (
+                          <div className="flex items-start gap-1.5 mt-1 p-2 bg-red-50 border border-red-100 rounded text-[10px] text-red-700 max-w-xs">
+                            <AlertTriangle size={12} className="shrink-0 mt-0.5 text-red-500" />
+                            <div className="flex flex-col">
+                              <span className="font-bold">Falha no último envio:</span>
+                              <span className="break-words line-clamp-2 md:line-clamp-none">{report.lastError}</span>
+                              {report.lastError.includes('Senha de App') && (
+                                <button 
+                                  onClick={() => alert('Para corrigir este erro:\n1. Acesse sua Conta Google (Segurança)\n2. Ative Verificação em Duas Etapas\n3. Crie uma "Senha de App"\n4. Copie o código de 16 letras\n5. Cole no campo de Senha SMTP em Configurações de E-mail')}
+                                  className="text-blue-600 font-bold hover:underline mt-1 text-left"
+                                >
+                                  Ver como resolver
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">

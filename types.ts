@@ -379,6 +379,7 @@ export interface ScheduledReport {
     status?: string;
   };
   lastSent?: string;
+  lastError?: string;
   isActive: boolean;
   createdAt: string;
 }

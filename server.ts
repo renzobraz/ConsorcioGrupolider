@@ -49,22 +49,39 @@ async function startServer() {
     }
 
     try {
+      const port = Number(smtpConfig.port);
+      const isSecure = port === 465;
       const transporter = nodemailer.createTransport({
         host: smtpConfig.host,
-        port: Number(smtpConfig.port),
-        secure: smtpConfig.secure, // true for 465, false for other ports
+        port: port,
+        secure: isSecure, // true para 465 (Implicit TLS), false para 587 (STARTTLS)
         auth: {
-          user: smtpConfig.user,
-          pass: smtpConfig.pass,
+          user: smtpConfig.user?.trim(),
+          pass: smtpConfig.pass?.trim(),
         },
+        tls: {
+          // Não falha em certificados inválidos
+          rejectUnauthorized: false,
+          // Garante compatibilidade com versões mais antigas se necessário
+          minVersion: 'TLSv1.2'
+        },
+        // Enforce STARTTLS for port 587 if not secure
+        requireTLS: port === 587
       });
+
+      // Force line length limits to avoid SMTP 555-5.5.2 errors
+      // and use quoted-printable encoding for data
+      const sanitize = (val: string) => val?.replace(/(.{900})/g, '$1\r\n');
+      const sanitizedHtml = sanitize(html);
+      const sanitizedText = sanitize(text);
 
       const info = await transporter.sendMail({
         from: `"${smtpConfig.fromName || 'Consórcio Manager'}" <${smtpConfig.fromEmail || smtpConfig.user}>`,
         to,
         subject,
-        text,
-        html,
+        text: sanitizedText,
+        html: sanitizedHtml,
+        textEncoding: 'quoted-printable',
         attachments: attachments?.map((att: any) => ({
           filename: att.filename,
           content: Buffer.from(att.content, 'base64'),
@@ -78,10 +95,22 @@ async function startServer() {
       console.error("Error sending email:", error);
       let errorMessage = error.message;
       
-      if (errorMessage.includes('Application-specific password required') || errorMessage.includes('535-5.7.8')) {
-        errorMessage = 'Autenticação falhou: O Gmail requer uma "Senha de App" para enviar e-mails. Por favor, gere uma nas configurações da sua conta Google (seção Segurança > Verificação em duas etapas > Senhas de App).';
-      } else if (errorMessage.includes('Invalid login')) {
-        errorMessage = 'Autenticação falhou: Usuário ou senha do SMTP incorretos.';
+      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('Username and Password not accepted') || errorMessage.includes('Invalid login') || errorMessage.includes('Authentication failed') || errorMessage.includes('failed to login') || errorMessage.includes('authentication failed')) {
+        if (errorMessage.includes('outside of security zone')) {
+          errorMessage = 'Bloqueio de Segurança (Microsoft/Outlook): Seu provedor bloqueou o acesso pois o sistema está em um servidor externo. RESOLUÇÃO: Use uma "Senha de Aplicativo" ou peça ao TI para liberar o "SMTP AUTH" para esta conta.';
+        } else if (errorMessage.includes('(4)') || errorMessage.includes('(15)') || errorMessage.includes('Username and Password not accepted')) {
+          errorMessage = 'Senha Rejeitada: O servidor não aceitou sua senha. ATENÇÃO: Contas Gmail ou Outlook profissional EXIGEM uma "Senha de Aplicativo" (App Password) de 16 letras. Sua senha normal de login NÃO funciona aqui. Gere o código de 16 letras em sua conta e cole no campo de senha.';
+        } else if (smtpConfig.host?.includes('gmail.com') || smtpConfig.user?.includes('gmail.com')) {
+          errorMessage = 'Autenticação Gmail Falhou: O Google EXIGE uma "Senha de App". Sua senha comum NÃO funciona. Ative a verificação em duas etapas e crie uma "Senha de Aplicativo" no seu painel Google (Segurança > Senhas de Aplicativo).';
+        } else {
+          errorMessage = 'Autenticação falhou: Usuário ou senha incorretos. DICA: Verifique se sua conta exige "Senha de Aplicativo" ou se o TI bloqueia o acesso externo (SMTP AUTH).';
+        }
+      } else if (errorMessage.includes('CERT_HAS_EXPIRED')) {
+        errorMessage = 'Erro de Segurança: O certificado SSL do seu servidor de e-mail expirou.';
+      } else if (errorMessage.includes('wrong version number') || errorMessage.includes('TLS') || errorMessage.includes('SSL')) {
+        errorMessage = 'Erro de SSL/TLS (Incompatibilidade): Verifique a Porta e o SSL. Se usar porta 587 (Gmail/Outlook), o campo "SSL/TLS" deve estar DESATIVADO. Se usar porta 465, ele deve estar ATIVADO. O sistema tentou corrigir isso automaticamente, verifique se a porta está correta.';
+      } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ETIMEDOUT')) {
+        errorMessage = 'Erro de Conexão: Não foi possível alcançar o servidor SMTP. Verifique o Host e a Porta.';
       }
       
       res.status(500).json({ error: errorMessage });

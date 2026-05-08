@@ -27,10 +27,27 @@ export const EmailSettings: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
-    setConfig(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : (name === 'port' ? Number(value) : value)
-    }));
+    
+    setConfig(prev => {
+      const newConfig = {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : (name === 'port' ? Number(value) : value)
+      };
+
+      // Auto-toggle secure based on common ports if port was changed
+      if (name === 'port') {
+        if (Number(value) === 465) {
+          newConfig.secure = true;
+        } else if (Number(value) === 587 || Number(value) === 25) {
+          newConfig.secure = false;
+        }
+      }
+      
+      // Auto-toggle secure if SSL checkbox was changed but we try to keep it logical
+      // (Handled by the checkbox itself, but we can add more logic if needed)
+
+      return newConfig;
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -79,13 +96,39 @@ export const EmailSettings: React.FC = () => {
 
       <form onSubmit={handleSave} className="p-6 space-y-6">
         {message && (
-          <div className={`p-4 rounded-lg flex items-start gap-3 ${
+          <div className={`p-4 rounded-lg flex flex-col gap-3 ${
             message.type === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
           }`}>
-            {message.type === 'success' ? <CheckCircle size={20} className="mt-0.5" /> : <AlertCircle size={20} className="mt-0.5" />}
-            <p className="text-sm font-medium">{message.text}</p>
-          </div>
-        )}
+            <div className="flex items-start gap-3">
+              {message.type === 'success' ? <CheckCircle size={20} className="mt-0.5" /> : <AlertCircle size={20} className="mt-0.5" />}
+              <p className="text-sm font-medium whitespace-pre-wrap">{message.text}</p>
+            </div>
+            
+          {message.type === 'error' && config.host.toLowerCase().includes('gmail.com') && (message.text.includes('Autenticação') || message.text.includes('Senha Rejeitada')) && (
+            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mt-2">
+              <p className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
+                <AlertCircle size={16} /> Verifique seu Gmail:
+              </p>
+              <ul className="text-xs list-disc ml-5 space-y-1 text-amber-700">
+                <li>O Google **NÃO ACEITA** sua senha normal de e-mail aqui.</li>
+                <li>Você deve usar uma **Senha de Aplicativo (16 letras)**.</li>
+                <li>Certifique-se de que a **Verificação em Duas Etapas** está ATIVA.</li>
+                <li>O código de 16 letras deve ser digitado **SEM ESPAÇOS**.</li>
+              </ul>
+              <div className="mt-3">
+                <a 
+                  href="https://myaccount.google.com/apppasswords" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="inline-flex items-center gap-1 text-blue-600 font-bold hover:underline"
+                >
+                  Criar Senha de Aplicativo agora <Send size={12} />
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
@@ -156,7 +199,10 @@ export const EmailSettings: React.FC = () => {
                     />
                     <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                   </div>
-                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">SSL/TLS</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">Seguro (SSL/TLS)</span>
+                    <span className="text-[10px] text-gray-400 leading-none">Sim p/ Porta 465, Não p/ 587</span>
+                  </div>
                 </label>
               </div>
             </div>

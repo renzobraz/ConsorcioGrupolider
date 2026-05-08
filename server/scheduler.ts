@@ -40,21 +40,34 @@ async function getSmtpConfig() {
 }
 
 async function sendEmail(smtp: any, to: string, subject: string, text: string, attachments: any[]) {
+  const port = parseInt(smtp.port);
+  const isSecure = port === 465;
   const transporter = nodemailer.createTransport({
     host: smtp.host,
-    port: parseInt(smtp.port),
-    secure: smtp.secure,
+    port: port,
+    secure: isSecure, // true para 465, false para 587
     auth: {
-      user: smtp.user_name, // Fixed field name
-      pass: smtp.password, // Fixed field name
+      user: smtp.user_name?.trim(), // Fixed field name + trim
+      pass: smtp.password?.trim(), // Fixed field name + trim
     },
+    tls: {
+      // Não falha em certificados inválidos
+      rejectUnauthorized: false,
+      minVersion: 'TLSv1.2'
+    },
+    requireTLS: port === 587
   });
+
+  // Force line length limits to avoid SMTP 555-5.5.2 errors
+  const sanitize = (val: string) => val?.replace(/(.{900})/g, '$1\r\n');
+  const sanitizedText = sanitize(text);
 
   await transporter.sendMail({
     from: `"${smtp.from_name || 'Consórcio Manager'}" <${smtp.from_email || smtp.user_name}>`,
     to,
     subject,
-    text,
+    text: sanitizedText,
+    textEncoding: 'quoted-printable',
     attachments,
   });
 }
@@ -352,7 +365,10 @@ async function sendReports(reports: any[]) {
 
       await supabase
         .from('scheduled_reports')
-        .update({ last_sent: now.toISOString() })
+        .update({ 
+          last_sent: now.toISOString(),
+          last_error: null 
+        })
         .eq('id', report.id);
 
       console.log(`Successfully sent report: ${report.name}`);
@@ -360,12 +376,28 @@ async function sendReports(reports: any[]) {
       console.error(`Error processing report ${report.name}:`, err);
       
       let errorMessage = err.message;
-      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('Invalid login') || errorMessage.includes('Authentication failed')) {
-        errorMessage = 'Falha de Autenticação SMTP: Usuário ou senha incorretos. ';
-        if (smtp.host?.includes('gmail.com')) {
-           errorMessage += 'Se estiver usando Gmail, você DEVE criar uma "Senha de App" nas configurações da sua conta Google, pois sua senha normal não funcionará.';
+      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('Invalid login') || errorMessage.includes('Authentication failed') || errorMessage.includes('Username and Password not accepted') || errorMessage.includes('failed to login') || errorMessage.includes('authentication failed')) {
+        if (errorMessage.includes('outside of security zone')) {
+          errorMessage = 'Erro SMTP (M365/Outlook): Bloqueio por "zona externa". Use uma "Senha de Aplicativo" ou peça ao TI para liberar o "SMTP AUTH" para este usuário.';
+        } else if (errorMessage.includes('(4)') || errorMessage.includes('(15)') || errorMessage.includes('Username and Password not accepted')) {
+          errorMessage = 'Erro SMTP: Senha rejeitada. Contas Gmail ou profissionais EXIGEM uma "Senha de Aplicativo" (App Password) de 16 letras. Sua senha normal de login não funciona aqui.';
+        } else if (smtp?.host?.includes('gmail.com') || smtp?.user_name?.includes('gmail.com')) {
+           errorMessage = 'Falha Gmail: O Google EXIGE "Senha de App". Ative a verificação de 2 etapas e crie uma "Senha de Aplicativo" no seu Google.';
+        } else {
+           errorMessage = 'Falha de Autenticação SMTP: Usuário ou senha incorretos.';
         }
+      } else if (errorMessage.includes('CERT_HAS_EXPIRED')) {
+        errorMessage = 'Erro SMTP: Certificado SSL expirado.';
+      } else if (errorMessage.includes('wrong version number') || errorMessage.includes('TLS') || errorMessage.includes('SSL')) {
+        errorMessage = 'Erro SMTP: Incompatibilidade de Segurança. Se a porta for 587, DESMARQUE "Seguro (SSL)". Se for 465, deve estar MARCADA. O sistema tenta corrigir isso automaticamente agora.';
+      } else if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ECONNREFUSED')) {
+        errorMessage = 'Erro SMTP: Servidor inacessível.';
       }
+
+      await supabase
+        .from('scheduled_reports')
+        .update({ last_error: errorMessage })
+        .eq('id', report.id);
 
       throw new Error(errorMessage);
     }
