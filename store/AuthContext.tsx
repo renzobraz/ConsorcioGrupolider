@@ -89,10 +89,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanPassword = password?.trim() || '';
     
     const users = await db.getUsers();
-    const foundUser = users.find(u => u.email.toLowerCase() === cleanEmail && u.isActive);
+    const foundUser = users.find(u => u.email.toLowerCase() === cleanEmail);
     
     if (!foundUser) {
-      throw new Error('Usuário não encontrado ou inativo.');
+      throw new Error('Usuário não encontrado neste dispositivo ou na nuvem.');
+    }
+
+    if (!foundUser.isActive) {
+      throw new Error('Este usuário está inativo. Contate o administrador.');
     }
 
     // Se o usuário tem senha definida, precisamos validar

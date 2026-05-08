@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 // --- CONFIGURAÇÃO FIXA (OPCIONAL) ---
 // Preencha estas variáveis se quiser que a conexão persista mesmo limpando o navegador.
 // Útil para ambientes de desenvolvimento que resetam o LocalStorage.
-const FIXED_URL = ""; // Coloque sua URL aqui. Ex: "https://xyz.supabase.co"
-const FIXED_KEY = ""; // Coloque sua API Key aqui. Ex: "eyJh..."
+const FIXED_URL = "https://qxbuopbrsvxybektxobs.supabase.co"; 
+const FIXED_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ""; 
 
 const cleanConfig = (value: string | null) => {
   if (!value) return '';
@@ -19,13 +19,21 @@ export const getSupabaseConfig = () => {
   let url = localStorage.getItem('supabase_url');
   let key = localStorage.getItem('supabase_key');
 
-  // Se não encontrar no navegador, tenta usar as fixas
-  if (!url && FIXED_URL) url = FIXED_URL;
-  if (!key && FIXED_KEY) key = FIXED_KEY;
+  const cleanUrl = cleanConfig(url);
+  const cleanKey = cleanConfig(key);
+
+  // Validação: Se o que estiver no localStorage for visivelmente inválido
+  // (ex: URL não começa com https ou é muito curta), ignoramos e usamos as variáveis de ambiente (FIXED)
+  const isLocalUrlValid = cleanUrl.startsWith('https://') && cleanUrl.includes('.supabase.co');
+  const isLocalKeyValid = cleanKey.length > 50; // Chaves anon do Supabase são bem longas
+
+  // Se houver configuração fixa no servidor, ela tem precedência sobre chaves locais "quebradas"
+  let finalUrl = (cleanUrl && isLocalUrlValid) ? cleanUrl : cleanConfig(FIXED_URL);
+  let finalKey = (cleanKey && isLocalKeyValid) ? cleanKey : cleanConfig(FIXED_KEY);
 
   return { 
-    url: cleanConfig(url), 
-    key: cleanConfig(key) 
+    url: finalUrl, 
+    key: finalKey 
   };
 };
 
@@ -97,7 +105,7 @@ export const getSupabase = () => {
       },
       global: {
         fetch: (resource, options) => {
-          const timeout = 15000; // 15 seconds timeout
+          const timeout = 30000; // 30 seconds timeout
           const controller = new AbortController();
           const id = setTimeout(() => controller.abort(), timeout);
           return fetch(resource, {
