@@ -105,12 +105,28 @@ export const EmailSettings: React.FC = () => {
                 required
               />
               {config.host.includes('gmail.com') && (
-                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                  <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-amber-800 leading-tight">
-                    <strong>Dica para Gmail:</strong> Use o host <code>smtp.gmail.com</code> e porta <code>587</code>. 
-                    Você <strong>DEVE</strong> usar uma <strong>"Senha de App"</strong> se tiver a verificação em duas etapas ativada.
-                  </p>
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800 font-medium">
+                      Configuração para Gmail detectada
+                    </p>
+                  </div>
+                  <ul className="text-[11px] text-amber-700 list-disc ml-5 space-y-1">
+                    <li>Host recomenda: <code>smtp.gmail.com</code></li>
+                    <li>Porta recomendada: <code>587</code></li>
+                    <li><strong>IMPORTANTE:</strong> Você deve usar uma <strong>"Senha de App"</strong> de 16 dígitos, não a sua senha normal.</li>
+                    <li>
+                      <a 
+                        href="https://myaccount.google.com/apppasswords" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline font-bold"
+                      >
+                        Clique aqui para gerar uma Senha de App no Google
+                      </a>
+                    </li>
+                  </ul>
                 </div>
               )}
             </div>

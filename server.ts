@@ -77,11 +77,13 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error sending email:", error);
       let errorMessage = error.message;
-      if (errorMessage.includes('Application-specific password required')) {
-        errorMessage = 'Autenticação falhou: O Gmail requer uma "Senha de App" para enviar e-mails. Por favor, gere uma nas configurações da sua conta Google.';
+      
+      if (errorMessage.includes('Application-specific password required') || errorMessage.includes('535-5.7.8')) {
+        errorMessage = 'Autenticação falhou: O Gmail requer uma "Senha de App" para enviar e-mails. Por favor, gere uma nas configurações da sua conta Google (seção Segurança > Verificação em duas etapas > Senhas de App).';
       } else if (errorMessage.includes('Invalid login')) {
         errorMessage = 'Autenticação falhou: Usuário ou senha do SMTP incorretos.';
       }
+      
       res.status(500).json({ error: errorMessage });
     }
   });

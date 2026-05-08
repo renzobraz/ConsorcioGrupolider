@@ -356,9 +356,18 @@ async function sendReports(reports: any[]) {
         .eq('id', report.id);
 
       console.log(`Successfully sent report: ${report.name}`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Error processing report ${report.name}:`, err);
-      throw err;
+      
+      let errorMessage = err.message;
+      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('Invalid login') || errorMessage.includes('Authentication failed')) {
+        errorMessage = 'Falha de Autenticação SMTP: Usuário ou senha incorretos. ';
+        if (smtp.host?.includes('gmail.com')) {
+           errorMessage += 'Se estiver usando Gmail, você DEVE criar uma "Senha de App" nas configurações da sua conta Google, pois sua senha normal não funcionará.';
+        }
+      }
+
+      throw new Error(errorMessage);
     }
   }
 }

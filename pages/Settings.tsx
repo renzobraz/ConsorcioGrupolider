@@ -472,8 +472,7 @@ ALTER TABLE correction_indices DISABLE ROW LEVEL SECURITY;
 ALTER TABLE smtp_config DISABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_reports DISABLE ROW LEVEL SECURITY;
 
--- Removemos QUALQUER política que possa estar causando recursão
--- (Tentamos nomes comuns de políticas que podem ter sido criados manualmente)
+-- Removemos QUALQUER política que possa estar causando recursão ou conflito
 DO $$ 
 DECLARE 
     pol record;
@@ -483,7 +482,7 @@ BEGIN
     END LOOP;
 END $$;
 
--- Reativamos o RLS
+-- Reativamos o RLS (Segurança em Nível de Linha)
 ALTER TABLE administrators ENABLE ROW LEVEL SECURITY;
 ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -496,18 +495,49 @@ ALTER TABLE correction_indices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE smtp_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 
--- Aplicamos políticas ULTRA-SIMPLES (Sem subqueries para evitar recursão)
-CREATE POLICY "safe_access_admin" ON administrators FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_companies" ON companies FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_users" ON users FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_quotas" ON quotas FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_payments" ON payments FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_manual" ON manual_transactions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_usages" ON credit_usages FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_updates" ON credit_updates FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_indices" ON correction_indices FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_smtp" ON smtp_config FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "safe_access_reports" ON scheduled_reports FOR ALL USING (true) WITH CHECK (true);
+-- administrators
+CREATE POLICY "view_admin" ON administrators FOR SELECT USING (true);
+CREATE POLICY "modify_admin" ON administrators FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- companies
+CREATE POLICY "view_companies" ON companies FOR SELECT USING (true);
+CREATE POLICY "modify_companies" ON companies FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- users
+CREATE POLICY "view_users" ON users FOR SELECT USING (true);
+CREATE POLICY "modify_users" ON users FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- quotas
+CREATE POLICY "view_quotas" ON quotas FOR SELECT USING (true);
+CREATE POLICY "modify_quotas" ON quotas FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- payments
+CREATE POLICY "view_payments" ON payments FOR SELECT USING (true);
+CREATE POLICY "modify_payments" ON payments FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- manual_transactions
+CREATE POLICY "view_manual" ON manual_transactions FOR SELECT USING (true);
+CREATE POLICY "modify_manual" ON manual_transactions FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- credit_usages
+CREATE POLICY "view_usages" ON credit_usages FOR SELECT USING (true);
+CREATE POLICY "modify_usages" ON credit_usages FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- credit_updates
+CREATE POLICY "view_updates" ON credit_updates FOR SELECT USING (true);
+CREATE POLICY "modify_updates" ON credit_updates FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- correction_indices
+CREATE POLICY "view_indices" ON correction_indices FOR SELECT USING (true);
+CREATE POLICY "modify_indices" ON correction_indices FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- smtp_config
+CREATE POLICY "view_smtp" ON smtp_config FOR SELECT USING (true);
+CREATE POLICY "modify_smtp" ON smtp_config FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
+
+-- scheduled_reports
+CREATE POLICY "view_reports" ON scheduled_reports FOR SELECT USING (true);
+CREATE POLICY "modify_reports" ON scheduled_reports FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
 
 -- 4. USUÁRIO ADMINISTRADOR PADRÃO (Garante que ele tenha acesso total)
 INSERT INTO users (id, email, name, password, role, is_active, permissions)
