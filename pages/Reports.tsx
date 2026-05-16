@@ -362,7 +362,7 @@ const Reports = () => {
       { label: 'Crédito Total Com Aplicação', value: formatNumber(totals.creditoTotal), color: [30, 41, 59] },
       { label: 'Crédito Utilizado', value: formatNumber(totals.creditoUtilizado), color: [194, 65, 12] },
       { label: 'Crédito Total Disponível', value: formatNumber(totals.saldoDisponivel), color: [6, 95, 70] },
-      { label: 'Créditos Disponível Utilização', value: formatNumber(totals.contemplatedAvailableCredit), color: [55, 48, 163] },
+      { label: 'Carta contemplada com correção', value: formatNumber(totals.contemplatedAvailableCredit), color: [55, 48, 163] },
     ];
 
     cards.forEach((card, index) => {
@@ -585,7 +585,7 @@ const Reports = () => {
         { label: 'Crédito Total Com Aplicação', value: formatNumber(emailTotals.creditoTotal), color: [30, 41, 59] },
         { label: 'Crédito Utilizado', value: formatNumber(emailTotals.creditoUtilizado), color: [194, 65, 12] },
         { label: 'Crédito Total Disponível', value: formatNumber(emailTotals.saldoDisponivel), color: [6, 95, 70] },
-        { label: 'Créditos Disponível Utilização', value: formatNumber(emailTotals.contemplatedAvailableCredit), color: [55, 48, 163] },
+        { label: 'Carta contemplada com correção', value: formatNumber(emailTotals.contemplatedAvailableCredit), color: [55, 48, 163] },
       ];
 
       cards.forEach((card, index) => {
@@ -767,7 +767,7 @@ const Reports = () => {
               { label: 'Corrigido', value: totals.creditoTotal, color: 'text-slate-800', bg: 'bg-slate-100', isCurrency: true },
               { label: 'Utilizado', value: totals.creditoUtilizado, color: 'text-orange-700', bg: 'bg-orange-50', isCurrency: true },
               { label: 'Disponível', value: totals.saldoDisponivel, color: 'text-emerald-800', bg: 'bg-emerald-50', isCurrency: true },
-              { label: 'Liberado', value: totals.contemplatedAvailableCredit, color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200', isCurrency: true },
+              { label: 'Carta contemplada com correção', value: totals.contemplatedAvailableCredit, color: 'text-indigo-800', bg: 'bg-indigo-50 border-indigo-200', isCurrency: true },
           ].map((t, i) => (
               <div key={i} className={`${t.bg} border border-slate-200/60 p-3 rounded-lg shadow-sm print:shadow-none print:border print:border-slate-300 flex flex-col justify-between min-w-[120px] md:min-w-0`}>
                   <p className="text-[9px] font-bold text-slate-500 uppercase mb-1 leading-tight truncate">{t.label}</p>

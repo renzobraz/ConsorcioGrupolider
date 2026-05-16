@@ -320,14 +320,14 @@ const Dashboard = () => {
       icon: <DollarSign size={20} className="text-slate-600"/>,
       cards: [
         {
-          title: "Créditos Disponível Utilização",
+          title: "Carta contemplada com correção",
           value: totals.totalAvailableContemplatedOnly,
           icon: <BadgeCheck size={24} className="text-indigo-600" />,
           bg: "bg-indigo-50 border-indigo-200",
           border: "border-indigo-200",
           textColor: "text-indigo-800",
           isCurrency: true,
-          description: "Saldo liberado e pronto para uso"
+          description: "Saldo líquido (Crédito - Lances - Uso)"
         },
         {
           title: "Crédito",
