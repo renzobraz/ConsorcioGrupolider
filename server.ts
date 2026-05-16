@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-import { startScheduler, triggerScheduledReport } from "./server/scheduler";
+import { startScheduler, triggerScheduledReport, runScheduler } from "./server/scheduler";
 
 dotenv.config();
 
@@ -15,6 +15,15 @@ async function startServer() {
 
   // Start the automated report scheduler
   startScheduler();
+
+  // Local development only: run scheduler every hour
+  if (process.env.NODE_ENV !== "production") {
+    setInterval(() => {
+        runScheduler();
+    }, 60 * 60 * 1000);
+    // Initial run
+    runScheduler(true);
+  }
 
   // API Routes
   app.get("/api/config-status", (req, res) => {

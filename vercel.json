@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    { "source": "/api/trigger-report/:id", "destination": "/api/trigger-report?id=:id" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/run-scheduler",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

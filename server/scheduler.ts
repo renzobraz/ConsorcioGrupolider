@@ -1,4 +1,3 @@
-import cron from 'node-cron';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { generateReportPdf } from './pdfGenerator';
 import nodemailer from 'nodemailer';
@@ -72,7 +71,7 @@ async function sendEmail(smtp: any, to: string, subject: string, text: string, a
   });
 }
 
-async function processScheduledReports(isInitialRun = false) {
+export async function runScheduler(isInitialRun = false) {
   if (!isSupabaseConfigured()) {
     if (!isInitialRun) console.log('Supabase not configured for scheduled reports. Skipping...');
     return;
@@ -127,7 +126,7 @@ async function processScheduledReports(isInitialRun = false) {
       await sendReports(reportsToProcess);
     }
   } catch (err) {
-    console.error('Unexpected error in processScheduledReports:', err);
+    console.error('Unexpected error in runScheduler:', err);
   }
 }
 
@@ -423,11 +422,6 @@ export async function triggerScheduledReport(reportId: string) {
 }
 
 export function startScheduler() {
-  // Run every hour
-  cron.schedule('0 * * * *', () => {
-    processScheduledReports();
-  });
-
-  // Also run once on start
-  processScheduledReports(true);
+  // node-cron removed for serverless support
+  console.log('Scheduler is now running via serverless function (Vercel Cron).');
 }

@@ -1,11 +1,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// --- CONFIGURAÇÃO FIXA (OPCIONAL) ---
-// Preencha estas variáveis se quiser que a conexão persista mesmo limpando o navegador.
-// Útil para ambientes de desenvolvimento que resetam o LocalStorage.
-const FIXED_URL = "https://qxbuopbrsvxybektxobs.supabase.co"; 
-const FIXED_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4YnVvcGJyc3Z4eWJla3R4b2JzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3NTIzMjEsImV4cCI6MjA3OTMyODMyMX0.8GC3d6mS9kxrPIdtvFqf03nYFv6WA1760t7aXA08_pw"; 
+// --- CONFIGURAÇÃO ---
+// As credenciais são buscadas prioritariamente no LocalStorage (configurado pelo usuário na UI)
+// e secundariamente em variáveis de ambiente (.env).
+// Nenhuma credencial deve ficar hardcoded aqui.
 
 const cleanConfig = (value: string | null) => {
   if (!value) return '';
@@ -16,20 +15,26 @@ const cleanConfig = (value: string | null) => {
 };
 
 export const getSupabaseConfig = () => {
-  let url = localStorage.getItem('supabase_url');
-  let key = localStorage.getItem('supabase_key');
+  const url = localStorage.getItem('supabase_url');
+  const key = localStorage.getItem('supabase_key');
 
   const cleanUrl = cleanConfig(url);
   const cleanKey = cleanConfig(key);
 
   // Validação: Se o que estiver no localStorage for visivelmente inválido
-  // (ex: URL não começa com https ou é muito curta), ignoramos e usamos as variáveis de ambiente (FIXED)
+  // (ex: URL não começa com https ou é muito curta), ignoramos e usamos as variáveis de ambiente
   const isLocalUrlValid = cleanUrl.startsWith('https://') && cleanUrl.includes('.supabase.co');
   const isLocalKeyValid = cleanKey.length > 50; // Chaves anon do Supabase são bem longas
 
-  // Se houver configuração fixa no servidor, ela tem precedência sobre chaves locais "quebradas"
-  let finalUrl = (cleanUrl && isLocalUrlValid) ? cleanUrl : cleanConfig(FIXED_URL);
-  let finalKey = (cleanKey && isLocalKeyValid) ? cleanKey : cleanConfig(FIXED_KEY);
+  // Prioridade 1: LocalStorage (se válido)
+  // Prioridade 2: Variáveis de ambiente VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+  const finalUrl = (cleanUrl && isLocalUrlValid) 
+    ? cleanUrl 
+    : cleanConfig(import.meta.env.VITE_SUPABASE_URL || '');
+
+  const finalKey = (cleanKey && isLocalKeyValid) 
+    ? cleanKey 
+    : cleanConfig(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
 
   return { 
     url: finalUrl, 
