@@ -295,58 +295,217 @@ const UserManagement = () => {
             <tbody className="divide-y divide-slate-100">
               {/* Opção para novo usuário no topo da lista se estiver criando */}
               {isEditing === 'new' && (
-                <tr className="bg-emerald-50/30">
-                  <td className="px-4 py-3">
-                    <input 
-                      type="text" 
-                      value={editForm.name || ''} 
-                      onChange={e => setEditForm({...editForm, name: e.target.value})}
-                      className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
-                      placeholder="Nome do usuário"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <input 
-                      type="email" 
-                      value={editForm.email || ''} 
-                      onChange={e => setEditForm({...editForm, email: e.target.value})}
-                      className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
-                      placeholder="E-mail"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <select 
-                      value={editForm.role || UserRole.USER}
-                      onChange={e => setEditForm({...editForm, role: e.target.value as UserRole})}
-                      className="border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
-                    >
-                      <option value={UserRole.USER}>Usuário</option>
-                      <option value={UserRole.ADMIN}>Administrador</option>
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-2">
-                       <input 
-                        type="password" 
-                        value={editForm.password || ''} 
-                        onChange={e => setEditForm({...editForm, password: e.target.value})}
+                <>
+                  <tr className="bg-emerald-50/50 border-b border-emerald-200">
+                    <td className="px-4 py-3">
+                      <input 
+                        type="text" 
+                        value={editForm.name || ''} 
+                        onChange={e => setEditForm({...editForm, name: e.target.value})}
                         className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
-                        placeholder="Senha (min 6 carac.)"
-                        minLength={6}
+                        placeholder="Nome completo"
                       />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={handleSave} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Salvar">
-                        <Check size={18} />
-                      </button>
-                      <button onClick={() => setIsEditing(null)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors" title="Cancelar">
-                        <X size={18} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input 
+                        type="email" 
+                        value={editForm.email || ''} 
+                        onChange={e => setEditForm({...editForm, email: e.target.value})}
+                        className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
+                        placeholder="E-mail"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <select 
+                        value={editForm.role || UserRole.USER}
+                        onChange={e => setEditForm({...editForm, role: e.target.value as UserRole})}
+                        className="border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
+                      >
+                        <option value={UserRole.USER}>Usuário</option>
+                        <option value={UserRole.ADMIN}>Administrador</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-2">
+                        <input 
+                          type="password" 
+                          value={editForm.password || ''} 
+                          onChange={e => setEditForm({...editForm, password: e.target.value})}
+                          className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
+                          placeholder="Senha (min 6 carac.)"
+                          minLength={6}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase">
+                        Novo
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={handleSave} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Salvar">
+                          <Check size={18} />
+                        </button>
+                        <button onClick={() => setIsEditing(null)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors" title="Cancelar">
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Permissions Editor Row para Novo Usuário */}
+                  {editForm.role === UserRole.USER && (
+                    <tr className="bg-emerald-50/20 border-b border-emerald-100">
+                      <td colSpan={6} className="px-4 py-6">
+                        <div className="flex flex-col gap-6">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-emerald-200 pb-4">
+                            <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                              <Shield size={16} className="text-emerald-600" />
+                              Definir Permissões Iniciais
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Perfil Rápido:</span>
+                              <select 
+                                onChange={(e) => applyProfile(e.target.value as any)}
+                                className="text-xs border border-emerald-300 rounded px-2 py-1 outline-none focus:border-emerald-500 bg-white"
+                              >
+                                <option value="">Selecione um perfil...</option>
+                                {Object.entries(USER_PROFILES).filter(([k]) => k !== 'CUSTOM').map(([key, p]) => (
+                                  <option key={key} value={key}>{p.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                            {/* Categoria: Geral */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Navegação Geral</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'dashboard', label: 'Dashboard' },
+                                  { id: 'marketplace', label: 'Marketplace' },
+                                  { id: 'minhas_cotas', label: 'Minhas Cotas' },
+                                  { id: 'gestao_creditos', label: 'Gestão de Créditos' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Relatórios */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Relatórios</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'relatorios_inadimplencia', label: 'Inadimplência' },
+                                  { id: 'relatorios_assembleia', label: 'Assembleia' },
+                                  { id: 'relatorios_contemplados', label: 'Contemplados' },
+                                  { id: 'relatorios_agendados', label: 'Agendados' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Ferramentas */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Ferramentas</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'simulador_extrato', label: 'Simulador Extrato' },
+                                  { id: 'calculadora_avulsa', label: 'Calculadora Avulsa' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Cadastros */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'cadastro_administradoras', label: 'Administradoras' },
+                                  { id: 'cadastro_empresas', label: 'Empresas' },
+                                  { id: 'cadastro_indices', label: 'Índices' },
+                                  { id: 'usuarios', label: 'Gestão Usuários' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {companies.length > 0 && (
+                            <div className="pt-4 mt-2 border-t border-emerald-200">
+                              <div className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-4">
+                                <Building2 size={16} className="text-emerald-600" />
+                                Restrição de Acesso por Empresa
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                {companies.map(company => (
+                                  <label key={company.id} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={(editForm.permissions?.allowedCompanyIds || []).includes(company.id)} 
+                                      onChange={() => {
+                                        const current = editForm.permissions?.allowedCompanyIds || [];
+                                        const next = current.includes(company.id)
+                                          ? current.filter(id => id !== company.id)
+                                          : [...current, company.id];
+                                        setEditForm({
+                                          ...editForm,
+                                          permissions: { ...editForm.permissions!, allowedCompanyIds: next }
+                                        });
+                                      }} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-xs text-slate-600 group-hover:text-slate-900 truncate" title={company.name}>{company.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               )}
 
               {users.map(user => (
