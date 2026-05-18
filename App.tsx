@@ -602,6 +602,20 @@ const ProtectedRoute = ({ children, permission }: { children: React.ReactNode, p
 };
 
 const App = () => {
+  // Verificação direta para interceptar o link de recuperação do Supabase
+  const isRecoveryFlow = window.location.hash.includes('type=recovery') || 
+                         window.location.search.includes('type=recovery');
+
+  if (isRecoveryFlow) {
+    return (
+      <AuthProvider>
+        <HashRouter>
+          <ResetPassword />
+        </HashRouter>
+      </AuthProvider>
+    );
+  }
+
   return (
     <AuthProvider>
       <ConsortiumProvider>
