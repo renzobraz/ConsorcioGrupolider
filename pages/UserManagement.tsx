@@ -85,18 +85,25 @@ const UserManagement = () => {
         if (!authData.user) throw new Error('Falha ao criar usuário no Auth.');
 
         // 2. Criar perfil na tabela pública (apenas campos existentes)
-        const newUserProfile = {
+        const newUserProfile: User = {
           id: authData.user.id,
           email: editForm.email.trim().toLowerCase(),
-          name: editForm.name,
+          name: editForm.name!,
           role: editForm.role as UserRole,
-          is_active: true,
+          isActive: true,
           permissions: editForm.permissions || { ...defaultPermissions }
         };
 
         const { error: dbError } = await supabase
           .from('users')
-          .insert(newUserProfile);
+          .insert({
+            id: newUserProfile.id,
+            email: newUserProfile.email,
+            name: newUserProfile.name,
+            role: newUserProfile.role,
+            is_active: newUserProfile.isActive,
+            permissions: newUserProfile.permissions
+          });
 
         if (dbError) throw dbError;
         
@@ -116,7 +123,12 @@ const UserManagement = () => {
 
         if (dbError) throw dbError;
 
-        const updatedUsers = users.map(u => u.id === isEditing ? userToSave : u);
+        const updatedUser = { 
+          ...users.find(u => u.id === isEditing), 
+          ...editForm 
+        } as User;
+        
+        const updatedUsers = users.map(u => u.id === isEditing ? updatedUser : u);
         setUsers(updatedUsers);
       }
       setIsEditing(null);
