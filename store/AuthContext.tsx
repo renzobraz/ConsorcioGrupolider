@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
-import { db } from '../services/database';
+import { getSupabase } from '../services/supabaseClient';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password?: string) => Promise<void>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   hasPermission: (permission: keyof User['permissions']) => boolean;
   isAdmin: boolean;
   isLoading: boolean;
@@ -13,22 +13,31 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock initial admin user
-const DEFAULT_ADMIN: User = {
-  id: '00000000-0000-0000-0000-000000000000',
-  email: 'renzo.amaral@gmail.com',
-  name: 'Administrador Geral',
-  password: '123',
-  role: UserRole.ADMIN,
-  isActive: true,
-  permissions: {
-    canViewDashboard: true,
-    canManageQuotas: true,
-    canSimulate: true,
-    canViewReports: true,
-    canManageSettings: true,
-    canMarkQuotas: true,
-  }
+const fetchUserProfile = async (uid: string): Promise<User | null> => {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', uid)
+    .single();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    email: data.email,
+    name: data.name,
+    role: data.role as UserRole,
+    isActive: data.is_active ?? data.isActive ?? true,
+    permissions: data.permissions ?? {
+      canViewDashboard: true,
+      canManageQuotas: false,
+      canSimulate: true,
+      canViewReports: false,
+      canManageSettings: false,
+      canMarkQuotas: false,
+      allowedCompanyIds: [],
+    },
+  };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -38,122 +47,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       try {
-        let users: User[] = [];
-        const isCloud = db.isCloudEnabled();
-        
-        if (isCloud) {
-          // Em ambiente nuvem, tentamos buscar a lista para o bootstrap se necessário
-          // Mas se falhar (RLS), seguimos silenciosamente
-          try {
-            users = await db.getUsers();
-          } catch (e) {
-            console.warn("Could not fetch user list during init (expected if RLS is on).");
-          }
-        } else {
-          users = await db.getUsers();
+        const supabase = getSupabase();
+        if (!supabase) { setIsLoading(false); return; }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const profile = await fetchUserProfile(session.user.id);
+          if (profile?.isActive) setUser(profile);
+          else await supabase.auth.signOut();
         }
-        
-        // Bootstrap: Se não houver usuários e for o primeiro acesso, tenta salvar o admin
-        if (users.length === 0) {
-          try {
-            await db.saveUser(DEFAULT_ADMIN);
-            users = [DEFAULT_ADMIN];
-          } catch (saveError) {
-            console.warn("Bootstrap admin save failed. Manual SQL and RLS setup might be required.", saveError);
+        supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            const profile = await fetchUserProfile(session.user.id);
+            setUser(profile?.isActive ? profile : null);
+          } else if (event === 'SIGNED_OUT') {
+            setUser(null);
           }
-        }
-
-        // Recupera o ID do usuário logado do localStorage
-        const loggedInUserId = localStorage.getItem('consortium_logged_in_user');
-        
-        if (loggedInUserId) {
-          let foundUser = users.find(u => u.id === loggedInUserId && u.isActive);
-          
-          // Se não encontrou na lista (que pode estar vazia pelo RLS), tenta buscar pelo ID diretamente
-          if (!foundUser && isCloud) {
-            try {
-              foundUser = await db.getUserById(loggedInUserId);
-              if (foundUser && !foundUser.isActive) foundUser = null;
-            } catch (e) {
-              console.error("Failed to fetch logged in user by ID", e);
-            }
-          }
-
-          if (foundUser) {
-            setUser(foundUser);
-          } else {
-            localStorage.removeItem('consortium_logged_in_user');
-          }
-        }
-      } catch (error) {
-        console.error("Critical failure during auth initialization", error);
+        });
       } finally {
         setIsLoading(false);
       }
     };
-
     initAuth();
   }, []);
 
-  const login = async (email: string, password?: string) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password?.trim() || '';
-    
-    // Busca o usuário especificamente pelo e-mail (mais seguro e eficiente com RLS)
-    const foundUser = await db.getUserByEmail(cleanEmail);
-    
-    if (!foundUser) {
-      throw new Error('Usuário não encontrado neste dispositivo ou na nuvem.');
+  const login = async (email: string, password: string) => {
+    const supabase = getSupabase();
+    if (!supabase) throw new Error('Conexão com o banco não configurada.');
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) throw new Error('E-mail ou senha incorretos.');
+      throw new Error(error.message);
     }
-
-    if (!foundUser.isActive) {
-      throw new Error('Este usuário está inativo. Contate o administrador.');
-    }
-
-    // Se o usuário tem senha definida, precisamos validar
-    if (foundUser.password) {
-      if (foundUser.password !== cleanPassword) {
-        throw new Error('Senha incorreta.');
-      }
-    } else if (cleanPassword !== '') {
-      // Se o usuário não tem senha mas tentou entrar com uma, podemos permitir ou não.
-      // Por segurança, se não tem senha, só entra se a senha enviada for vazia.
-      // Mas para facilitar, vamos permitir entrar se não houver senha no banco.
-    }
-
-    setUser(foundUser);
-    localStorage.setItem('consortium_logged_in_user', foundUser.id);
+    if (!data.user) throw new Error('Erro inesperado no login.');
+    const profile = await fetchUserProfile(data.user.id);
+    if (!profile) { await supabase.auth.signOut(); throw new Error('Perfil não encontrado. Contate o administrador.'); }
+    if (!profile.isActive) { await supabase.auth.signOut(); throw new Error('Usuário inativo. Contate o administrador.'); }
+    setUser(profile);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const supabase = getSupabase();
+    if (supabase) await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('consortium_logged_in_user');
   };
 
   const hasPermission = (permission: keyof User['permissions']) => {
     if (!user) return false;
-    if (user.role === UserRole.ADMIN) return true; // Admin has all permissions
-    return user.permissions[permission] === true;
+    if (user.role === UserRole.ADMIN) return true;
+    return !!user.permissions[permission];
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      login, 
-      logout, 
-      hasPermission,
-      isAdmin: user?.role === UserRole.ADMIN,
-      isLoading
-    }}>
+    <AuthContext.Provider value={{ user, login, logout, hasPermission, isAdmin: user?.role === UserRole.ADMIN, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth deve ser usado dentro de AuthProvider');
+  return ctx;
 };
