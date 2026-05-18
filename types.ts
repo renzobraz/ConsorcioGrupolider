@@ -93,6 +93,8 @@ export interface Company {
   name: string;
   phone: string;
   email: string;
+  document?: string;
+  document_type?: 'CPF' | 'CNPJ';
 }
 
 export enum ManualTransactionType {
@@ -193,6 +195,11 @@ export interface Quota {
   reserveFundAccumulated?: number; // Valor acumulado no Fundo de Reserva (conforme extrato)
   insuranceRate?: number; // Taxa de Seguro (%)
   insuranceValue?: number; // Valor fixo de Seguro (se houver)
+  
+  // Marketplace Verification & Details
+  holder_document?: string;
+  marketplace_status?: 'none' | 'verified';
+  asking_price?: number;
 }
 
 export enum PaymentStatus {

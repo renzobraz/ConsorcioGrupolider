@@ -41,7 +41,7 @@ const Administrators = () => {
             <input 
               type="text" 
               required
-              value={form.name}
+              value={form.name || ''}
               onChange={e => setForm({...form, name: e.target.value})}
               placeholder="Ex: Porto Seguro"
               className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -51,7 +51,7 @@ const Administrators = () => {
             <label className="block text-sm font-medium text-slate-600 mb-1">Telefone</label>
             <input 
               type="text" 
-              value={form.phone}
+              value={form.phone || ''}
               onChange={e => setForm({...form, phone: e.target.value})}
               placeholder="(11) 9999-9999"
               className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -61,7 +61,7 @@ const Administrators = () => {
              <label className="block text-sm font-medium text-slate-600 mb-1">E-mail</label>
             <input 
               type="email" 
-              value={form.email}
+              value={form.email || ''}
               onChange={e => setForm({...form, email: e.target.value})}
               placeholder="contato@empresa.com"
               className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"

@@ -45,6 +45,7 @@ interface ConsortiumContextType {
   addAdministrator: (admin: Administrator) => Promise<void>;
   deleteAdministrator: (id: string) => Promise<void>;
   addCompany: (company: Company) => Promise<void>;
+  updateCompany: (company: Company) => Promise<void>;
   deleteCompany: (id: string) => Promise<void>;
 
   // Credit Usage Methods
@@ -468,6 +469,10 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try { await db.deleteCompany(id); } catch (e: any) { if(db.isCloudEnabled()) setConnectionError(e.message); }
   }, []);
 
+  const updateCompany = useCallback(async (comp: Company) => {
+      await addCompany(comp);
+  }, [addCompany]);
+
   // --- Credit Usage Actions ---
   const getCreditUsages = useCallback(async (quotaId: string) => {
       try {
@@ -702,6 +707,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addAdministrator,
       deleteAdministrator,
       addCompany,
+      updateCompany,
       deleteCompany,
       getCreditUsages,
       addCreditUsage,

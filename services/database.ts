@@ -596,7 +596,9 @@ export const db = {
     if (supabase) await supabase.from('companies').upsert(company);
     else {
        const list = JSON.parse(localStorage.getItem(COMPANIES_KEY) || '[]');
-       list.push(company);
+       const idx = list.findIndex((c: any) => c.id === company.id);
+       if (idx >= 0) list[idx] = company;
+       else list.push(company);
        localStorage.setItem(COMPANIES_KEY, JSON.stringify(list));
     }
   },

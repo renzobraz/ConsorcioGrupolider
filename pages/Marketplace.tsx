@@ -23,10 +23,10 @@ const Marketplace = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('');
 
-  // Filtrando apenas cotas que foram "Anunciadas"
+  // Filtrando apenas cotas que foram "Verificadas" para o Marketplace
   const marketplaceQuotas = useMemo(() => {
     return quotas
-      .filter(q => q.isAnnounced)
+      .filter(q => q.marketplace_status === 'verified')
       .map(quota => {
         const schedule = generateSchedule(quota, indices);
         
@@ -206,11 +206,17 @@ const Marketplace = () => {
                 </div>
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-1">
-                Crédito {formatCurrency(item.analysis.availableCredit)}
+                Crédito {formatCurrency(calculateCurrentCreditValue(item.quota, indices))}
               </h3>
               <p className="text-slate-500 text-sm font-medium">
                 {administrators.find(a => a.id === item.quota.administratorId)?.name || 'Administradora'}
               </p>
+              <div className="mt-2 pt-2 border-t border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Titular</span>
+                <span className="text-xs font-bold text-slate-700">
+                  {companies.find(c => c.id === item.quota.companyId)?.name || 'Empresa não identificada'}
+                </span>
+              </div>
             </div>
 
             {/* Card Body */}
@@ -218,17 +224,17 @@ const Marketplace = () => {
               <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 relative overflow-hidden">
                 <div className="relative z-10">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-[10px] text-emerald-600 uppercase font-black">Valor de Entrada</span>
+                    <span className="text-[10px] text-emerald-600 uppercase font-black">Preço de Venda (Asking Price)</span>
                     <div className="flex items-center gap-1">
                       <ShieldCheck size={12} className="text-emerald-500" />
-                      <span className="text-[8px] text-emerald-500 font-bold uppercase tracking-tighter tracking-widest">Garantia Escrow</span>
+                      <span className="text-[8px] text-emerald-500 font-bold uppercase tracking-widest">Titularidade Verificada</span>
                     </div>
                   </div>
                   <div className="text-2xl font-black text-emerald-700">
-                    {formatCurrency(item.analysis.buyerEntry)}
+                    {formatCurrency(item.quota.asking_price || item.analysis.buyerEntry)}
                   </div>
                   <p className="text-[9px] text-emerald-600 mt-1 font-medium italic">
-                    * Ágio + Taxas de Intermediação
+                    * Valor total para aquisição da cota
                   </p>
                 </div>
                 <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/5 rounded-full -mr-8 -mt-8"></div>

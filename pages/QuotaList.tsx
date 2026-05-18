@@ -56,6 +56,12 @@ const QuotaList = () => {
   const [insuranceValue, setInsuranceValue] = useState<number>(0);
   const [isAnnouncing, setIsAnnouncing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Verification State
+  const [showVerificationStep, setShowVerificationStep] = useState(true);
+  const [verificationDoc, setVerificationDoc] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [askingPrice, setAskingPrice] = useState<number>(0);
 
   const filteredQuotas = quotas.filter(q => {
     const search = globalFilters.searchText || '';
@@ -437,6 +443,12 @@ const QuotaList = () => {
                               );
                               setMarketQuota({ quota, analysis });
                               setCustomAgio(analysis.agioValue);
+                              setAskingPrice(analysis.buyerEntry);
+                              
+                              // Reset Verification
+                              setShowVerificationStep(quota.marketplace_status !== 'verified');
+                              setVerificationDoc('');
+                              setVerificationError('');
                               
                               // Calculate initial percentage
                               if (paidAmount > 0) {
@@ -523,305 +535,172 @@ const QuotaList = () => {
       {marketQuota && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
-                  <TrendingUp size={24} />
+            {showVerificationStep ? (
+              <div className="p-8">
+                <div className="flex flex-col items-center text-center mb-8">
+                  <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4">
+                    <ShieldCheck size={32} />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800">Verificação de Titularidade</h3>
+                  <p className="text-slate-500 mt-2">
+                    Para anunciar no Marketplace, precisamos confirmar se você é o titular desta cota.
+                  </p>
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Anunciar para Venda</h3>
-                  <p className="text-sm text-slate-500">Cota {marketQuota.quota.group}/{marketQuota.quota.quotaNumber}</p>
-                </div>
-              </div>
 
-              <div className="space-y-6">
-                {/* Seção de Precificação */}
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                      <TrendingUp size={18} className="text-emerald-500" />
-                      Definição de Preço (Ágio)
-                    </h4>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-black uppercase">
-                      Autonomia Total
-                    </span>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
+                      CPF ou CNPJ do Titular
+                    </label>
+                    <input 
+                      type="text" 
+                      value={verificationDoc}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setVerificationDoc(val);
+                        setVerificationError('');
+                      }}
+                      placeholder="Somente números"
+                      className={`w-full px-4 py-3 bg-slate-50 border ${verificationError ? 'border-red-500' : 'border-slate-200'} rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium transition-all`}
+                    />
+                    {verificationError && (
+                      <p className="text-red-500 text-xs mt-1.5 font-bold flex items-center gap-1">
+                        <AlertTriangle size={12} /> {verificationError}
+                      </p>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                          {agioMode === 'currency' ? 'Quanto você quer receber (Ágio)?' : 'Percentual de Ágio (%)'}
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex gap-3">
+                    <Info size={20} className="text-blue-500 shrink-0" />
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      O documento informado deve ser exatamente igual ao CPF ou CNPJ cadastrado na empresa <span className="font-bold text-slate-700">"{companies.find(c => c.id === marketQuota.quota.companyId)?.name}"</span>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 mt-8">
+                  <button 
+                    onClick={() => {
+                      const company = companies.find(c => c.id === marketQuota.quota.companyId);
+                      const cleanDoc = company?.document?.replace(/\D/g, '');
+                      
+                      if (verificationDoc === cleanDoc && cleanDoc) {
+                        setShowVerificationStep(false);
+                      } else {
+                        setVerificationError('Titularidade não confirmada. O documento não corresponde ao titular cadastrado.');
+                      }
+                    }}
+                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+                  >
+                    Verificar e Prosseguir
+                  </button>
+                  <button 
+                    onClick={() => setMarketQuota(null)}
+                    className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center">
+                    <BadgeCheck size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Verificado com Sucesso</h3>
+                    <p className="text-sm text-slate-500">Cota {marketQuota.quota.group}/{marketQuota.quota.quotaNumber}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                      <DollarSign size={18} className="text-emerald-500" />
+                      Preço do Anúncio (Asking Price)
+                    </h4>
+
+                    <div className="space-y-4">
+                       <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">
+                          Valor total de venda (R$)
                         </label>
-                        <div className="flex bg-slate-200 p-0.5 rounded-lg">
-                          <button 
-                            onClick={() => setAgioMode('currency')}
-                            className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all ${agioMode === 'currency' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
-                          >
-                            R$
-                          </button>
-                          <button 
-                            onClick={() => setAgioMode('percent')}
-                            className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all ${agioMode === 'percent' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}
-                          >
-                            %
-                          </button>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">R$</span>
+                          <input 
+                            type="number" 
+                            value={askingPrice}
+                            onChange={(e) => setAskingPrice(parseFloat(e.target.value) || 0)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border-2 border-emerald-100 rounded-xl outline-none focus:border-emerald-500 font-bold text-slate-700 transition-all text-xl"
+                          />
                         </div>
                       </div>
-                      
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                          {agioMode === 'currency' ? 'R$' : '%'}
-                        </span>
-                        <input 
-                          type="number" 
-                          value={agioMode === 'currency' ? customAgio : agioPercent}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            let newAgioValue = val;
-                            
-                            if (agioMode === 'percent') {
-                              setAgioPercent(val);
-                              newAgioValue = (val / 100) * marketQuota.analysis.investedAmount;
-                              setCustomAgio(newAgioValue);
-                            } else {
-                              setCustomAgio(val);
-                              if (marketQuota.analysis.investedAmount > 0) {
-                                setAgioPercent(parseFloat(((val / marketQuota.analysis.investedAmount) * 100).toFixed(2)));
-                              }
-                            }
 
-                            // Recalcular análise em tempo real
-                            if (marketQuota) {
-                              const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
-                              const latestUpdateValue = quotaUpdates.length > 0 
-                                ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
-                                : 0;
-                              
-                              const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
-                              const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
-
-                              const newAnalysis = calculateMarketAnalysis(
-                                { 
-                                  ...marketQuota.quota, 
-                                  reserveFundAccumulated, 
-                                  insuranceRate, 
-                                  insuranceValue 
-                                }, 
-                                indices, 
-                                marketQuota.analysis.investedAmount, 
-                                marketQuota.analysis.debtBalance, 
-                                newAgioValue,
-                                latestUpdateValue,
-                                creditoUtilizado
-                              );
-                              setMarketQuota({ ...marketQuota, analysis: newAnalysis });
-                            }
-                          }}
-                          className="w-full pl-10 pr-4 py-3 bg-white border-2 border-emerald-100 rounded-xl outline-none focus:border-emerald-500 font-bold text-slate-700 transition-all"
-                        />
+                      <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-emerald-800">Seu Lucro Estimado:</span>
+                          <span className="text-lg font-black text-emerald-700">
+                            {formatCurrency(askingPrice - (marketQuota.analysis.investedAmount || 0))}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-400 italic">
-                        {agioMode === 'percent' 
-                          ? `Equivale a ${formatCurrency(customAgio)} sobre o valor pago.`
-                          : 'Este é o valor que você pede pela transferência da cota.'}
-                      </p>
                     </div>
+                  </div>
 
-                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col justify-center">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Valor de Entrada (Comprador)</span>
-                        <span className="text-lg font-black text-emerald-600">{formatCurrency(marketQuota.analysis.buyerEntry)}</span>
-                      </div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Comissão Líder</span>
-                        <span className="text-xs font-bold text-slate-600">{formatCurrency(marketQuota.analysis.platformFee)}</span>
-                      </div>
-                      <div className="pt-2 border-t border-slate-100 flex justify-between items-center">
-                        <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Líquido Vendedor</span>
-                        <span className="text-lg font-black text-slate-800">{formatCurrency(marketQuota.analysis.investedAmount + marketQuota.analysis.sellerNetPayout)}</span>
-                      </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Total Investido</span>
+                      <span className="text-lg font-bold text-slate-700">{formatCurrency(marketQuota.analysis.investedAmount)}</span>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Crédito Disponível</span>
+                      <span className="text-lg font-bold text-slate-700">{formatCurrency(calculateCurrentCreditValue(marketQuota.quota, indices))}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Novos Campos Financeiros */}
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
-                  <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                    <DollarSign size={18} className="text-blue-500" />
-                    Dados Financeiros (Conforme Extrato)
-                  </h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Fundo de Reserva Acumulado (R$)</label>
-                      <input 
-                        type="number" 
-                        value={reserveFundAccumulated}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setReserveFundAccumulated(val);
-                          if (marketQuota) {
-                            const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
-                            const latestUpdateValue = quotaUpdates.length > 0 
-                              ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
-                              : 0;
-                            
-                            const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
-                            const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
-
-                            const newAnalysis = calculateMarketAnalysis(
-                              { ...marketQuota.quota, reserveFundAccumulated: val, insuranceRate, insuranceValue }, 
-                              indices, 
-                              marketQuota.analysis.investedAmount, 
-                              marketQuota.analysis.debtBalance, 
-                              customAgio,
-                              latestUpdateValue,
-                              creditoUtilizado
-                            );
-                            setMarketQuota({ ...marketQuota, analysis: newAnalysis });
-                          }
-                        }}
-                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-bold text-slate-700 transition-all"
-                        placeholder="0,00"
-                      />
-                    </div>
-                    
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Seguro de Vida/Garantia (%)</label>
-                      <input 
-                        type="number" 
-                        value={insuranceRate}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setInsuranceRate(val);
-                          if (marketQuota) {
-                            const quotaUpdates = allCreditUpdates.filter(u => u.quotaId === marketQuota.quota.id);
-                            const latestUpdateValue = quotaUpdates.length > 0 
-                              ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
-                              : 0;
-                            
-                            const quotaUsages = allCreditUsages.filter(u => u.quotaId === marketQuota.quota.id);
-                            const creditoUtilizado = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
-
-                            const newAnalysis = calculateMarketAnalysis(
-                              { ...marketQuota.quota, reserveFundAccumulated, insuranceRate: val, insuranceValue }, 
-                              indices, 
-                              marketQuota.analysis.investedAmount, 
-                              marketQuota.analysis.debtBalance, 
-                              customAgio,
-                              latestUpdateValue,
-                              creditoUtilizado
-                            );
-                            setMarketQuota({ ...marketQuota, analysis: newAnalysis });
-                          }
-                        }}
-                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-bold text-slate-700 transition-all"
-                        placeholder="0,00"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Total Pago</span>
-                    <span className="text-lg font-bold text-slate-700">{formatCurrency(marketQuota.analysis.investedAmount)}</span>
-                  </div>
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Saldo Devedor</span>
-                    <span className="text-lg font-bold text-slate-700">{formatCurrency(marketQuota.analysis.debtBalance)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl my-6">
-                <p className="text-xs text-amber-800 leading-relaxed">
-                  <span className="font-bold">Como calculamos?</span> Para cotas {marketQuota.quota.isContemplated ? 'contempladas' : 'ativas'}, sugerimos um ágio de {(marketQuota.analysis.suggestedAgioPercent * 100).toFixed(0)}% sobre o valor do crédito atualizado, somado ao que você já pagou.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <button 
-                  disabled={isAnnouncing}
-                  onClick={async () => {
-                    if (!marketQuota) return;
-                    setIsAnnouncing(true);
-                    try {
-                      const updatedQuota: Quota = {
-                        ...marketQuota.quota,
-                        isAnnounced: true,
-                        announcedAt: new Date().toISOString(),
-                        marketStatus: 'PENDING',
-                        marketValueOverride: marketQuota.analysis.suggestedMarketValue,
-                        marketNotes: JSON.stringify({
-                          customAgio,
-                          paidAmount: marketQuota.analysis.investedAmount,
-                          debtBalance: marketQuota.analysis.debtBalance,
-                          reserveFundAccumulated,
-                          insuranceRate,
-                          insuranceValue,
-                          announcedAt: new Date().toISOString()
-                        })
-                      };
-                      await updateQuota(updatedQuota);
-                      setIsAnnouncing(false);
-                      setMarketQuota(null);
-                      alert('Cota enviada com sucesso! Nossa equipe analisará os dados e publicará no marketplace em até 24h.');
-                    } catch (err) {
-                      console.error("Failed to announce quota", err);
-                      setIsAnnouncing(false);
-                      alert('Erro ao enviar anúncio. Tente novamente.');
-                    }
-                  }}
-                  className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-emerald-200"
-                >
-                  {isAnnouncing ? <Loader className="animate-spin" size={20} /> : <Tag size={20} />}
-                  {isAnnouncing ? 'Processando...' : (marketQuota.quota.isAnnounced ? 'Atualizar Anúncio' : 'Confirmar Anúncio Grátis')}
-                </button>
-
-                {marketQuota.quota.isAnnounced && (
+                <div className="flex flex-col gap-3 mt-6">
                   <button 
                     disabled={isAnnouncing}
                     onClick={async () => {
                       if (!marketQuota) return;
-                      if (!window.confirm('Tem certeza que deseja remover este anúncio do marketplace?')) return;
-                      
                       setIsAnnouncing(true);
                       try {
                         const updatedQuota: Quota = {
                           ...marketQuota.quota,
-                          isAnnounced: false,
-                          announcedAt: undefined,
-                          marketStatus: 'DRAFT',
-                          marketValueOverride: undefined,
-                          marketNotes: `Anúncio removido pelo usuário em ${new Date().toLocaleDateString()}`
+                          isAnnounced: true,
+                          announcedAt: new Date().toISOString(),
+                          marketplace_status: 'verified',
+                          holder_document: verificationDoc,
+                          asking_price: askingPrice,
+                          marketStatus: 'PUBLISHED'
                         };
                         await updateQuota(updatedQuota);
                         setIsAnnouncing(false);
                         setMarketQuota(null);
-                        alert('Anúncio removido com sucesso.');
+                        alert('Cota anunciada com sucesso no Marketplace!');
                       } catch (err) {
-                        console.error("Failed to remove announcement", err);
+                        console.error("Failed to announce quota", err);
                         setIsAnnouncing(false);
-                        alert('Erro ao remover anúncio. Tente novamente.');
+                        alert('Erro ao enviar anúncio. Tente novamente.');
                       }
                     }}
-                    className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Trash2 size={20} />
-                    Remover Anúncio
+                    {isAnnouncing ? <Loader className="animate-spin" size={20} /> : <Tag size={20} />}
+                    {isAnnouncing ? 'Processando...' : 'Publicar Anúncio'}
                   </button>
-                )}
-                <button 
-                  disabled={isAnnouncing}
-                  onClick={() => setMarketQuota(null)}
-                  className="w-full py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors"
-                >
-                  Agora não
-                </button>
+                  <button 
+                    disabled={isAnnouncing}
+                    onClick={() => setMarketQuota(null)}
+                    className="w-full py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
             <div className="bg-slate-50 p-4 text-[10px] text-slate-400 text-center uppercase tracking-widest font-bold">
               Venda Garantida • Sem Taxas de Anúncio
             </div>
