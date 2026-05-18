@@ -10,12 +10,20 @@ export enum UserRole {
 }
 
 export interface UserPermissions {
-  canViewDashboard: boolean;
-  canManageQuotas: boolean;
-  canSimulate: boolean;
-  canViewReports: boolean;
-  canManageSettings: boolean;
-  canMarkQuotas: boolean;
+  dashboard: boolean;
+  marketplace: boolean;
+  minhas_cotas: boolean;
+  simulador_extrato: boolean;
+  gestao_creditos: boolean;
+  calculadora_avulsa: boolean;
+  relatorios_inadimplencia: boolean;
+  relatorios_assembleia: boolean;
+  relatorios_contemplados: boolean;
+  relatorios_agendados: boolean;
+  cadastro_administradoras: boolean;
+  cadastro_empresas: boolean;
+  cadastro_indices: boolean;
+  usuarios: boolean;
   allowedCompanyIds?: string[];
 }
 

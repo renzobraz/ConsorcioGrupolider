@@ -6,13 +6,60 @@ import { useConsortium } from '../store/ConsortiumContext';
 import { getSupabase } from '../services/supabaseClient';
 
 const defaultPermissions: UserPermissions = {
-  canViewDashboard: true,
-  canManageQuotas: false,
-  canSimulate: true,
-  canViewReports: false,
-  canManageSettings: false,
-  canMarkQuotas: false,
+  dashboard: true,
+  marketplace: false,
+  minhas_cotas: false,
+  simulador_extrato: true,
+  gestao_creditos: false,
+  calculadora_avulsa: true,
+  relatorios_inadimplencia: false,
+  relatorios_assembleia: false,
+  relatorios_contemplados: false,
+  relatorios_agendados: false,
+  cadastro_administradoras: false,
+  cadastro_empresas: false,
+  cadastro_indices: false,
+  usuarios: false,
   allowedCompanyIds: [],
+};
+
+const USER_PROFILES = {
+  ADMIN: {
+    label: 'Administrador',
+    permissions: {
+      dashboard: true, marketplace: true, minhas_cotas: true, simulador_extrato: true, gestao_creditos: true,
+      calculadora_avulsa: true, relatorios_inadimplencia: true, relatorios_assembleia: true, relatorios_contemplados: true,
+      relatorios_agendados: true, cadastro_administradoras: true, cadastro_empresas: true, cadastro_indices: true, usuarios: true
+    }
+  },
+  GERENTE: {
+    label: 'Gerente',
+    permissions: {
+      dashboard: true, marketplace: true, minhas_cotas: true, simulador_extrato: true, gestao_creditos: true,
+      calculadora_avulsa: true, relatorios_inadimplencia: true, relatorios_assembleia: true, relatorios_contemplados: true,
+      relatorios_agendados: true, cadastro_administradoras: false, cadastro_empresas: false, cadastro_indices: false, usuarios: false
+    }
+  },
+  VENDEDOR: {
+    label: 'Vendedor',
+    permissions: {
+      dashboard: true, marketplace: false, minhas_cotas: true, simulador_extrato: true, gestao_creditos: false,
+      calculadora_avulsa: true, relatorios_inadimplencia: false, relatorios_assembleia: false, relatorios_contemplados: false,
+      relatorios_agendados: false, cadastro_administradoras: false, cadastro_empresas: false, cadastro_indices: false, usuarios: false
+    }
+  },
+  CONSULTOR: {
+    label: 'Consultor',
+    permissions: {
+      dashboard: true, marketplace: false, minhas_cotas: false, simulador_extrato: true, gestao_creditos: false,
+      calculadora_avulsa: false, relatorios_inadimplencia: true, relatorios_assembleia: true, relatorios_contemplados: true,
+      relatorios_agendados: true, cadastro_administradoras: false, cadastro_empresas: false, cadastro_indices: false, usuarios: false
+    }
+  },
+  CUSTOM: {
+    label: 'Personalizado',
+    permissions: {}
+  }
 };
 
 const UserManagement = () => {
@@ -170,11 +217,29 @@ const UserManagement = () => {
   };
 
   const togglePermission = (perm: keyof UserPermissions) => {
+    if (perm === 'allowedCompanyIds') return;
+    
+    setEditForm(prev => {
+      const newPermissions = {
+        ...prev.permissions!,
+        [perm]: !prev.permissions![perm]
+      };
+      
+      return {
+        ...prev,
+        permissions: newPermissions
+      };
+    });
+  };
+
+  const applyProfile = (profileKey: keyof typeof USER_PROFILES) => {
+    if (profileKey === 'CUSTOM') return;
+    
     setEditForm(prev => ({
       ...prev,
       permissions: {
         ...prev.permissions!,
-        [perm]: !prev.permissions![perm]
+        ...USER_PROFILES[profileKey].permissions
       }
     }));
   };
@@ -369,59 +434,140 @@ const UserManagement = () => {
                   {/* Permissions Editor Row */}
                   {(isEditing === user.id || (isEditing === 'new' && user.id === '')) && (editForm.role === UserRole.USER) && (
                     <tr className="bg-slate-50/80 border-b border-slate-200">
-                      <td colSpan={6} className="px-4 py-4">
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                            <Shield size={16} className="text-emerald-600" />
-                            Permissões de Acesso {isEditing === 'new' ? '(Novo Usuário)' : ''}
+                      <td colSpan={6} className="px-4 py-6">
+                        <div className="flex flex-col gap-6">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                            <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                              <Shield size={16} className="text-emerald-600" />
+                              Permissões de Acesso {isEditing === 'new' ? '(Novo Usuário)' : ''}
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Perfil Rápido:</span>
+                              <select 
+                                onChange={(e) => applyProfile(e.target.value as any)}
+                                className="text-xs border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500 bg-white"
+                              >
+                                <option value="">Selecione um perfil...</option>
+                                {Object.entries(USER_PROFILES).filter(([k]) => k !== 'CUSTOM').map(([key, p]) => (
+                                  <option key={key} value={key}>{p.label}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canViewDashboard} onChange={() => togglePermission('canViewDashboard')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Ver Dashboard</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canManageQuotas} onChange={() => togglePermission('canManageQuotas')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Gerenciar Cotas</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canSimulate} onChange={() => togglePermission('canSimulate')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Usar Simulador</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canViewReports} onChange={() => togglePermission('canViewReports')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Ver Relatórios</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canManageSettings} onChange={() => togglePermission('canManageSettings')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Configurações (Admin/Empresas)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
-                              <input type="checkbox" checked={editForm.permissions?.canMarkQuotas} onChange={() => togglePermission('canMarkQuotas')} className="rounded text-emerald-600 focus:ring-emerald-500" />
-                              <span className="text-sm text-slate-700">Marcar Minhas Cotas</span>
-                            </label>
+
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                            {/* Categoria: Geral */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Navegação Geral</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'dashboard', label: 'Dashboard' },
+                                  { id: 'marketplace', label: 'Marketplace' },
+                                  { id: 'minhas_cotas', label: 'Minhas Cotas' },
+                                  { id: 'gestao_creditos', label: 'Gestão de Créditos' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Relatórios */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Relatórios</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'relatorios_inadimplencia', label: 'Inadimplência' },
+                                  { id: 'relatorios_assembleia', label: 'Assembleia' },
+                                  { id: 'relatorios_contemplados', label: 'Contemplados' },
+                                  { id: 'relatorios_agendados', label: 'Agendados' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Ferramentas */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Ferramentas</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'simulador_extrato', label: 'Simulador Extrato' },
+                                  { id: 'calculadora_avulsa', label: 'Calculadora Avulsa' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Categoria: Cadastros */}
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações</h4>
+                              <div className="space-y-2">
+                                {[
+                                  { id: 'cadastro_administradoras', label: 'Administradoras' },
+                                  { id: 'cadastro_empresas', label: 'Empresas' },
+                                  { id: 'cadastro_indices', label: 'Índices' },
+                                  { id: 'usuarios', label: 'Gestão Usuários' },
+                                ].map(p => (
+                                  <label key={p.id} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={!!(editForm.permissions as any)?.[p.id]} 
+                                      onChange={() => togglePermission(p.id as any)} 
+                                      className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                    />
+                                    <span className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{p.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                           
                           {companies.length > 0 && (
-                            <>
-                              <div className="flex items-center gap-2 text-sm font-bold text-slate-700 mt-4 border-t pt-4 border-slate-200">
+                            <div className="pt-4 mt-2 border-t border-slate-200">
+                              <div className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-4">
                                 <Building2 size={16} className="text-emerald-600" />
-                                Acesso por Empresa
+                                Restrição de Acesso por Empresa
                               </div>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                                 {companies.map(company => (
-                                  <label key={company.id} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all">
+                                  <label key={company.id} className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent hover:border-slate-200 transition-all group">
                                     <input 
                                       type="checkbox" 
                                       checked={(editForm.permissions?.allowedCompanyIds || []).includes(company.id)} 
                                       onChange={() => toggleCompanyPermission(company.id)} 
                                       className="rounded text-emerald-600 focus:ring-emerald-500" 
                                     />
-                                    <span className="text-sm text-slate-700 truncate" title={company.name}>{company.name}</span>
+                                    <span className="text-xs text-slate-600 group-hover:text-slate-900 truncate" title={company.name}>{company.name}</span>
                                   </label>
                                 ))}
                               </div>
-                            </>
+                            </div>
                           )}
                         </div>
                       </td>

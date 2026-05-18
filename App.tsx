@@ -62,33 +62,33 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
     : "text-slate-300 hover:bg-slate-800 hover:text-white";
 
   const navItems = [
-    { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('canViewDashboard') },
-    { to: "/marketplace", icon: <ShoppingBag size={20} />, label: "Marketplace", show: true },
+    { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('dashboard') },
+    { to: "/marketplace", icon: <ShoppingBag size={20} />, label: "Marketplace", show: hasPermission('marketplace') },
   ].filter(item => item.show);
 
   const quotaManagementItems = [
-    { to: "/quotas", icon: <List size={20} />, label: "Lista de Cotas", show: true },
-    { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('canManageQuotas') },
+    { to: "/quotas", icon: <List size={20} />, label: "Lista de Cotas", show: hasPermission('minhas_cotas') },
+    { to: "/new", icon: <PlusCircle size={20} />, label: "Novo Cadastro", show: hasPermission('minhas_cotas') },
   ].filter(item => item.show);
 
   const operationItems = [
-    { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('canSimulate') },
-    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('canManageQuotas') },
-    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('canSimulate') },
+    { to: "/simulate", icon: <Calculator size={20} />, label: "Simulador / Extrato", show: hasPermission('simulador_extrato') },
+    { to: "/credit-management", icon: <ShoppingBag size={20} />, label: "Gestão de Créditos", show: hasPermission('gestao_creditos') },
+    { to: "/calculator", icon: <TrendingUp size={20} />, label: "Calculadora Avulsa", show: hasPermission('calculadora_avulsa') },
   ].filter(item => item.show);
 
   const reportItems = [
-    { to: "/reports", icon: <FileBarChart size={20} />, label: "Relatório por Cota", show: hasPermission('canViewReports') },
-    { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('canViewReports') },
-    { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('canViewReports') },
-    { to: "/reports/executive", icon: <ShieldCheck size={20} />, label: "Relatório Executivo", show: hasPermission('canViewReports') },
-    { to: "/accounts-payable", icon: <CalendarClock size={20} />, label: "Contas a Pagar", show: hasPermission('canViewReports') },
+    { to: "/reports", icon: <FileBarChart size={20} />, label: "Relatório por Cota", show: hasPermission('relatorios_inadimplencia') },
+    { to: "/reports/monthly", icon: <CalendarDays size={20} />, label: "Fluxo Mensal Pago", show: hasPermission('relatorios_contemplados') },
+    { to: "/reports/usage", icon: <FileText size={20} />, label: "Relatório Uso de Créditos", show: hasPermission('relatorios_assembleia') },
+    { to: "/reports/executive", icon: <ShieldCheck size={20} />, label: "Relatório Executivo", show: hasPermission('relatorios_agendados') },
+    { to: "/accounts-payable", icon: <CalendarClock size={20} />, label: "Contas a Pagar", show: hasPermission('relatorios_inadimplencia') },
   ].filter(item => item.show);
 
   const registryItems = [
-    { to: "/administrators", icon: <Building2 size={20} />, label: "Administradoras", show: hasPermission('canManageSettings') },
-    { to: "/companies", icon: <Briefcase size={20} />, label: "Empresas", show: hasPermission('canManageSettings') },
-    { to: "/indices", icon: <TrendingUp size={20} />, label: "Índices Correção", show: hasPermission('canManageSettings') },
+    { to: "/administrators", icon: <Building2 size={20} />, label: "Administradoras", show: hasPermission('cadastro_administradoras') },
+    { to: "/companies", icon: <Briefcase size={20} />, label: "Empresas", show: hasPermission('cadastro_empresas') },
+    { to: "/indices", icon: <TrendingUp size={20} />, label: "Índices Correção", show: hasPermission('cadastro_indices') },
   ].filter(item => item.show);
 
   const backofficeItems = [
@@ -97,8 +97,8 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
 
   const systemItems = [
     { to: "/manual", icon: <BookOpen size={20} />, label: "Manual do Sistema", show: true },
-    { to: "/settings", icon: <SettingsIcon size={20} />, label: "Configurações", show: hasPermission('canManageSettings') },
-    { to: "/users", icon: <Building2 size={20} />, label: "Usuários", show: isAdmin },
+    { to: "/settings", icon: <SettingsIcon size={20} />, label: "Configurações", show: isAdmin },
+    { to: "/users", icon: <Building2 size={20} />, label: "Usuários", show: hasPermission('usuarios') },
   ].filter(item => item.show);
 
   return (
@@ -622,29 +622,29 @@ const App = () => {
         <HashRouter>
           <Layout>
             <Routes>
-              <Route path="/" element={<ProtectedRoute permission="canViewDashboard"><Dashboard /></ProtectedRoute>} />
-              <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
-              <Route path="/negotiation/:id" element={<ProtectedRoute><NegotiationRoom /></ProtectedRoute>} />
+              <Route path="/" element={<ProtectedRoute permission="dashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/marketplace" element={<ProtectedRoute permission="marketplace"><Marketplace /></ProtectedRoute>} />
+              <Route path="/negotiation/:id" element={<ProtectedRoute permission="marketplace"><NegotiationRoom /></ProtectedRoute>} />
               <Route path="/admin/moderation" element={<ProtectedRoute><AdModeration /></ProtectedRoute>} />
-              <Route path="/quotas" element={<ProtectedRoute><QuotaList /></ProtectedRoute>} />
-              <Route path="/new" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
-              <Route path="/edit/:id" element={<ProtectedRoute permission="canManageQuotas"><NewQuota /></ProtectedRoute>} />
-              <Route path="/usage/:id" element={<ProtectedRoute permission="canManageQuotas"><CreditUsage /></ProtectedRoute>} />
-              <Route path="/simulate" element={<ProtectedRoute permission="canSimulate"><Simulation /></ProtectedRoute>} />
-              <Route path="/reports" element={<ProtectedRoute permission="canViewReports"><Reports /></ProtectedRoute>} />
-              <Route path="/reports/monthly" element={<ProtectedRoute permission="canViewReports"><MonthlyPaidReport /></ProtectedRoute>} />
-              <Route path="/reports/monthly/:monthYear" element={<ProtectedRoute permission="canViewReports"><MonthlyDetailReport /></ProtectedRoute>} />
-              <Route path="/reports/usage" element={<ProtectedRoute permission="canViewReports"><CreditUsageReport /></ProtectedRoute>} />
-              <Route path="/reports/executive" element={<ProtectedRoute permission="canViewReports"><ExecutiveReport /></ProtectedRoute>} />
-              <Route path="/accounts-payable" element={<ProtectedRoute permission="canViewReports"><AccountsPayable /></ProtectedRoute>} />
-              <Route path="/indices" element={<ProtectedRoute permission="canManageSettings"><CorrectionIndices /></ProtectedRoute>} />
-              <Route path="/administrators" element={<ProtectedRoute permission="canManageSettings"><Administrators /></ProtectedRoute>} />
-              <Route path="/companies" element={<ProtectedRoute permission="canManageSettings"><Companies /></ProtectedRoute>} />
-              <Route path="/credit-management" element={<ProtectedRoute permission="canManageQuotas"><CreditManagement /></ProtectedRoute>} />
+              <Route path="/quotas" element={<ProtectedRoute permission="minhas_cotas"><QuotaList /></ProtectedRoute>} />
+              <Route path="/new" element={<ProtectedRoute permission="minhas_cotas"><NewQuota /></ProtectedRoute>} />
+              <Route path="/edit/:id" element={<ProtectedRoute permission="minhas_cotas"><NewQuota /></ProtectedRoute>} />
+              <Route path="/usage/:id" element={<ProtectedRoute permission="minhas_cotas"><CreditUsage /></ProtectedRoute>} />
+              <Route path="/simulate" element={<ProtectedRoute permission="simulador_extrato"><Simulation /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute permission="relatorios_inadimplencia"><Reports /></ProtectedRoute>} />
+              <Route path="/reports/monthly" element={<ProtectedRoute permission="relatorios_contemplados"><MonthlyPaidReport /></ProtectedRoute>} />
+              <Route path="/reports/monthly/:monthYear" element={<ProtectedRoute permission="relatorios_contemplados"><MonthlyDetailReport /></ProtectedRoute>} />
+              <Route path="/reports/usage" element={<ProtectedRoute permission="relatorios_assembleia"><CreditUsageReport /></ProtectedRoute>} />
+              <Route path="/reports/executive" element={<ProtectedRoute permission="relatorios_agendados"><ExecutiveReport /></ProtectedRoute>} />
+              <Route path="/accounts-payable" element={<ProtectedRoute permission="relatorios_inadimplencia"><AccountsPayable /></ProtectedRoute>} />
+              <Route path="/indices" element={<ProtectedRoute permission="cadastro_indices"><CorrectionIndices /></ProtectedRoute>} />
+              <Route path="/administrators" element={<ProtectedRoute permission="cadastro_administradoras"><Administrators /></ProtectedRoute>} />
+              <Route path="/companies" element={<ProtectedRoute permission="cadastro_empresas"><Companies /></ProtectedRoute>} />
+              <Route path="/credit-management" element={<ProtectedRoute permission="gestao_creditos"><CreditManagement /></ProtectedRoute>} />
               <Route path="/manual" element={<ProtectedRoute><Manual /></ProtectedRoute>} />
-              <Route path="/calculator" element={<ProtectedRoute permission="canSimulate"><CalculatorTool /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute permission="canManageSettings"><Settings /></ProtectedRoute>} />
-              <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
+              <Route path="/calculator" element={<ProtectedRoute permission="calculadora_avulsa"><CalculatorTool /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute permission="usuarios"><Settings /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute permission="usuarios"><UserManagement /></ProtectedRoute>} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -586,7 +586,7 @@ VALUES (
   'Administrador Geral', 
   'ADMIN', 
   true, 
-  '{"canViewDashboard": true, "canManageQuotas": true, "canSimulate": true, "canViewReports": true, "canManageSettings": true, "canMarkQuotas": true}'
+  '{"dashboard": true, "marketplace": true, "minhas_cotas": true, "simulador_extrato": true, "gestao_creditos": true, "calculadora_avulsa": true, "relatorios_inadimplencia": true, "relatorios_assembleia": true, "relatorios_contemplados": true, "relatorios_agendados": true, "cadastro_administradoras": true, "cadastro_empresas": true, "cadastro_indices": true, "usuarios": true}'
 )
 ON CONFLICT (email) DO UPDATE SET is_active = EXCLUDED.is_active, role = EXCLUDED.role;
   `;
