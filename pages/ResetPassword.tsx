@@ -53,7 +53,7 @@ const ResetPassword = () => {
       
       setSuccess(true);
       setTimeout(() => {
-        navigate('/login');
+        window.location.href = window.location.origin;
       }, 3000);
     } catch (err: any) {
       setError(err.message || 'Erro ao atualizar senha.');
@@ -74,7 +74,9 @@ const ResetPassword = () => {
             Sua senha foi redefinida com sucesso. Você será redirecionado para o login em instantes.
           </p>
           <button
-            onClick={() => navigate('/login')}
+            onClick={() => {
+              window.location.href = window.location.origin;
+            }}
             className="text-emerald-600 font-bold hover:underline"
           >
             Ir para o Login agora
