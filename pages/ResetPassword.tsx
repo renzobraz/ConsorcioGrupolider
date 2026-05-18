@@ -53,7 +53,7 @@ const ResetPassword = () => {
       
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = window.location.origin;
+        window.location.replace(window.location.origin);
       }, 3000);
     } catch (err: any) {
       setError(err.message || 'Erro ao atualizar senha.');
@@ -75,7 +75,7 @@ const ResetPassword = () => {
           </p>
           <button
             onClick={() => {
-              window.location.href = window.location.origin;
+              window.location.replace(window.location.origin);
             }}
             className="text-emerald-600 font-bold hover:underline"
           >
