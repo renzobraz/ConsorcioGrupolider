@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
-import { db } from '../services/database';
 import { getSupabase } from '../services/supabaseClient';
 
 interface AuthContextType {
@@ -24,6 +23,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabase) return null;
 
     try {
+      // Garantimos que o cliente reconhece a sessão antes de fazer a query de dados protegida por RLS
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        console.warn("fetchUserProfile: Tentativa de busca sem sessão ativa no Supabase Auth.");
+        // Em alguns casos de SIGN_IN recente, o getSession ajuda a estabilizar os headers do client
+      }
+
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -31,7 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error) {
-        console.error("Perfil não encontrado na tabela 'users' para o UID:", uid);
+        console.error("Perfil não encontrado na tabela 'users' para o UID:", uid, error.message);
         return null;
       }
 
@@ -105,7 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (data.user) {
       const profile = await fetchUserProfile(data.user.id);
-      if (profile && !profile.isActive) {
+      
+      if (!profile) {
+        await supabase.auth.signOut();
+        throw new Error('Perfil de usuário não encontrado no banco de dados. Verifique com o administrador.');
+      }
+
+      if (!profile.isActive) {
         await supabase.auth.signOut();
         throw new Error('Sua conta está inativa. Entre em contato com o administrador.');
       }
