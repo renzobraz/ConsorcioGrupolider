@@ -31,10 +31,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error) {
-        console.warn("Perfil não encontrado na tabela 'users', tentando buscar por e-mail no banco de usuários...");
-        // Fallback: Se não encontrou pelo ID do Auth, tenta buscar todos e filtrar (útil se o ID for diferente)
-        const allUsers = await db.getUsers();
-        return allUsers.find(u => u.id === uid) || null;
+        console.error("Perfil não encontrado na tabela 'users' para o UID:", uid);
+        return null;
       }
 
       // Converte do formato do banco para o formato do App
