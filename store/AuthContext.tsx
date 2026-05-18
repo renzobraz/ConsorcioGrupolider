@@ -133,7 +133,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           else await supabase.auth.signOut();
         }
         supabase.auth.onAuthStateChange(async (event, session) => {
+          console.log("Auth event:", event);
+
+          if (event === 'PASSWORD_RECOVERY') {
+            console.log("Evento PASSWORD_RECOVERY detectado - Redirecionando para reset");
+            window.location.hash = '#/reset-password';
+            return;
+          }
+
           if (event === 'SIGNED_IN' && session?.user) {
+            // Se viemos de um link de recuperação (detectado pela URL ou hash)
+            if (window.location.hash.includes('reset-password') || window.location.href.includes('type=recovery')) {
+              console.log("Fluxo de recuperação detectado no SIGNED_IN - Aguardando formulário");
+              return;
+            }
+
             const profile = await fetchUserProfile(session.user.id, session.user.email);
             setUser(profile?.isActive ? profile : null);
           } else if (event === 'SIGNED_OUT') {

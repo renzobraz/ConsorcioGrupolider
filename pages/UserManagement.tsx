@@ -148,7 +148,7 @@ const UserManagement = () => {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin + '/login',
+        redirectTo: window.location.origin,
       });
       if (error) throw error;
       alert('E-mail de redefinição enviado com sucesso!');

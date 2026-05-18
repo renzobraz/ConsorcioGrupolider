@@ -35,6 +35,7 @@ import AccountsPayable from './pages/AccountsPayable';
 import ExecutiveReport from './pages/ExecutiveReport';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
+import ResetPassword from './pages/ResetPassword';
 import { ConsortiumProvider, useConsortium } from './store/ConsortiumContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
 import { db } from './services/database';
@@ -630,6 +631,7 @@ const App = () => {
               <Route path="/calculator" element={<ProtectedRoute permission="canSimulate"><CalculatorTool /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute permission="canManageSettings"><Settings /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Layout>
