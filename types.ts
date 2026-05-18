@@ -27,6 +27,7 @@ export interface User {
   role: UserRole;
   permissions: UserPermissions;
   isActive: boolean;
+  companyId?: string; // ID da empresa principal do usuário
 }
 
 export enum CorrectionIndex {
@@ -107,6 +108,13 @@ export interface ManualTransaction {
   interest?: number;
 }
 
+export interface CreditUpdate {
+  id: string;
+  quotaId: string;
+  date: string;
+  value: number;
+}
+
 export interface Quota {
   id: string;
   group: string;
@@ -161,11 +169,30 @@ export interface Quota {
 
   // Manual Transactions
   manualTransactions?: ManualTransaction[];
+  creditUpdates?: CreditUpdate[];
+  isDrawContemplation?: boolean;
+  stopCreditCorrection?: boolean; // NOVO: Interromper reajuste anual após contemplação
+  contractFileUrl?: string; // URL do contrato arquivado
+
+  // Marketplace / SaaS Fields
+  isAnnounced?: boolean;
+  announcedAt?: string;
+  marketValueOverride?: number;
+  marketStatus?: 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'SOLD';
+  marketNotes?: string;
+  
+  // New Financial Fields for Marketplace Transparency
+  reserveFundAccumulated?: number; // Valor acumulado no Fundo de Reserva (conforme extrato)
+  insuranceRate?: number; // Taxa de Seguro (%)
+  insuranceValue?: number; // Valor fixo de Seguro (se houver)
 }
 
 export enum PaymentStatus {
   PREVISTO = 'PREVISTO',
-  PAGO = 'PAGO'
+  PAGO = 'PAGO',
+  CONCILIADO = 'CONCILIADO',
+  EFETIVADO = 'EFETIVADO',
+  QUITADO = 'QUITADO'
 }
 
 export interface PaymentInstallment {
@@ -220,6 +247,15 @@ export interface PaymentInstallment {
   bidFreePercentTA?: number; 
 
   // Balances after Bid
+  bidEmbeddedBalanceBeforeFC?: number;
+  bidEmbeddedBalanceBeforeTA?: number;
+  bidEmbeddedBalanceBeforeFR?: number;
+  bidEmbeddedBalanceBeforeTotal?: number;
+  bidEmbeddedPercentBalanceBeforeFC?: number;
+  bidEmbeddedPercentBalanceBeforeTA?: number;
+  bidEmbeddedPercentBalanceBeforeFR?: number;
+  bidEmbeddedPercentBalanceBeforeTotal?: number;
+
   bidEmbeddedBalanceFC?: number;
   bidEmbeddedBalanceTA?: number;
   bidEmbeddedBalanceFR?: number;
@@ -228,6 +264,15 @@ export interface PaymentInstallment {
   bidEmbeddedPercentBalanceTA?: number;
   bidEmbeddedPercentBalanceFR?: number;
   bidEmbeddedPercentBalanceTotal?: number;
+
+  bidFreeBalanceBeforeFC?: number;
+  bidFreeBalanceBeforeTA?: number;
+  bidFreeBalanceBeforeFR?: number;
+  bidFreeBalanceBeforeTotal?: number;
+  bidFreePercentBalanceBeforeFC?: number;
+  bidFreePercentBalanceBeforeTA?: number;
+  bidFreePercentBalanceBeforeFR?: number;
+  bidFreePercentBalanceBeforeTotal?: number;
 
   bidFreeBalanceFC?: number;
   bidFreeBalanceTA?: number;
@@ -298,4 +343,50 @@ export interface CreditUsageEntry {
   date: string;
   amount: number;
   seller?: string; 
+}
+
+export interface SMTPConfig {
+  id?: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromName: string;
+  fromEmail: string;
+  reportRecipient: string;
+}
+
+export enum ReportFrequency {
+  NONE = 'NONE',
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY'
+}
+
+export interface ScheduledReport {
+  id: string;
+  name: string;
+  recipient: string;
+  subject: string;
+  message: string;
+  frequency: ReportFrequency;
+  selectedColumns: string[];
+  filters: {
+    referenceDate: string;
+    companyId?: string;
+    administratorId?: string;
+    productType?: string;
+    status?: string;
+  };
+  lastSent?: string;
+  lastError?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface ProjectionConfig {
+  enabled: boolean;
+  periodMonths: number; // 12, 24, 36
+  customRate?: number; // Annual rate (%)
 }

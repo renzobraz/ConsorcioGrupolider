@@ -127,8 +127,7 @@ const CorrectionIndices = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-slate-800">Índices de Correção</h1>
+      <div className="flex justify-end items-center">
           <div className="flex gap-2 print:hidden">
               <input type="month" value={filterStart} onChange={e => setFilterStart(e.target.value)} className="border rounded p-1 text-xs" />
               <input type="month" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} className="border rounded p-1 text-xs" />

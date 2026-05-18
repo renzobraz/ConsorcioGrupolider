@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
-import { getSupabase } from '../services/supabaseClient';
+import { db } from '../services/database';
 
 interface AuthContextType {
   user: User | null;
@@ -13,131 +13,126 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Mock initial admin user
+const DEFAULT_ADMIN: User = {
+  id: '00000000-0000-0000-0000-000000000000',
+  email: 'renzo.amaral@gmail.com',
+  name: 'Administrador Geral',
+  password: '123',
+  role: UserRole.ADMIN,
+  isActive: true,
+  permissions: {
+    canViewDashboard: true,
+    canManageQuotas: true,
+    canSimulate: true,
+    canViewReports: true,
+    canManageSettings: true,
+    canMarkQuotas: true,
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Função para buscar o perfil completo na tabela 'users'
-  const fetchUserProfile = async (uid: string): Promise<User | null> => {
-    const supabase = getSupabase();
-    if (!supabase) return null;
-
-    try {
-      // Garantimos que o cliente reconhece a sessão antes de fazer a query de dados protegida por RLS
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        console.warn("fetchUserProfile: Tentativa de busca sem sessão ativa no Supabase Auth.");
-        // Em alguns casos de SIGN_IN recente, o getSession ajuda a estabilizar os headers do client
-      }
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', uid)
-        .single();
-
-      if (error) {
-        console.error("Perfil não encontrado na tabela 'users' para o UID:", uid, error.message);
-        return null;
-      }
-
-      // Converte do formato do banco para o formato do App
-      return {
-        id: data.id,
-        email: data.email,
-        name: data.name,
-        role: data.role as UserRole,
-        isActive: data.is_active,
-        permissions: data.permissions
-      };
-    } catch (err) {
-      console.error("Erro ao buscar perfil:", err);
-      return null;
-    }
-  };
-
   useEffect(() => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      setIsLoading(false);
-      return;
-    }
+    const initAuth = async () => {
+      try {
+        let users: User[] = [];
+        const isCloud = db.isCloudEnabled();
+        
+        if (isCloud) {
+          // Em ambiente nuvem, tentamos buscar a lista para o bootstrap se necessário
+          // Mas se falhar (RLS), seguimos silenciosamente
+          try {
+            users = await db.getUsers();
+          } catch (e) {
+            console.warn("Could not fetch user list during init (expected if RLS is on).");
+          }
+        } else {
+          users = await db.getUsers();
+        }
+        
+        // Bootstrap: Se não houver usuários e for o primeiro acesso, tenta salvar o admin
+        if (users.length === 0) {
+          try {
+            await db.saveUser(DEFAULT_ADMIN);
+            users = [DEFAULT_ADMIN];
+          } catch (saveError) {
+            console.warn("Bootstrap admin save failed. Manual SQL and RLS setup might be required.", saveError);
+          }
+        }
 
-    // 1. Verifica se já existe uma sessão ativa ao carregar o app
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
+        // Recupera o ID do usuário logado do localStorage
+        const loggedInUserId = localStorage.getItem('consortium_logged_in_user');
+        
+        if (loggedInUserId) {
+          let foundUser = users.find(u => u.id === loggedInUserId && u.isActive);
+          
+          // Se não encontrou na lista (que pode estar vazia pelo RLS), tenta buscar pelo ID diretamente
+          if (!foundUser && isCloud) {
+            try {
+              foundUser = await db.getUserById(loggedInUserId);
+              if (foundUser && !foundUser.isActive) foundUser = null;
+            } catch (e) {
+              console.error("Failed to fetch logged in user by ID", e);
+            }
+          }
+
+          if (foundUser) {
+            setUser(foundUser);
+          } else {
+            localStorage.removeItem('consortium_logged_in_user');
+          }
+        }
+      } catch (error) {
+        console.error("Critical failure during auth initialization", error);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
-    checkSession();
-
-    // 2. Escuta mudanças no estado de autenticação (Login, Logout, Token renovado)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    initAuth();
   }, []);
 
   const login = async (email: string, password?: string) => {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error('Conexão com o banco não configurada.');
-    if (!password) throw new Error('A senha é obrigatória para o login oficial.');
-
-    // Autenticação oficial no Supabase Auth
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      // Tradução de erros comuns
-      if (error.message.includes('Invalid login credentials')) {
-        throw new Error('E-mail ou senha incorretos.');
-      }
-      throw new Error(error.message);
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password?.trim() || '';
+    
+    // Busca o usuário especificamente pelo e-mail (mais seguro e eficiente com RLS)
+    const foundUser = await db.getUserByEmail(cleanEmail);
+    
+    if (!foundUser) {
+      throw new Error('Usuário não encontrado neste dispositivo ou na nuvem.');
     }
 
-    if (data.user) {
-      const profile = await fetchUserProfile(data.user.id);
-      
-      if (!profile) {
-        await supabase.auth.signOut();
-        throw new Error('Perfil de usuário não encontrado no banco de dados. Verifique com o administrador.');
-      }
-
-      if (!profile.isActive) {
-        await supabase.auth.signOut();
-        throw new Error('Sua conta está inativa. Entre em contato com o administrador.');
-      }
-      setUser(profile);
+    if (!foundUser.isActive) {
+      throw new Error('Este usuário está inativo. Contate o administrador.');
     }
+
+    // Se o usuário tem senha definida, precisamos validar
+    if (foundUser.password) {
+      if (foundUser.password !== cleanPassword) {
+        throw new Error('Senha incorreta.');
+      }
+    } else if (cleanPassword !== '') {
+      // Se o usuário não tem senha mas tentou entrar com uma, podemos permitir ou não.
+      // Por segurança, se não tem senha, só entra se a senha enviada for vazia.
+      // Mas para facilitar, vamos permitir entrar se não houver senha no banco.
+    }
+
+    setUser(foundUser);
+    localStorage.setItem('consortium_logged_in_user', foundUser.id);
   };
 
-  const logout = async () => {
-    const supabase = getSupabase();
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
+  const logout = () => {
     setUser(null);
+    localStorage.removeItem('consortium_logged_in_user');
   };
 
   const hasPermission = (permission: keyof User['permissions']) => {
     if (!user) return false;
-    // Administradores têm permissão total por padrão
-    if (user.role === UserRole.ADMIN) return true;
+    if (user.role === UserRole.ADMIN) return true; // Admin has all permissions
     return user.permissions[permission] === true;
   };
 

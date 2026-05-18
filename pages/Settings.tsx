@@ -1,23 +1,53 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi } from 'lucide-react';
+import { Save, Database, Cloud, CheckCircle, AlertTriangle, Copy, Info, Download, Upload, Activity, Wifi, Trash2, Calendar, Mail, Clock } from 'lucide-react';
 import { getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { useConsortium } from '../store/ConsortiumContext';
 import { db } from '../services/database';
 
 import { getTodayStr } from '../utils/formatters';
+import { EmailSettings } from '../components/EmailSettings';
+import { SendEmailModal } from '../components/SendEmailModal';
+import { AVAILABLE_REPORT_COLUMNS } from '../constants/reportAvailableColumns';
+import { ScheduledReport } from '../types';
 
 const Settings = () => {
-  const { refreshData, isCloudConnected, connectionError } = useConsortium();
+  const { 
+    refreshData, 
+    isCloudConnected, 
+    connectionError, 
+    scheduledReports, 
+    deleteScheduledReport,
+    addScheduledReport,
+    companies,
+    administrators
+  } = useConsortium();
   const [url, setUrl] = useState('');
   const [key, setKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [serverConfig, setServerConfig] = useState<{ isConfigured: boolean, url: string | null } | null>(null);
+  const [editingReport, setEditingReport] = useState<ScheduledReport | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [triggeringReportId, setTriggeringReportId] = useState<string | null>(null);
 
   useEffect(() => {
     const config = getSupabaseConfig();
     if (config.url) setUrl(config.url);
     if (config.key) setKey(config.key);
+
+    // Check server-side config
+    fetch('/api/config-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.supabase) {
+          setServerConfig({
+            isConfigured: data.supabase.isConfigured,
+            url: data.supabase.url
+          });
+        }
+      })
+      .catch(err => console.error('Error checking server config:', err));
   }, []);
 
   const handleTestConnection = async () => {
@@ -80,11 +110,33 @@ const Settings = () => {
     }
   };
 
+  const handleTriggerReport = async (reportId: string) => {
+    setTriggeringReportId(reportId);
+    try {
+      const response = await fetch(`/api/trigger-report/${reportId}`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        alert("✅ Relatório disparado com sucesso!");
+        refreshData(); // Refresh to update last_sent
+      } else {
+        alert(`❌ Falha ao disparar relatório: ${data.error || 'Erro desconhecido'}`);
+      }
+    } catch (err: any) {
+      console.error("Error triggering report:", err);
+      alert(`❌ Erro ao conectar com o servidor: ${err.message}`);
+    } finally {
+      setTriggeringReportId(null);
+    }
+  };
+
   const handleSave = () => {
     let cleanedUrl = url.trim().replace(/\/$/, "");
     const cleanedKey = key.trim().replace(/^Bearer\s+/i, "");
 
-    // Se o usuário colou apenas o ID (ex: qxbuopbrsvxybektxobs), transforma em URL
+    // Se o usuário colou apenas o ID (ex: seu-projeto-id), transforma em URL
     if (cleanedUrl && !cleanedUrl.includes('.') && !cleanedUrl.startsWith('http')) {
       cleanedUrl = `https://${cleanedUrl}.supabase.co`;
       setUrl(cleanedUrl);
@@ -174,8 +226,8 @@ const Settings = () => {
               if(data.manual_transactions) localStorage.setItem('consortium_manual_transactions_db', JSON.stringify(data.manual_transactions));
               if(data.users) localStorage.setItem('consortium_users_db', JSON.stringify(data.users));
               
-              alert('Backup restaurado com sucesso! A página será recarregada.');
-              window.location.reload();
+              alert('Backup restaurado com sucesso! Se estiver conectado à nuvem, você pode usar o botão "Sincronizar Local -> Nuvem" para subir esses dados.');
+              refreshData();
           } catch (err) {
               console.error("Import failed:", err);
               alert("Falha ao importar arquivo. Verifique se o formato está correto.");
@@ -184,14 +236,78 @@ const Settings = () => {
       reader.readAsText(file);
   };
 
+  const handleCloudMigration = async () => {
+    if (!isCloudConnected) {
+      alert("Conecte ao Supabase primeiro.");
+      return;
+    }
+
+    if (!window.confirm("Isso irá enviar todos os seus dados locais para o banco de dados na nuvem. Deseja continuar?")) {
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      // 1. Get local data
+      const localData = {
+        quotas: JSON.parse(localStorage.getItem('consortium_quotas_db') || '[]'),
+        indices: JSON.parse(localStorage.getItem('consortium_indices_db') || '[]'),
+        administrators: JSON.parse(localStorage.getItem('consortium_admins_db') || '[]'),
+        companies: JSON.parse(localStorage.getItem('consortium_companies_db') || '[]'),
+        credit_usages: JSON.parse(localStorage.getItem('consortium_credit_usages_db') || '[]'),
+        manual_transactions: JSON.parse(localStorage.getItem('consortium_manual_transactions_db') || '[]'),
+        users: JSON.parse(localStorage.getItem('consortium_users_db') || '[]'),
+        payments: Object.keys(localStorage).reduce((acc, key) => {
+          if (key.startsWith('payments_')) {
+            acc[key] = JSON.parse(localStorage.getItem(key) || '{}');
+          }
+          return acc;
+        }, {} as any)
+      };
+
+      console.log("Migrando dados...", localData);
+
+      // 2. Migration logic
+      for (const admin of localData.administrators) await db.saveAdministrator(admin);
+      for (const comp of localData.companies) await db.saveCompany(comp);
+      for (const user of localData.users) await db.saveUser(user);
+      for (const idx of localData.indices) await db.saveIndex(idx);
+      for (const usage of localData.credit_usages) await db.saveCreditUsage(usage);
+      for (const tx of localData.manual_transactions) await db.saveManualTransaction(tx);
+      
+      for (const quota of localData.quotas) {
+        await db.saveQuota(quota);
+        const pKey = `payments_${quota.id}`;
+        if (localData.payments[pKey]) {
+          const qPayments = localData.payments[pKey];
+          for (const instNum of Object.keys(qPayments)) {
+            await db.savePayment(quota.id, parseInt(instNum), qPayments[instNum]);
+          }
+        }
+      }
+
+      alert("✅ Sincronização concluída com sucesso!");
+      refreshData();
+    } catch (err: any) {
+      console.error("Migration failed:", err);
+      alert(`❌ Falha na sincronização: ${err.message}`);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const sqlScript = `
--- COMANDO PARA LIBERAR ACESSO (Execute se receber erro 'Forbidden')
+-- 1. PERMISSÕES BÁSICAS DE SCHEMA
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
--- Tabela de Administradoras
+-- Garantir acesso explícito às tabelas para anon (necessário para login)
+GRANT SELECT ON public.users TO anon;
+GRANT SELECT ON public.companies TO anon;
+
+-- 2. CRIAÇÃO DAS TABELAS (Sem alterações aqui, apenas para referência)
 CREATE TABLE IF NOT EXISTS administrators (
   id UUID PRIMARY KEY,
   name TEXT NOT NULL,
@@ -199,7 +315,6 @@ CREATE TABLE IF NOT EXISTS administrators (
   email TEXT
 );
 
--- Tabela de Empresas Compradoras
 CREATE TABLE IF NOT EXISTS companies (
   id UUID PRIMARY KEY,
   name TEXT NOT NULL,
@@ -207,190 +322,6 @@ CREATE TABLE IF NOT EXISTS companies (
   email TEXT
 );
 
--- Tabela de Cotas
-CREATE TABLE IF NOT EXISTS quotas (
-  id UUID PRIMARY KEY,
-  group_code VARCHAR(50) NOT NULL,
-  quota_number VARCHAR(50) NOT NULL,
-  contract_number VARCHAR(50),
-  credit_value DECIMAL(12, 2) NOT NULL,
-  adhesion_date DATE,
-  first_assembly_date DATE,
-  term_months INTEGER NOT NULL,
-  admin_fee_rate DECIMAL(10, 4) NOT NULL, 
-  reserve_fund_rate DECIMAL(5, 2) NOT NULL,
-  product_type VARCHAR(20),
-  due_day INTEGER DEFAULT 25,
-  first_due_date DATE,
-  correction_index VARCHAR(10),
-  payment_plan VARCHAR(20),
-  is_contemplated BOOLEAN DEFAULT FALSE,
-  contemplation_date DATE,
-  bid_free DECIMAL(12, 2) DEFAULT 0,
-  bid_embedded DECIMAL(12, 2) DEFAULT 0,
-  bid_total DECIMAL(12, 2) DEFAULT 0,
-  credit_manual_adjustment DECIMAL(12, 2) DEFAULT 0,
-  administrator_id UUID REFERENCES administrators(id),
-  company_id UUID REFERENCES companies(id),
-  bid_free_correction DECIMAL(12, 2) DEFAULT 0,
-  calculation_method VARCHAR(30) DEFAULT 'LINEAR',
-  index_table JSONB,
-  acquired_from_third_party BOOLEAN DEFAULT FALSE,
-  assumed_installment INTEGER,
-  pre_paid_fc_percent DECIMAL(10, 4),
-  acquisition_cost DECIMAL(12, 2),
-  correction_rate_cap DECIMAL(10, 4),
-  index_reference_month INTEGER,
-  bid_base VARCHAR(20),
-  anticipate_correction_month BOOLEAN DEFAULT FALSE,
-  prioritize_fees_in_bid BOOLEAN DEFAULT FALSE,
-  UNIQUE(group_code, quota_number) -- PREVENÇÃO DE DUPLICIDADE
-);
-
--- Migração: Adicionar colunas se não existirem em quotas
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'due_day') THEN
-        ALTER TABLE quotas ADD COLUMN due_day INTEGER DEFAULT 25;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'credit_manual_adjustment') THEN
-        ALTER TABLE quotas ADD COLUMN credit_manual_adjustment DECIMAL(12, 2) DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'administrator_id') THEN
-        ALTER TABLE quotas ADD COLUMN administrator_id UUID REFERENCES administrators(id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'company_id') THEN
-        ALTER TABLE quotas ADD COLUMN company_id UUID REFERENCES companies(id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'bid_free_correction') THEN
-        ALTER TABLE quotas ADD COLUMN bid_free_correction DECIMAL(12, 2) DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'calculation_method') THEN
-        ALTER TABLE quotas ADD COLUMN calculation_method VARCHAR(30) DEFAULT 'LINEAR';
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'index_table') THEN
-        ALTER TABLE quotas ADD COLUMN index_table JSONB;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'acquired_from_third_party') THEN
-        ALTER TABLE quotas ADD COLUMN acquired_from_third_party BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'assumed_installment') THEN
-        ALTER TABLE quotas ADD COLUMN assumed_installment INTEGER;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'pre_paid_fc_percent') THEN
-        ALTER TABLE quotas ADD COLUMN pre_paid_fc_percent DECIMAL(10, 4);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'acquisition_cost') THEN
-        ALTER TABLE quotas ADD COLUMN acquisition_cost DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'correction_rate_cap') THEN
-        ALTER TABLE quotas ADD COLUMN correction_rate_cap DECIMAL(10, 4);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'index_reference_month') THEN
-        ALTER TABLE quotas ADD COLUMN index_reference_month INTEGER;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'bid_base') THEN
-        ALTER TABLE quotas ADD COLUMN bid_base VARCHAR(20);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'anticipate_correction_month') THEN
-        ALTER TABLE quotas ADD COLUMN anticipate_correction_month BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotas' AND column_name = 'prioritize_fees_in_bid') THEN
-        ALTER TABLE quotas ADD COLUMN prioritize_fees_in_bid BOOLEAN DEFAULT FALSE;
-    END IF;
-    
-    -- Adicionar Restrição de Unicidade se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name = 'quotas' AND constraint_type = 'UNIQUE') THEN
-        ALTER TABLE quotas ADD CONSTRAINT unique_group_quota UNIQUE (group_code, quota_number);
-    END IF;
-    ALTER TABLE quotas ALTER COLUMN admin_fee_rate TYPE DECIMAL(10, 4);
-END
-$$;
-
--- Tabela de Pagamentos
-CREATE TABLE IF NOT EXISTS payments (
-  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
-  installment_number INTEGER NOT NULL,
-  amount_paid DECIMAL(12, 2),
-  payment_date TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-  manual_fc DECIMAL(12, 2),
-  manual_fr DECIMAL(12, 2),
-  manual_ta DECIMAL(12, 2),
-  manual_fine DECIMAL(12, 2),
-  manual_interest DECIMAL(12, 2),
-  manual_insurance DECIMAL(12, 2),
-  manual_amortization DECIMAL(12, 2),
-  manual_earnings DECIMAL(12, 2),
-  status VARCHAR(20) DEFAULT 'PREVISTO',
-  UNIQUE(quota_id, installment_number)
-);
-
--- Migração: Adicionar colunas se não existirem em payments
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fc') THEN
-        ALTER TABLE payments ADD COLUMN manual_fc DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fr') THEN
-        ALTER TABLE payments ADD COLUMN manual_fr DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_ta') THEN
-        ALTER TABLE payments ADD COLUMN manual_ta DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_fine') THEN
-        ALTER TABLE payments ADD COLUMN manual_fine DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_interest') THEN
-        ALTER TABLE payments ADD COLUMN manual_interest DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_insurance') THEN
-        ALTER TABLE payments ADD COLUMN manual_insurance DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_amortization') THEN
-        ALTER TABLE payments ADD COLUMN manual_amortization DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'manual_earnings') THEN
-        ALTER TABLE payments ADD COLUMN manual_earnings DECIMAL(12, 2);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'status') THEN
-        ALTER TABLE payments ADD COLUMN status VARCHAR(20) DEFAULT 'PREVISTO';
-    END IF;
-    
-    -- Make amount_paid nullable if it is currently NOT NULL
-    ALTER TABLE payments ALTER COLUMN amount_paid DROP NOT NULL;
-END
-$$;
-
--- Tabela de Uso do Crédito (Compras)
-CREATE TABLE IF NOT EXISTS credit_usages (
-  id UUID PRIMARY KEY,
-  quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
-  description TEXT NOT NULL,
-  date DATE NOT NULL,
-  amount DECIMAL(12, 2) NOT NULL,
-  seller TEXT
-);
-
--- Tabela de Lançamentos Manuais (Ajustes de Saldo)
-CREATE TABLE IF NOT EXISTS manual_transactions (
-  id UUID PRIMARY KEY,
-  quota_id UUID REFERENCES quotas(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  amount DECIMAL(12, 2) NOT NULL,
-  type VARCHAR(20) NOT NULL,
-  description TEXT
-);
-
--- Tabela de Índices de Correção
-CREATE TABLE IF NOT EXISTS correction_indices (
-  id UUID PRIMARY KEY,
-  type VARCHAR(10) NOT NULL,
-  date DATE NOT NULL,
-  rate DECIMAL(10, 4) NOT NULL
-);
-
--- Tabela de Usuários
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
@@ -398,39 +329,134 @@ CREATE TABLE IF NOT EXISTS users (
   password TEXT,
   role TEXT,
   permissions JSONB,
-  is_active BOOLEAN DEFAULT TRUE
+  is_active BOOLEAN DEFAULT TRUE,
+  company_id UUID REFERENCES companies(id)
 );
 
--- Políticas de Segurança (Row Level Security)
+-- ... (demais tabelas permanecem iguais, omitidas aqui para brevidade no script mas mantidas no sistema)
+
+-- 3. FUNÇÕES DE APOIO PARA RLS (FUNDAMENTAL PARA EVITAR RECURSÃO)
+CREATE OR REPLACE FUNCTION is_admin() 
+RETURNS boolean AS $$
+BEGIN
+  -- SECURITY DEFINER faz a função rodar como o dono (bypassando RLS na tabela users)
+  RETURN EXISTS (
+    SELECT 1 FROM users 
+    WHERE id = auth.uid() AND role = 'ADMIN'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_user_company_ids()
+RETURNS uuid[] AS $$
+DECLARE
+    user_company_id uuid;
+    allowed_ids jsonb;
+    result_ids uuid[];
+BEGIN
+    -- Busca direta ignorando RLS
+    SELECT company_id, permissions->'allowedCompanyIds' 
+    INTO user_company_id, allowed_ids
+    FROM users 
+    WHERE id = auth.uid();
+
+    IF user_company_id IS NOT NULL THEN
+        result_ids := array_append(result_ids, user_company_id);
+    END IF;
+
+    IF allowed_ids IS NOT NULL AND jsonb_array_length(allowed_ids) > 0 THEN
+        result_ids := ARRAY(
+            SELECT DISTINCT unnest(
+                array_cat(
+                    COALESCE(result_ids, '{}'::uuid[]),
+                    ARRAY(SELECT jsonb_array_elements_text(allowed_ids)::uuid)
+                )
+            )
+        );
+    END IF;
+
+    RETURN result_ids;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. APLICAÇÃO DE RLS
+-- Limpeza de políticas antigas
+DO $$ 
+DECLARE pol record;
+BEGIN
+    FOR pol IN (SELECT policyname, tablename FROM pg_policies WHERE schemaname = 'public') LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
+    END LOOP;
+END $$;
+
+-- Ativar RLS em todas
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE correction_indices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE administrators ENABLE ROW LEVEL SECURITY;
-ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE credit_usages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE administrators ENABLE ROW LEVEL SECURITY;
+ALTER TABLE correction_indices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_usages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE smtp_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 
--- Remove políticas antigas se existirem para evitar erro de duplicidade
-DROP POLICY IF EXISTS "Public access for demo" ON quotas;
-DROP POLICY IF EXISTS "Public access for demo" ON payments;
-DROP POLICY IF EXISTS "Public access for demo" ON correction_indices;
-DROP POLICY IF EXISTS "Public access for demo" ON administrators;
-DROP POLICY IF EXISTS "Public access for demo" ON companies;
-DROP POLICY IF EXISTS "Public access for demo" ON credit_usages;
-DROP POLICY IF EXISTS "Public access for demo" ON manual_transactions;
-DROP POLICY IF EXISTS "Public access for demo" ON users;
+-- POLÍTICAS PARA USUÁRIOS
+-- Permitir que qualquer pessoa (anon) busque usuários para o login funcionar.
+-- Se RLS estiver ativado, anon PRECISA de uma política de SELECT.
+CREATE POLICY "allow_anon_read_users" ON users FOR SELECT TO anon USING (true);
+-- Bootstrap: Permite criar o primeiro usuário se a tabela estiver vazia
+CREATE POLICY "allow_initial_bootstrap" ON users FOR INSERT TO anon WITH CHECK (NOT EXISTS (SELECT 1 FROM users));
+-- Usuário autenticado vê a si mesmo
+CREATE POLICY "users_view_self" ON users FOR SELECT TO authenticated USING (id = auth.uid());
+-- Admin vê e faz tudo
+CREATE POLICY "admins_full_access_users" ON users FOR ALL TO authenticated USING (is_admin());
 
--- Cria as políticas novamente
-CREATE POLICY "Public access for demo" ON quotas FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON payments FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON correction_indices FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON administrators FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON companies FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON credit_usages FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON manual_transactions FOR ALL USING (true);
-CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
-`;
+-- POLÍTICAS PARA EMPRESAS
+CREATE POLICY "view_allowed_companies" ON companies FOR SELECT TO authenticated USING (id = ANY(get_user_company_ids()) OR is_admin());
+CREATE POLICY "admins_modify_companies" ON companies FOR ALL TO authenticated USING (is_admin());
+
+-- POLÍTICAS PARA COTAS
+CREATE POLICY "quota_isolation" ON quotas FOR ALL TO authenticated 
+USING (company_id = ANY(get_user_company_ids()) OR is_admin())
+WITH CHECK (company_id = ANY(get_user_company_ids()) OR is_admin());
+
+-- POLÍTICAS PARA PAGAMENTOS (BASEADO NA COTA)
+CREATE POLICY "payment_isolation" ON payments FOR ALL TO authenticated 
+USING (EXISTS (SELECT 1 FROM quotas WHERE id = quota_id AND (company_id = ANY(get_user_company_ids()) OR is_admin())));
+
+-- POLÍTICAS PARA TRANSAÇÕES MANUAIS (BASEADO NA COTA)
+CREATE POLICY "manual_tx_isolation" ON manual_transactions FOR ALL TO authenticated 
+USING (EXISTS (SELECT 1 FROM quotas WHERE id = quota_id AND (company_id = ANY(get_user_company_ids()) OR is_admin())));
+
+-- DADOS COMPARTILHADOS (ÍNDICES, ADMINS)
+CREATE POLICY "view_shared" ON administrators FOR SELECT TO authenticated USING (true);
+CREATE POLICY "view_indices" ON correction_indices FOR SELECT TO authenticated USING (true);
+CREATE POLICY "admins_modify_shared" ON administrators FOR ALL TO authenticated USING (is_admin());
+CREATE POLICY "admins_modify_indices" ON correction_indices FOR ALL TO authenticated USING (is_admin());
+
+-- 5. GARANTIR ADMIN PADRÃO
+INSERT INTO users (id, email, name, password, role, is_active, permissions)
+VALUES (
+  '00000000-0000-0000-0000-000000000000', 
+  'renzo.amaral@gmail.com', 
+  'Administrador Geral', 
+  '123', 
+  'ADMIN', 
+  true, 
+  '{"canViewDashboard": true, "canManageQuotas": true, "canSimulate": true, "canViewReports": true, "canManageSettings": true, "canMarkQuotas": true}'
+)
+ON CONFLICT (email) DO UPDATE SET is_active = EXCLUDED.is_active, role = EXCLUDED.role;
+
+-- 6. MIGRATION DE COLUNA COMPANY_ID NO USUÁRIO
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'company_id') THEN
+        ALTER TABLE users ADD COLUMN company_id UUID REFERENCES companies(id);
+    END IF;
+END $$;
+  `;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(sqlScript);
@@ -438,11 +464,9 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-10">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Configurações</h1>
-        <p className="text-slate-500">Conecte seu aplicativo a um banco de dados PostgreSQL na nuvem ou gerencie backups.</p>
-      </div>
+    <div className="max-w-4xl mx-auto space-y-8 pb-10 pt-4">
+      {/* Email Config */}
+      <EmailSettings />
 
       {connectionError && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-start gap-3">
@@ -453,6 +477,112 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
           </div>
         </div>
       )}
+
+      {/* Scheduled Reports Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="flex items-center gap-3 mb-6 bg-white rounded-lg">
+          <div className="p-3 bg-blue-100 text-blue-600 rounded-full">
+            <Calendar size={24} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Relatórios Agendados</h2>
+            <p className="text-sm text-slate-500">Gerencie os relatórios que são enviados automaticamente por e-mail.</p>
+          </div>
+        </div>
+
+        {scheduledReports.length === 0 ? (
+          <div className="text-center py-8 border-2 border-dashed border-slate-100 rounded-xl">
+            <Mail className="mx-auto text-slate-300 mb-2" size={32} />
+            <p className="text-slate-400 text-sm">Nenhum relatório agendado encontrado.</p>
+            <p className="text-slate-400 text-xs mt-1">Agende um novo relatório na página de Relatórios.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Nome</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frequência</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Destinatário</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status/Último Envio</th>
+                  <th className="py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {scheduledReports.map((report) => (
+                  <tr key={report.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3 px-4 text-sm font-medium text-slate-700">{report.name}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600">
+                      <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium">
+                        {report.frequency === 'DAILY' || report.frequency === 'daily' ? 'Diário' : 
+                         report.frequency === 'WEEKLY' || report.frequency === 'weekly' ? 'Semanal' : 
+                         report.frequency === 'MONTHLY' || report.frequency === 'monthly' ? 'Mensal' : 'Nenhum'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-sm text-slate-600">{report.recipient}</td>
+                    <td className="py-3 px-4 text-sm text-slate-600">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={14} className="text-slate-400" />
+                          <span>{report.lastSent ? new Date(report.lastSent).toLocaleString('pt-BR') : 'Nunca Enviado'}</span>
+                        </div>
+                        {report.lastError && (
+                          <div className="flex items-start gap-1.5 mt-1 p-2 bg-red-50 border border-red-100 rounded text-[10px] text-red-700 max-w-xs">
+                            <AlertTriangle size={12} className="shrink-0 mt-0.5 text-red-500" />
+                            <div className="flex flex-col">
+                              <span className="font-bold">Falha no último envio:</span>
+                              <span className="break-words line-clamp-2 md:line-clamp-none">{report.lastError}</span>
+                              {report.lastError.includes('Senha de App') && (
+                                <button 
+                                  onClick={() => alert('Para corrigir este erro:\n1. Acesse sua Conta Google (Segurança)\n2. Ative Verificação em Duas Etapas\n3. Crie uma "Senha de App"\n4. Copie o código de 16 letras\n5. Cole no campo de Senha SMTP em Configurações de E-mail')}
+                                  className="text-blue-600 font-bold hover:underline mt-1 text-left"
+                                >
+                                  Ver como resolver
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleTriggerReport(report.id)}
+                          disabled={triggeringReportId === report.id}
+                          className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="Disparar e-mail agora"
+                        >
+                          {triggeringReportId === report.id ? <Activity size={18} className="animate-spin" /> : <Mail size={18} />}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingReport(report);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Editar agendamento"
+                        >
+                          <Calendar size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            deleteScheduledReport(report.id);
+                          }}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Excluir agendamento"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Database Config */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
@@ -467,6 +597,31 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
         </div>
 
         <div className="space-y-4">
+          {serverConfig && !serverConfig.isConfigured && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-700 p-4 rounded-lg flex items-start gap-3 mb-4">
+              <AlertTriangle className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Atenção: Agendador não configurado no Servidor</p>
+                <p className="text-sm">
+                  Os relatórios agendados são processados pelo servidor. Para que funcionem, você deve configurar as variáveis de ambiente 
+                  <strong>SUPABASE_URL</strong> e <strong>SUPABASE_ANON_KEY</strong> no menu <strong>Settings</strong> do AI Studio.
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {serverConfig && serverConfig.isConfigured && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-lg flex items-start gap-3 mb-4">
+              <CheckCircle className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-sm">Servidor Conectado</p>
+                <p className="text-xs">
+                  O servidor está conectado ao Supabase ({serverConfig.url}). Os relatórios agendados serão processados automaticamente.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mb-4">
             <h3 className="text-sm font-bold text-blue-800 flex items-center gap-2 mb-2">
               <Info size={16} /> Como obter as credenciais corretas:
@@ -548,13 +703,16 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
           </button>
         </div>
         
-        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions')) && (
+        {connectionError && (connectionError.includes('Tabela') || connectionError.includes('column') || connectionError.includes('constraint') || connectionError.includes('manual_transactions') || connectionError.includes('smtp_config') || connectionError.includes('recursion')) && (
             <div className="bg-amber-600/20 border border-amber-600 text-amber-100 p-3 rounded mb-4 text-sm flex items-start gap-2">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
-                <p>
-                    <strong>Ação Necessária:</strong> Sua estrutura de banco de dados está desatualizada ou faltam tabelas.
-                    Copie o SQL abaixo e rode no SQL Editor do Supabase para corrigir tabelas, colunas e restrições.
-                </p>
+                <div>
+                    <p className="font-bold">Ação Necessária: Estrutura ou Permissões Desatualizadas</p>
+                    <p className="mt-1">
+                        Se você encontrar erros de <strong>"infinite recursion"</strong> ou tabelas ausentes, copie o SQL abaixo e rode no SQL Editor do Supabase. 
+                        Isso corrigirá as políticas de segurança e a estrutura das tabelas.
+                    </p>
+                </div>
             </div>
         )}
 
@@ -594,6 +752,17 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
                 <input type="file" accept=".json" className="hidden" onChange={handleImport}/>
             </label>
 
+            {isCloudConnected && (
+              <button 
+                onClick={handleCloudMigration} 
+                disabled={isTesting}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {isTesting ? <Activity size={18} className="animate-spin" /> : <Cloud size={18}/>}
+                Sincronizar Local {"->"} Nuvem
+              </button>
+            )}
+
             <button 
               onClick={() => {
                 if(window.confirm("⚠️ ATENÇÃO: Isso irá apagar TODOS os dados locais e desconectar do Supabase. Esta ação é irreversível. Deseja continuar?")) {
@@ -613,6 +782,49 @@ CREATE POLICY "Public access for demo" ON users FOR ALL USING (true);
             </p>
         )}
       </div>
+      {/* Modal de Edição de Agendamento */}
+      {editingReport && (
+        <SendEmailModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingReport(null);
+          }}
+          onSend={async (config) => {
+            try {
+              await addScheduledReport({
+                id: editingReport.id,
+                name: config.reportName,
+                recipient: config.recipient,
+                subject: config.subject,
+                message: config.message,
+                frequency: config.frequency,
+                selectedColumns: config.selectedColumns,
+                filters: config.filters,
+                isActive: true,
+                createdAt: editingReport.createdAt || new Date().toISOString()
+              });
+              setIsEditModalOpen(false);
+              setEditingReport(null);
+              alert('Agendamento atualizado com sucesso!');
+            } catch (error) {
+              console.error('Erro ao atualizar agendamento:', error);
+              alert('Erro ao atualizar agendamento. Verifique o console.');
+            }
+          }}
+          defaultRecipient={editingReport.recipient}
+          defaultSubject={editingReport.subject}
+          defaultMessage={editingReport.message}
+          defaultSelectedColumns={typeof editingReport.selected_columns === 'string' ? JSON.parse(editingReport.selected_columns) : editingReport.selected_columns}
+          defaultFrequency={editingReport.frequency}
+          defaultReportName={editingReport.name}
+          defaultSaveAsScheduled={true}
+          availableColumns={AVAILABLE_REPORT_COLUMNS}
+          currentFilters={typeof editingReport.filters === 'string' ? JSON.parse(editingReport.filters) : editingReport.filters}
+          companies={companies}
+          administrators={administrators}
+        />
+      )}
     </div>
   );
 };

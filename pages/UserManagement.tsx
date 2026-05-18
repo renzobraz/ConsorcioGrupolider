@@ -3,7 +3,6 @@ import { User, UserRole, UserPermissions } from '../types';
 import { Shield, UserPlus, Save, Trash2, Edit2, X, Check, Building2 } from 'lucide-react';
 import { db } from '../services/database';
 import { useConsortium } from '../store/ConsortiumContext';
-import { getSupabase } from '../services/supabaseClient';
 
 const defaultPermissions: UserPermissions = {
   canViewDashboard: true,
@@ -38,18 +37,16 @@ const UserManagement = () => {
     }
   };
 
-  const handleAddUser = () => {
-    const newId = `new-${Date.now()}`;
+  const handleAddUser = async () => {
     const newUser: User = {
-      id: newId,
+      id: `user-${Date.now()}`,
       email: '',
       name: '',
-      password: '',
       role: UserRole.USER,
       isActive: true,
       permissions: { ...defaultPermissions }
     };
-    setIsEditing(newId);
+    setIsEditing(newUser.id);
     setEditForm(newUser);
     setUsers([...users, newUser]);
   };
@@ -59,95 +56,28 @@ const UserManagement = () => {
       alert('Nome e E-mail são obrigatórios.');
       return;
     }
-
-    const isNewUser = isEditing?.startsWith('new-');
-    const supabase = getSupabase();
+    
+    const userToSave = { ...users.find(u => u.id === isEditing), ...editForm } as User;
     
     try {
-      let finalId = isEditing!;
-
-      if (isNewUser) {
-        if (!editForm.password || editForm.password.length < 6) {
-          alert('A senha é obrigatória e deve ter pelo menos 6 caracteres para novos usuários.');
-          return;
-        }
-
-        // 1. Criar no Supabase Auth
-        const { data: authData, error: authError } = await supabase!.auth.signUp({
-          email: editForm.email,
-          password: editForm.password,
-          options: {
-            data: {
-              name: editForm.name
-            }
-          }
-        });
-
-        if (authError) throw authError;
-        if (!authData.user) throw new Error('Falha ao criar credenciais de acesso.');
-
-        finalId = authData.user.id;
-      }
-
-      // 2. Salvar na tabela 'users' (perfil)
-      const userToSave: User = {
-        id: finalId,
-        email: editForm.email,
-        name: editForm.name!,
-        role: editForm.role as UserRole,
-        isActive: editForm.isActive !== undefined ? editForm.isActive : true,
-        permissions: (editForm.permissions || { ...defaultPermissions }) as UserPermissions,
-      };
-
       await db.saveUser(userToSave);
-      
-      // Atualiza a lista local
-      if (isNewUser) {
-        setUsers(prev => [...prev.filter(u => u.id !== isEditing), userToSave]);
-      } else {
-        setUsers(prev => prev.map(u => u.id === isEditing ? userToSave : u));
-      }
-      
+      const updatedUsers = users.map(u => u.id === isEditing ? userToSave : u);
+      setUsers(updatedUsers);
       setIsEditing(null);
-      setEditForm({});
-      alert(isNewUser ? "Usuário criado com sucesso!" : "Usuário atualizado com sucesso!");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to save user", error);
-      alert(`Erro ao salvar usuário: ${error.message}`);
-    }
-  };
-
-  const handleResetPassword = async (email: string) => {
-    const supabase = getSupabase();
-    if (!supabase) return;
-    
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw error;
-      alert(`Um link de redefinição de senha foi enviado para: ${email}`);
-    } catch (error: any) {
-      alert(`Erro ao solicitar redefinição: ${error.message}`);
+      alert("Erro ao salvar usuário.");
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (id.startsWith('new-')) {
-      setUsers(users.filter(u => u.id !== id));
-      setIsEditing(null);
-      return;
-    }
-
-    if (confirm('Tem certeza que deseja desativar este usuário?')) {
+    if (confirm('Tem certeza que deseja remover este usuário?')) {
       try {
-        const user = users.find(u => u.id === id);
-        if (user) {
-          const updatedUser = { ...user, isActive: false };
-          await db.saveUser(updatedUser);
-          setUsers(users.map(u => u.id === id ? updatedUser : u));
-        }
+        await db.deleteUser(id);
+        setUsers(users.filter(u => u.id !== id));
       } catch (error) {
-        console.error("Failed to deactivate user", error);
-        alert("Erro ao desativar usuário.");
+        console.error("Failed to delete user", error);
+        alert("Erro ao excluir usuário.");
       }
     }
   };
@@ -205,7 +135,7 @@ const UserManagement = () => {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <th className="px-4 py-3 font-medium">Nome</th>
                 <th className="px-4 py-3 font-medium">E-mail</th>
-                <th className="px-4 py-3 font-medium">{isEditing?.startsWith('new-') ? 'Senha' : 'Acesso'}</th>
+                <th className="px-4 py-3 font-medium">Senha</th>
                 <th className="px-4 py-3 font-medium">Nível</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium text-right">Ações</th>
@@ -243,22 +173,13 @@ const UserManagement = () => {
                     </td>
                     <td className="px-4 py-3">
                       {isEditing === user.id ? (
-                        isEditing.startsWith('new-') ? (
-                          <input 
-                            type="password" 
-                            value={editForm.password || ''} 
-                            onChange={e => setEditForm({...editForm, password: e.target.value})}
-                            className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500 text-xs"
-                            placeholder="Mín. 6 caracteres"
-                          />
-                        ) : (
-                          <button 
-                            onClick={() => handleResetPassword(user.email)}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-2 py-1 rounded border border-blue-200"
-                          >
-                            Resetar Senha
-                          </button>
-                        )
+                        <input 
+                          type="text" 
+                          value={editForm.password || ''} 
+                          onChange={e => setEditForm({...editForm, password: e.target.value})}
+                          className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
+                          placeholder="Senha"
+                        />
                       ) : (
                         <span className="text-slate-400 font-mono text-xs">••••••••</span>
                       )}

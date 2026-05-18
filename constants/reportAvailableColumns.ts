@@ -1,0 +1,23 @@
+export const AVAILABLE_REPORT_COLUMNS = [
+  { id: 'group', label: 'Grupo', type: 'text' },
+  { id: 'quotaNumber', label: 'Cota', type: 'text' },
+  { id: 'creditValue', label: 'Valor da Carta Atual', type: 'currency' },
+  { id: 'saldoVencido', label: 'Valor Pago', type: 'currency' },
+  { id: 'percentVencido', label: '% Pago', type: 'percent' },
+  { id: 'saldoAVencer', label: 'Valor a Pagar', type: 'currency' },
+  { id: 'percentAVencer', label: '% a Pagar', type: 'percent' },
+  { id: 'bidTotal', label: 'Lance Tot.', type: 'currency' },
+  { id: 'percentBidTotal', label: '% Lance', type: 'percent' },
+  { id: 'bidFree', label: 'Lance Livre', type: 'currency' },
+  { id: 'percentBidFree', label: '% Liv', type: 'percent' },
+  { id: 'creditAtContemplation', label: 'Crédito', type: 'currency' },
+  { id: 'bidEmbedded', label: 'Lance Emb.', type: 'currency' },
+  { id: 'percentBidEmbedded', label: '% Emb', type: 'percent' },
+  { id: 'valorRealCarta', label: 'CRÉDITO TOTAL SEM CORREÇÃO', type: 'currency' },
+  { id: 'creditManualAdjustment', label: 'Aplicação', type: 'currency' },
+  { id: 'bidFreeCorrection', label: '92% CDI', type: 'currency' },
+  { id: 'creditoTotal', label: 'Corrigido', type: 'currency' },
+  { id: 'creditoUtilizado', label: 'Crédito Utilizado', type: 'currency' },
+  { id: 'saldoDisponivel', label: 'Crédito Total Disponível', type: 'currency' },
+  { id: 'contemplationDate', label: 'Contemplação', type: 'date' }
+];

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction } from '../types';
+import { Quota, PaymentInstallment, MonthlyIndex, Administrator, Company, CreditUsageEntry, ManualTransaction, CreditUpdate, SMTPConfig, ProjectionConfig } from '../types';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { useAuth } from './AuthContext';
@@ -54,18 +54,37 @@ interface ConsortiumContextType {
   
   manualTransactions: ManualTransaction[];
   addManualTransaction: (transaction: ManualTransaction) => Promise<void>;
+  updateManualTransaction: (transaction: ManualTransaction) => Promise<void>;
   deleteManualTransaction: (id: string) => Promise<void>;
   
+  allCreditUpdates: CreditUpdate[];
+  addCreditUpdate: (update: CreditUpdate) => Promise<void>;
+  deleteCreditUpdate: (id: string) => Promise<void>;
+  
+  smtpConfig: SMTPConfig | null;
+  updateSMTPConfig: (config: SMTPConfig) => Promise<void>;
+  sendReportEmail: (subject: string, html: string, attachments?: { filename: string, content: string, contentType: string }[]) => Promise<void>;
+
+  scheduledReports: any[];
+  addScheduledReport: (report: any) => Promise<void>;
+  deleteScheduledReport: (id: string) => Promise<void>;
+
   refreshData: () => Promise<void>;
+
+  // Future Projection
+  projectionConfig: ProjectionConfig;
+  setProjectionConfig: (config: ProjectionConfig) => void;
 
   // Global Filters
   globalFilters: {
     companyId: string;
     administratorId: string;
-    status: string;
     productType: string;
+    status: string;
+    quotaId: string;
+    searchText: string;
   };
-  setGlobalFilters: (filters: { companyId: string; administratorId: string; status: string; productType: string }) => void;
+  setGlobalFilters: (filters: { companyId: string; administratorId: string; productType: string; status: string; quotaId: string, searchText: string }) => void;
 }
 
 const ConsortiumContext = createContext<ConsortiumContextType | undefined>(undefined);
@@ -91,16 +110,25 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
   const [payments, setPayments] = useState<Record<number, any>>({});
   const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
+  const [allCreditUpdates, setAllCreditUpdates] = useState<CreditUpdate[]>([]);
+  const [smtpConfig, setSmtpConfig] = useState<SMTPConfig | null>(null);
+  const [scheduledReports, setScheduledReports] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [projectionConfig, setProjectionConfig] = useState<ProjectionConfig>({
+    enabled: false,
+    periodMonths: 36
+  });
 
   // Global Filters State
   const [globalFilters, setGlobalFilters] = useState({
     companyId: '',
     administratorId: '',
+    productType: '',
     status: '',
-    productType: ''
+    quotaId: '',
+    searchText: ''
   });
 
   const { user, isAdmin } = useAuth();
@@ -124,6 +152,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   const refreshData = useCallback(async () => {
+    if (!user) return;
     setIsLoading(true);
     setConnectionError(null);
     const isCloud = db.isCloudEnabled();
@@ -169,14 +198,25 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
          const admins = await db.getAdministrators();
          setAdministrators(admins);
-         
          const comps = await db.getCompanies();
          setCompanies(comps);
          
          const usages = await db.getAllCreditUsages();
          setAllCreditUsages(usages);
+         
+         const updates = await db.getAllCreditUpdates();
+         setAllCreditUpdates(updates);
+
+         const smtp = await db.getSMTPConfig();
+         setSmtpConfig(smtp);
+
+         const scheduled = await db.getScheduledReports();
+         setScheduledReports(scheduled);
       } catch (err: any) {
          console.warn("Failed to load auxiliary tables:", err);
+         if (err.message?.includes('smtp_config') || err.message?.includes('schema cache')) {
+           setConnectionError("Atenção: Tabela 'smtp_config' ausente. Execute o script SQL nas Configurações.");
+         }
       }
       
     } catch (err: any) {
@@ -185,12 +225,28 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user, isAdmin, migrateQuotas]);
 
-  // Initial Load
+  // Initial Load - Only fetch data if user is authenticated
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    if (user) {
+      refreshData();
+    } else {
+      // Clear data on logout
+      setQuotas([]);
+      setIndices([]);
+      setAdministrators([]);
+      setCompanies([]);
+      setAllCreditUsages([]);
+      setPayments({});
+      setInstallments([]);
+      setManualTransactions([]);
+      setAllCreditUpdates([]);
+      setSmtpConfig(null);
+      setScheduledReports([]);
+      setCurrentQuotaState(null);
+    }
+  }, [refreshData, user]);
 
   const addQuota = useCallback(async (quota: Quota) => {
     // Optimistic Update
@@ -278,16 +334,16 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         
         setPayments(savedPayments);
         setManualTransactions(manualTransactions);
-        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments);
+        const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments, undefined, projectionConfig);
         setInstallments(schedule);
 
       } catch (err: any) {
-         console.error("Failed to generate schedule/payments", err);
-         if (db.isCloudEnabled()) {
-            setConnectionError(err.message || "Erro ao carregar pagamentos");
-         }
-         // Fallback to basic schedule
-         setInstallments(generateSchedule(quota, indices));
+        console.error("Failed to generate schedule/payments", err);
+        if (db.isCloudEnabled()) {
+           setConnectionError(err.message || "Erro ao carregar pagamentos");
+        }
+        // Fallback to basic schedule
+        setInstallments(generateSchedule(quota, indices, {}, undefined, projectionConfig));
       } finally {
          setIsLoading(false);
       }
@@ -298,12 +354,12 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [indices]);
 
-  // Restore current quota data on mount if persisted
+  // Restore current quota data on mount if persisted - Only if user is authenticated
   useEffect(() => {
-    if (currentQuota && installments.length === 0 && !isLoading) {
+    if (user && currentQuota && installments.length === 0 && !isLoading) {
       setCurrentQuota(currentQuota);
     }
-  }, [currentQuota, installments.length, isLoading, setCurrentQuota]);
+  }, [user, currentQuota, installments.length, isLoading, setCurrentQuota]);
 
   const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, manualEarnings?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;
@@ -346,11 +402,11 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     // 3. Re-generate Schedule
-    const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments);
+    const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments, undefined, projectionConfig);
     setInstallments(schedule);
     setConnectionError(null);
 
-  }, [currentQuota, installments, indices, payments, manualTransactions]); // dependencies
+  }, [currentQuota, installments, indices, payments, manualTransactions, projectionConfig]); // dependencies
 
   const addIndex = useCallback(async (index: MonthlyIndex) => {
     setIndices(prev => {
@@ -457,7 +513,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       await db.saveManualTransaction(transaction);
-      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
       setInstallments(schedule);
     } catch (err: any) {
       console.error("Failed to save manual transaction", err);
@@ -467,7 +523,26 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (db.isCloudEnabled()) setConnectionError(err.message);
       throw err;
     }
-  }, [currentQuota, manualTransactions, indices, payments]);
+  }, [currentQuota, manualTransactions, indices, payments, projectionConfig]);
+
+  const updateManualTransaction = useCallback(async (transaction: ManualTransaction) => {
+    if (!currentQuota) return;
+    
+    const updatedManualTransactions = manualTransactions.map(t => t.id === transaction.id ? transaction : t);
+    setManualTransactions(updatedManualTransactions);
+    
+    try {
+      await db.saveManualTransaction(transaction);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
+      setInstallments(schedule);
+    } catch (err: any) {
+      console.error("Failed to update manual transaction", err);
+      const original = await db.getManualTransactions(currentQuota.id);
+      setManualTransactions(original);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, [currentQuota, manualTransactions, indices, payments, projectionConfig]);
 
   const deleteManualTransaction = useCallback(async (id: string) => {
     if (!currentQuota) return;
@@ -477,7 +552,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     try {
       await db.deleteManualTransaction(id);
-      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments);
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions: updatedManualTransactions }, indices, payments, undefined, projectionConfig);
       setInstallments(schedule);
     } catch (err: any) {
       console.error("Failed to delete manual transaction", err);
@@ -488,6 +563,112 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw err;
     }
   }, [currentQuota, manualTransactions, indices, payments]);
+
+  const addCreditUpdate = useCallback(async (update: CreditUpdate) => {
+    try {
+      await db.saveCreditUpdate(update);
+      setAllCreditUpdates(prev => {
+        const idx = prev.findIndex(u => u.id === update.id);
+        if (idx >= 0) {
+          const newArr = [...prev];
+          newArr[idx] = update;
+          return newArr;
+        }
+        return [...prev, update];
+      });
+    } catch (err: any) {
+      console.error("Failed to save credit update", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const deleteCreditUpdate = useCallback(async (id: string) => {
+    try {
+      await db.deleteCreditUpdate(id);
+      setAllCreditUpdates(prev => prev.filter(u => u.id !== id));
+    } catch (err: any) {
+      console.error("Failed to delete credit update", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const updateSMTPConfig = useCallback(async (config: SMTPConfig) => {
+    try {
+      await db.saveSMTPConfig(config);
+      setSmtpConfig(config);
+    } catch (err: any) {
+      console.error("Failed to save SMTP config", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const sendReportEmail = useCallback(async (subject: string, html: string, attachments?: any[], to?: string) => {
+    if (!smtpConfig) {
+      throw new Error("Configuração SMTP não encontrada. Por favor, configure o e-mail nas configurações.");
+    }
+
+    const recipient = to || smtpConfig.reportRecipient;
+
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        smtpConfig,
+        to: recipient,
+        subject,
+        html,
+        attachments
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Erro ao enviar e-mail.");
+    }
+  }, [smtpConfig]);
+
+  const addScheduledReport = useCallback(async (report: any) => {
+    try {
+      await db.saveScheduledReport(report);
+      setScheduledReports(prev => {
+        const idx = prev.findIndex(r => r.id === report.id);
+        if (idx >= 0) {
+          const newArr = [...prev];
+          newArr[idx] = report;
+          return newArr;
+        }
+        return [report, ...prev];
+      });
+    } catch (err: any) {
+      console.error("Failed to save scheduled report", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  const deleteScheduledReport = useCallback(async (id: string) => {
+    try {
+      await db.deleteScheduledReport(id);
+      setScheduledReports(prev => prev.filter(r => r.id !== id));
+    } catch (err: any) {
+      console.error("Failed to delete scheduled report", err);
+      if (db.isCloudEnabled()) setConnectionError(err.message);
+      throw err;
+    }
+  }, []);
+
+  // Update schedule when projection toggle changes
+  useEffect(() => {
+    if (currentQuota) {
+      const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, payments, undefined, projectionConfig);
+      setInstallments(schedule);
+    }
+  }, [projectionConfig, currentQuota, indices, payments, manualTransactions]);
 
   const filteredQuotas = React.useMemo(() => {
     if (!user) return [];
@@ -527,8 +708,20 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteCreditUsage,
       manualTransactions,
       addManualTransaction,
+      updateManualTransaction,
       deleteManualTransaction,
+      allCreditUpdates,
+      addCreditUpdate,
+      deleteCreditUpdate,
+      smtpConfig,
+      updateSMTPConfig,
+      sendReportEmail,
+      scheduledReports,
+      addScheduledReport,
+      deleteScheduledReport,
       refreshData,
+      projectionConfig,
+      setProjectionConfig,
       globalFilters,
       setGlobalFilters
     }}>

@@ -29,12 +29,7 @@ const Companies = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Empresas Compradoras</h1>
-        <p className="text-slate-500">Cadastre as empresas que compram os consórcios.</p>
-      </div>
-
+    <div className="space-y-6 max-w-4xl mx-auto pt-4">
       {/* Form */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
