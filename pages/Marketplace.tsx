@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
 import { calculateMarketAnalysis } from '../services/marketService';
-import { generateSchedule } from '../services/calculationService';
+import { generateSchedule, calculateCurrentCreditValue } from '../services/calculationService';
 import { formatCurrency } from '../utils/formatters';
 import { 
   Search, 
@@ -19,7 +19,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 const Marketplace = () => {
-  const { quotas, indices, administrators, allCreditUpdates, allCreditUsages } = useConsortium();
+  const { quotas, indices, administrators, allCreditUpdates, allCreditUsages, companies } = useConsortium();
   const navigate = useNavigate();
   const [filter, setFilter] = useState('');
 

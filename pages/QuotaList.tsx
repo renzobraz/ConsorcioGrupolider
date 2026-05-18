@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign, ArrowLeft } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign, ArrowLeft, ShieldCheck, BadgeCheck, Info } from 'lucide-react';
 import { ProductType, Quota } from '../types';
 import { calculateCurrentCreditValue, generateSchedule, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
 import { calculateMarketAnalysis, MarketAnalysis } from '../services/marketService';
@@ -445,8 +445,8 @@ const QuotaList = () => {
                               setCustomAgio(analysis.agioValue);
                               setAskingPrice(analysis.buyerEntry);
                               
-                              // Reset Verification
-                              setShowVerificationStep(quota.marketplace_status !== 'verified');
+                              // Sempre inicia com a verificação de titularidade para segurança
+                              setShowVerificationStep(true);
                               setVerificationDoc('');
                               setVerificationError('');
                               

@@ -20,6 +20,7 @@ const toDbUser = (u: User) => ({
   role: u.role,
   permissions: u.permissions,
   is_active: u.isActive,
+  company_id: u.companyId,
 });
 
 const fromDbUser = (dbU: any): User => ({
@@ -29,6 +30,7 @@ const fromDbUser = (dbU: any): User => ({
   role: dbU.role,
   permissions: dbU.permissions,
   isActive: dbU.is_active,
+  companyId: dbU.company_id,
 });
 
 const toDbQuota = (q: Quota) => ({
@@ -73,7 +75,10 @@ const toDbQuota = (q: Quota) => ({
   announced_at: q.announcedAt || null,
   market_value_override: q.marketValueOverride || null,
   market_status: q.marketStatus || 'DRAFT',
-  market_notes: q.marketNotes || null
+  market_notes: q.marketNotes || null,
+  holder_document: q.holder_document,
+  marketplace_status: q.marketplace_status || 'none',
+  asking_price: q.asking_price
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -119,7 +124,10 @@ const fromDbQuota = (dbQ: any): Quota => ({
   announcedAt: dbQ.announced_at,
   marketValueOverride: dbQ.market_value_override ? Number(dbQ.market_value_override) : undefined,
   marketStatus: dbQ.market_status as any,
-  marketNotes: dbQ.market_notes
+  marketNotes: dbQ.market_notes,
+  holder_document: dbQ.holder_document,
+  marketplace_status: dbQ.marketplace_status || 'none',
+  asking_price: dbQ.asking_price ? Number(dbQ.asking_price) : undefined
 });
 
 export const uploadContractFile = async (file: File, quotaId: string): Promise<string | null> => {
