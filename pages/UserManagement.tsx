@@ -205,13 +205,30 @@ const UserManagement = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Tem certeza que deseja remover este usuário?')) {
+    if (confirm('Tem certeza que deseja remover este usuário permanentemente? (Esta ação também o removerá do Supabase Auth e não pode ser desfeita)')) {
+      setIsLoading(true);
       try {
-        await db.deleteUser(id);
+        // Chama a API do servidor para deletar tando no Auth quanto no Banco
+        const response = await fetch('/api/delete-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: id })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Falha ao deletar usuário no servidor.');
+        }
+
+        // Se a API removeu do Auth e do Banco com sucesso (ou se removeu do Auth e tentou no banco)
         setUsers(users.filter(u => u.id !== id));
-      } catch (error) {
+        alert('Usuário removido com sucesso tanto do acesso (Auth) quanto dos dados.');
+      } catch (error: any) {
         console.error("Failed to delete user", error);
-        alert("Erro ao excluir usuário.");
+        alert("Erro ao excluir usuário: " + error.message);
+      } finally {
+        setIsLoading(false);
       }
     }
   };

@@ -50,6 +50,36 @@ async function startServer() {
     }
   });
 
+  app.post("/api/delete-user", async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(500).json({ error: "Supabase service role configuration missing" });
+    }
+
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (authError) throw authError;
+
+      // Also ensure deletion from public.users
+      await supabaseAdmin.from('users').delete().eq('id', userId);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/send-email", async (req, res) => {
     const { smtpConfig, to, subject, text, html, attachments } = req.body;
 

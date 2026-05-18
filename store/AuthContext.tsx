@@ -126,7 +126,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const supabase = getSupabase();
         if (!supabase) { setIsLoading(false); return; }
-        const { data: { session } } = await supabase.auth.getSession();
+
+        // Tenta obter a sessão de forma segura
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.warn("Erro ao recuperar sessão:", sessionError.message);
+          // Se o token de atualização for inválido ou não encontrado, limpa a sessão local
+          if (sessionError.message.includes('refresh_token_not_found') || 
+              sessionError.message.includes('Refresh Token Not Found')) {
+            await supabase.auth.signOut();
+          }
+        }
+
         if (session?.user) {
           const profile = await fetchUserProfile(session.user.id, session.user.email);
           if (profile?.isActive) setUser(profile);

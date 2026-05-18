@@ -17,10 +17,25 @@ const ResetPassword = () => {
       const supabase = getSupabase();
       if (!supabase) return;
       
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        // Se não houver sessão, redireciona para o login (o token pode ter expirado ou ser inválido)
-        setError('Sessão de recuperação inválida ou expirada.');
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error("Erro na sessão de recuperação:", sessionError.message);
+          if (sessionError.message.includes('refresh_token_not_found') || 
+              sessionError.message.includes('Refresh Token Not Found')) {
+            await supabase.auth.signOut();
+            setError('Sessão expirada. Por favor, solicite um novo link de recuperação.');
+            return;
+          }
+        }
+
+        if (!session) {
+          setError('Sessão de recuperação inválida ou expirada.');
+        }
+      } catch (err) {
+        console.error("Erro inesperado ao verificar sessão:", err);
+        setError('Erro ao validar link de recuperação.');
       }
     };
     checkSession();
