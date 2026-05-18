@@ -17,7 +17,7 @@ const fetchUserProfile = async (uid: string, email?: string): Promise<User | nul
   const supabase = getSupabase();
   if (!supabase) return null;
   
-  // 1. Tenta buscar o perfil existente
+  // 1. Tenta buscar o perfil pelo ID real (UID do Auth)
   const { data, error } = await supabase
     .from('users')
     .select('*')
@@ -43,45 +43,74 @@ const fetchUserProfile = async (uid: string, email?: string): Promise<User | nul
     };
   }
 
-  // 2. Se não encontrou, tenta criar um perfil básico se tivermos o email (Auto-provisionamento)
-  if (email && (error?.code === 'PGRST116' || !data)) {
-    console.log("Perfil não encontrado no banco. Criando perfil automático para:", email);
-    
-    // Perfil padrão com permissões totais para o primeiro acesso
-    const newUser = {
-      id: uid,
-      email: email,
-      name: email.split('@')[0],
-      role: UserRole.ADMIN,
-      is_active: true,
-      permissions: {
-        canViewDashboard: true,
-        canManageQuotas: true,
-        canSimulate: true,
-        canViewReports: true,
-        canManageSettings: true,
-        canMarkQuotas: true,
-        allowedCompanyIds: [],
-      }
-    };
-
-    const { data: createdData, error: createError } = await supabase
+  // 2. Se não encontrou por ID, mas temos o e-mail, tenta buscar por E-MAIL (Cenário de vinculação)
+  if (email) {
+    const { data: dataByEmail } = await supabase
       .from('users')
-      .insert(newUser)
-      .select()
-      .single();
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
 
-    if (!createError && createdData) {
-      return {
-        id: createdData.id,
-        email: createdData.email,
-        name: createdData.name,
-        role: createdData.role as UserRole,
-        isActive: createdData.is_active ?? createdData.isActive ?? true,
-        permissions: createdData.permissions,
+    if (dataByEmail) {
+      console.log("Perfil encontrado por e-mail, mas com ID diferente. Atualizando ID para:", uid);
+      // Vincula o registro existente ao UID real do Auth
+      const { data: updatedData, error: updateError } = await supabase
+        .from('users')
+        .update({ id: uid })
+        .eq('email', email)
+        .select()
+        .single();
+
+      if (!updateError && updatedData) {
+        return {
+          id: updatedData.id,
+          email: updatedData.email,
+          name: updatedData.name,
+          role: updatedData.role as UserRole,
+          isActive: updatedData.is_active ?? updatedData.isActive ?? true,
+          permissions: updatedData.permissions,
+        };
+      }
+    }
+
+    // 3. Se ainda não existir nem por e-mail nem por ID, cria um novo (Auto-provisionamento)
+    if (error?.code === 'PGRST116' || !dataByEmail) {
+      console.log("Criando novo perfil para usuário:", email);
+      const newUser = {
+        id: uid,
+        email: email,
+        name: email.split('@')[0],
+        role: UserRole.ADMIN,
+        is_active: true,
+        permissions: {
+          canViewDashboard: true,
+          canManageQuotas: true,
+          canSimulate: true,
+          canViewReports: true,
+          canManageSettings: true,
+          canMarkQuotas: true,
+          allowedCompanyIds: [],
+        }
       };
-    } else if (createError) {
-      console.warn("Erro ao criar perfil automático:", createError.message);
+
+      const { data: createdData, error: createError } = await supabase
+        .from('users')
+        .insert(newUser)
+        .select()
+        .single();
+
+      if (!createError && createdData) {
+        return {
+          id: createdData.id,
+          email: createdData.email,
+          name: createdData.name,
+          role: createdData.role as UserRole,
+          isActive: createdData.is_active ?? createdData.isActive ?? true,
+          permissions: createdData.permissions,
+        };
+      } else if (createError) {
+        console.error("Erro crítico ao criar perfil automático:", createError.message, createError.code);
+      }
     }
   }
 

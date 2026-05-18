@@ -554,7 +554,9 @@ ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
 -- Políticas simplificadas com casts
 CREATE POLICY "allow_anon_read_users" ON users FOR SELECT TO anon USING (true);
 CREATE POLICY "allow_initial_bootstrap" ON users FOR INSERT TO anon WITH CHECK (NOT EXISTS (SELECT 1 FROM users));
-CREATE POLICY "users_view_self" ON users FOR SELECT TO authenticated USING (id = auth.uid());
+CREATE POLICY "users_view_self" ON users FOR SELECT TO authenticated USING (id = auth.uid() OR email = (auth.jwt()->>'email')::text);
+CREATE POLICY "users_insert_self" ON users FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
+CREATE POLICY "users_update_self" ON users FOR UPDATE TO authenticated USING (id = auth.uid() OR email = (auth.jwt()->>'email')::text) WITH CHECK (id = auth.uid());
 CREATE POLICY "admins_full_access_users" ON users FOR ALL TO authenticated USING (is_admin());
 
 CREATE POLICY "view_allowed_companies" ON companies FOR SELECT TO authenticated USING (id = ANY(get_user_company_ids()) OR is_admin());
