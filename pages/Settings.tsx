@@ -579,12 +579,11 @@ CREATE POLICY "admin_full_access_system" ON smtp_config FOR ALL TO authenticated
 CREATE POLICY "admin_reports_access" ON scheduled_reports FOR ALL TO authenticated USING (is_admin());
 
 -- 6. GARANTIR ADMIN PADRÃO
-INSERT INTO users (id, email, name, password, role, is_active, permissions)
+INSERT INTO users (id, email, name, role, is_active, permissions)
 VALUES (
   '00000000-0000-0000-0000-000000000000', 
   'renzo.amaral@gmail.com', 
   'Administrador Geral', 
-  '123', 
   'ADMIN', 
   true, 
   '{"canViewDashboard": true, "canManageQuotas": true, "canSimulate": true, "canViewReports": true, "canManageSettings": true, "canMarkQuotas": true}'

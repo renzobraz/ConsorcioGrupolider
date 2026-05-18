@@ -17,22 +17,18 @@ const toDbUser = (u: User) => ({
   id: u.id,
   email: u.email,
   name: u.name,
-  password: u.password,
   role: u.role,
   permissions: u.permissions,
   is_active: u.isActive,
-  company_id: u.companyId || null
 });
 
 const fromDbUser = (dbU: any): User => ({
   id: dbU.id,
   email: dbU.email,
   name: dbU.name,
-  password: dbU.password,
   role: dbU.role,
   permissions: dbU.permissions,
   isActive: dbU.is_active,
-  companyId: dbU.company_id
 });
 
 const toDbQuota = (q: Quota) => ({
