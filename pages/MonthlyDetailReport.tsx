@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
-import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { generateSchedule } from '../services/calculationService';
 import { db } from '../services/database';
 import { formatCurrency } from '../utils/formatters';
@@ -19,7 +18,6 @@ interface QuotaDetailRow {
     bids: number;
     others: number;
     total: number;
-    isBidRow?: boolean;
 }
 
 const MonthlyDetailReport = () => {
@@ -75,7 +73,7 @@ const MonthlyDetailReport = () => {
                         const actualFine = isPaid ? (paymentData.manualFine || 0) : 0;
                         const actualInterest = isPaid ? (paymentData.manualInterest || 0) : 0;
 
-                        const rowBids = 0; // Bids are now handled separately below to avoid double-counting
+                        const rowBids = (inst.bidAmountApplied || 0);
 
                         rows.push({
                             quotaId: quota.id,
@@ -90,30 +88,6 @@ const MonthlyDetailReport = () => {
                             total: actualFC + actualTA + actualFR + rowBids + actualFine + actualInterest
                         });
                     });
-
-                    // Handle Bids separately (once per quota)
-                    // Free Bid (Lance Livre) - This is a cash payment
-                    const freeBidPayment = paymentMap[0];
-                    if (freeBidPayment && (freeBidPayment.status === 'PAGO' || freeBidPayment.isPaid === true) && freeBidPayment.paymentDate) {
-                        const bidDateStr = freeBidPayment.paymentDate.split('T')[0];
-                        const bidMonthKey = bidDateStr.slice(0, 7);
-                        if (bidMonthKey === monthYear) {
-                            const bidAmount = freeBidPayment.bidFreeApplied || quota.bidFree || 0;
-                            rows.push({
-                                quotaId: quota.id,
-                                group: quota.group,
-                                quotaNumber: quota.quotaNumber,
-                                companyId: quota.companyId || '',
-                                companyName: company?.name || 'Sem Empresa',
-                                commonFund: 0,
-                                fees: 0,
-                                bids: bidAmount,
-                                others: 0,
-                                total: bidAmount,
-                                isBidRow: true // Optional flag for styling
-                            });
-                        }
-                    }
                 });
 
                 setDetailData(rows.sort((a, b) => a.group.localeCompare(b.group) || a.quotaNumber.localeCompare(b.quotaNumber)));
@@ -159,15 +133,28 @@ const MonthlyDetailReport = () => {
 
     return (
         <div className="w-full space-y-6 pb-10 print:p-0">
-            <ConsortiumFilterBar showQuotaFilter={false} />
-
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    {activeCompanyFilterName && (
-                        <div className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md text-[10px] font-bold border border-emerald-100 animate-pulse">
-                            <Filter size={10} /> Filtrado por: {activeCompanyFilterName}
+                    <button 
+                        onClick={() => navigate('/reports/monthly')} 
+                        className="p-2 text-slate-400 hover:text-slate-700 bg-white rounded-lg border border-slate-200 print:hidden"
+                        title="Voltar ao relatório macro"
+                    >
+                        <ArrowLeft size={20} />
+                    </button>
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                            <LayoutList className="text-emerald-600" /> Detalhes: {displayMonth}
+                        </h1>
+                        <div className="flex items-center gap-2">
+                             <p className="text-slate-500">Fluxo analítico individualizado por cota.</p>
+                             {activeCompanyFilterName && (
+                                 <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md text-[10px] font-bold border border-emerald-100 animate-pulse">
+                                     <Filter size={10} /> Filtrado por: {activeCompanyFilterName}
+                                 </span>
+                             )}
                         </div>
-                    )}
+                    </div>
                 </div>
                 <div className="flex gap-2 print:hidden">
                     <button onClick={() => window.print()} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium flex items-center gap-2 transition-colors">
@@ -189,9 +176,9 @@ const MonthlyDetailReport = () => {
             </div>
 
             {/* TABLE */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:overflow-visible print:border-none print:shadow-none">
-                <div className="overflow-x-auto print:overflow-visible">
-                    <table className="w-full text-xs text-left border-collapse print:text-[10px]">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse">
                         <thead className="bg-slate-800 text-white uppercase text-[10px] tracking-wider sticky top-0">
                             <tr>
                                 <th className="px-4 py-4 font-bold border-r border-slate-700">Grupo / Cota</th>

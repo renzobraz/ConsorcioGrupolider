@@ -1,10 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
-import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 import { formatCurrency, formatPercent, formatDate } from '../utils/formatters';
-import { generateSchedule, calculateCurrentCreditValue, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
+import { generateSchedule, calculateCurrentCreditValue, calculateIRR } from '../services/calculationService';
 import { db } from '../services/database';
 import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader, PlayCircle, TrendingUp, Percent, FileText, CalendarClock, X, ArrowRight, Filter, PieChart, Layers, PiggyBank, ShoppingBag, BadgeCheck } from 'lucide-react';
 
@@ -13,8 +11,7 @@ import { Building2, Gavel, DollarSign, Wallet, CheckCircle2, AlertCircle, Loader
 // (Movido para calculationService.ts)
 
 const Dashboard = () => {
-  const { quotas, companies, administrators, indices, allCreditUpdates, globalFilters, setGlobalFilters } = useConsortium();
-  const navigate = useNavigate();
+  const { quotas, companies, administrators, indices, globalFilters, setGlobalFilters } = useConsortium();
   
   // Filters State
   // selectedQuotaId remains local as it is specific to this view's interaction
@@ -30,8 +27,8 @@ const Dashboard = () => {
     contemplatedCount: 0,
     activeCount: 0,
     
-    totalCredit: 0, // CRÉDITO TOTAL SEM CORREÇÃO Total
-    totalContemplatedCredit: 0, // CRÉDITO TOTAL SEM CORREÇÃO Contempladas
+    totalCredit: 0, // Crédito Líquido Total
+    totalContemplatedCredit: 0, // Crédito Líquido Contempladas
     
     bidFree: 0,
     bidEmbedded: 0,
@@ -67,21 +64,26 @@ const Dashboard = () => {
       const todayStr = todayObj.getFullYear() + '-' + String(todayObj.getMonth() + 1).padStart(2, '0') + '-' + String(todayObj.getDate()).padStart(2, '0');
 
       try {
-        const [allUsages, allUpdates, allPayments, allManualTransactions] = await Promise.all([
-          db.getAllCreditUsages(),
-          db.getAllCreditUpdates(),
-          db.getAllPaymentsDictionary(),
-          db.getAllManualTransactions()
-        ]);
+        let allUsages = [];
+        try {
+          allUsages = await db.getAllCreditUsages();
+        } catch (dbErr) {
+          console.warn("Falha ao carregar usos de crédito do Supabase, usando lista vazia.");
+        }
 
-        const filteredQuotas = quotas.filter(q => {
+        const displayQuotas = quotas;
+
+        const filteredQuotas = displayQuotas.filter(q => {
           const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
           const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
           const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
-          const matchStatus = !globalFilters.status || (globalFilters.status === 'CONTEMPLATED' ? q.isContemplated : !q.isContemplated);
-          const matchQuota = !globalFilters.quotaId || q.id === globalFilters.quotaId;
+          const matchQuota = !selectedQuotaId || q.id === selectedQuotaId;
           
-          return matchCompany && matchAdmin && matchProduct && matchStatus && matchQuota;
+          let matchStatus = true;
+          if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
+          if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
+
+          return matchCompany && matchAdmin && matchProduct && matchQuota && matchStatus;
         });
 
         let accContemplated = 0;
@@ -101,8 +103,6 @@ const Dashboard = () => {
         let accTotalReserveFund = 0;
         let accCreditUsed = 0;
         let accAvailableContemplatedOnly = 0;
-        let accCreditAtContemplation = 0;
-        let accCorrectedCredit = 0;
 
         let accGlobalPaid = 0;
         let accGlobalToPay = 0;
@@ -114,35 +114,17 @@ const Dashboard = () => {
         const nextInstallments: any[] = [];
 
         filteredQuotas.forEach(quota => {
-          // Get specific payments and manual transactions for this quota
-          const quotaPayments = allPayments[quota.id] || {};
-          const quotaManualTransactions = allManualTransactions.filter(t => t.quotaId === quota.id);
-
           // 1. Calcular Valor do Crédito Base (Correção congela na contemplação)
           // A função calculateCurrentCreditValue já lida internamente com:
           // Se contemplada -> data corte = contemplação. Se não -> data corte = hoje.
-          const baseCreditValue = calculateCurrentCreditValue(quota, indices, undefined, true);
+          const baseCreditValue = calculateCurrentCreditValue(quota, indices);
           
           // Gera cronograma apenas para cálculos de Fluxo (Pago vs A Pagar)
-          const schedule = generateSchedule(quota, indices, quotaPayments, quotaManualTransactions);
+          const schedule = generateSchedule(quota, indices);
           
-          // Utiliza a função centralizada de resumo para garantir consistência com a Simulação
-          const summary = calculateScheduleSummary(quota, schedule, quotaPayments);
-          
-          accGlobalPaid += summary.paid.total;
-          accGlobalToPay += summary.toPay.total;
-          accTotalReserveFund += summary.toPay.fr;
-
           const embeddedBid = quota.bidEmbedded || 0;
           const netCredit = baseCreditValue - embeddedBid;
-          
-          // Get Latest Credit Update (Financial Application)
-          const quotaUpdates = allUpdates.filter(u => u.quotaId === quota.id);
-          const latestUpdateValue = quotaUpdates.length > 0 
-            ? [...quotaUpdates].sort((a, b) => b.date.localeCompare(a.date))[0].value 
-            : 0;
-
-          const manualAdj = latestUpdateValue;
+          const manualAdj = (quota.creditManualAdjustment || 0);
 
           const quotaUsages = allUsages.filter(u => u.quotaId === quota.id);
           const usageSum = quotaUsages.reduce((sum, u) => sum + u.amount, 0);
@@ -163,38 +145,55 @@ const Dashboard = () => {
           accBidEmbedded += embeddedBid;
           accCreditUpdate += manualAdj;
           accCreditUsed += usageSum;
-          accCreditAtContemplation += baseCreditValue;
-          accCorrectedCredit += (netCredit + manualAdj);
 
-          const vlrCartaAtual = calculateCurrentCreditValue(quota, indices, undefined, false);
-          const bidBase = quota.isContemplated ? baseCreditValue : vlrCartaAtual;
-          
-          if (bidBase > 0 && quota.bidTotal && quota.bidTotal > 0) {
-              const totalPct = (quota.bidTotal / bidBase) * 100;
-              const freePct = (quota.bidFree || 0) / bidBase * 100;
+          if (quota.isContemplated && baseCreditValue > 0 && quota.bidTotal && quota.bidTotal > 0) {
+              const totalPct = (quota.bidTotal / baseCreditValue) * 100;
+              const freePct = (quota.bidFree || 0) / baseCreditValue * 100;
               sumTotalBidPct += totalPct;
               sumFreeBidPct += freePct;
               bidCount++;
           }
           
+          let quotaPaid = 0;
+          let quotaToPay = 0;
           let nextInstallmentFound = false;
 
           schedule.forEach(inst => {
               const instDateStr = inst.dueDate.split('T')[0];
+              // Use strict check for "Paid" - must have status PAGO and a payment date
+              const isActuallyPaid = inst.isPaid && !!inst.paymentDate;
               
-              if (!inst.isPaid && !nextInstallmentFound && instDateStr > todayStr && inst.installmentNumber > 0) {
-                  nextInstallments.push({
-                      quotaId: quota.id,
-                      group: quota.group,
-                      quotaNumber: quota.quotaNumber,
-                      companyId: quota.companyId,
-                      dueDate: instDateStr,
-                      amount: inst.totalInstallment,
-                      installmentNumber: inst.installmentNumber
-                  });
-                  nextInstallmentFound = true;
+              if (!isActuallyPaid) {
+                  accTotalReserveFund += inst.reserveFund;
+              }
+
+              if (isActuallyPaid) {
+                  quotaPaid += inst.commonFund + inst.reserveFund + inst.adminFee + (inst.manualFine || 0) + (inst.manualInterest || 0);
+              } else {
+                  quotaToPay += inst.commonFund + inst.reserveFund + inst.adminFee;
+                  if (!nextInstallmentFound && instDateStr > todayStr) {
+                      nextInstallments.push({
+                          quotaId: quota.id,
+                          group: quota.group,
+                          quotaNumber: quota.quotaNumber,
+                          companyId: quota.companyId,
+                          dueDate: instDateStr,
+                          amount: inst.totalInstallment,
+                          installmentNumber: inst.installmentNumber
+                      });
+                      nextInstallmentFound = true;
+                  }
+              }
+
+              if (isActuallyPaid && inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+                  const bidFR = (inst.bidAbatementFR || 0);
+                  quotaPaid += (inst.bidAbatementFC || 0) + bidFR + (inst.bidAbatementTA || 0);
+                  accTotalReserveFund += bidFR;
               }
           });
+
+          accGlobalPaid += quotaPaid;
+          accGlobalToPay += quotaToPay;
 
           // Cálculo da TIR (CET)
           // Consideramos o crédito líquido como entrada no mês 0
@@ -218,7 +217,7 @@ const Dashboard = () => {
               accumulatedAnnualCostWeighted += (irrAnnual * netCredit);
               totalCreditForWeighting += netCredit;
           } else if (netCredit > 0) {
-              // Fallback linear mais preciso: (Total Pago / CRÉDITO TOTAL SEM CORREÇÃO - 1) / Prazo
+              // Fallback linear mais preciso: (Total Pago / Crédito Líquido - 1) / Prazo
               const totalPaidInSchedule = schedule.reduce((sum, inst) => sum + inst.totalInstallment + (inst.bidFreeApplied || 0), 0);
               const totalCost = totalPaidInSchedule + acqCost;
               const linearCETAnnual = ((totalCost / netCredit) - 1) / (quota.termMonths / 12);
@@ -256,8 +255,6 @@ const Dashboard = () => {
           totalCreditUpdate: accCreditUpdate,
           totalReserveFund: accTotalReserveFund,
           totalCreditUsed: accCreditUsed,
-          totalCreditAtContemplation: accCreditAtContemplation,
-          totalCorrectedCredit: accCorrectedCredit,
           totalAvailableCredit: totalAvailable,
           totalAvailableContemplatedOnly: accAvailableContemplatedOnly,
           globalTotalPaid: accGlobalPaid,
@@ -320,26 +317,17 @@ const Dashboard = () => {
       icon: <DollarSign size={20} className="text-slate-600"/>,
       cards: [
         {
-          title: "Carta contemplada com correção",
+          title: "Crédito Disponível (Contempladas)",
           value: totals.totalAvailableContemplatedOnly,
           icon: <BadgeCheck size={24} className="text-indigo-600" />,
           bg: "bg-indigo-50 border-indigo-200",
           border: "border-indigo-200",
           textColor: "text-indigo-800",
           isCurrency: true,
-          description: "Saldo líquido (Crédito - Lances - Uso)"
+          description: "Saldo liberado e pronto para uso"
         },
         {
-          title: "Crédito",
-          value: totals.totalCreditAtContemplation,
-          icon: <DollarSign size={24} className="text-slate-600" />,
-          bg: "bg-white",
-          border: "border-slate-200",
-          textColor: "text-slate-800",
-          isCurrency: true
-        },
-        {
-          title: "CRÉDITO TOTAL SEM CORREÇÃO",
+          title: "Crédito Líquido Total",
           value: totals.totalCredit,
           icon: <DollarSign size={24} className="text-slate-600" />,
           bg: "bg-white",
@@ -348,7 +336,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Aplicação financeira",
+          title: "Total Atualização (+)",
           value: totals.totalCreditUpdate,
           icon: <TrendingUp size={24} className="text-blue-600" />,
           bg: "bg-blue-50",
@@ -357,16 +345,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Crédito Total Com Aplicação",
-          value: totals.totalCorrectedCredit,
-          icon: <TrendingUp size={24} className="text-blue-600" />,
-          bg: "bg-blue-50",
-          border: "border-blue-100",
-          textColor: "text-blue-700",
-          isCurrency: true
-        },
-        {
-          title: "Crédito Utilizado",
+          title: "Crédito Utilizado (Total)",
           value: totals.totalCreditUsed,
           icon: <ShoppingBag size={24} className="text-amber-600" />,
           bg: "bg-amber-50",
@@ -375,7 +354,7 @@ const Dashboard = () => {
           isCurrency: true
         },
         {
-          title: "Crédito Total Disponível",
+          title: "Saldo Disponível (Total)",
           value: totals.totalAvailableCredit,
           icon: <Wallet size={24} className="text-emerald-600" />,
           bg: "bg-emerald-50",
@@ -487,10 +466,105 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8 relative pb-10">
-      <div className="flex flex-col xl:flex-row xl:items-center justify-end gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Dashboard Gerencial</h1>
+          <p className="text-slate-500">Indicadores financeiros, operacionais e Custo Efetivo Total (CET)</p>
+        </div>
+        
         {/* Filters */}
-        <div className="w-full">
-           <ConsortiumFilterBar showQuotaFilter={true} />
+        <div className="flex flex-col md:flex-row gap-2">
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Building2 size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={globalFilters.companyId} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, companyId: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when company filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-36 cursor-pointer"
+              >
+                <option value="">Empresa (Todas)</option>
+                {companies.map(comp => (
+                  <option key={comp.id} value={comp.id}>{comp.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Filter size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={globalFilters.administratorId} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when admin filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-40 cursor-pointer"
+              >
+                <option value="">Admin (Todas)</option>
+                {administrators.map(adm => (
+                  <option key={adm.id} value={adm.id}>{adm.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Filter size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={globalFilters.productType} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, productType: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when product filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-32 cursor-pointer"
+              >
+                <option value="">Produto (Todos)</option>
+                <option value="VEICULO">Veículo</option>
+                <option value="IMOVEL">Imóvel</option>
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <Filter size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={globalFilters.status} 
+                onChange={(e) => {
+                  setGlobalFilters({ ...globalFilters, status: e.target.value });
+                  setSelectedQuotaId(''); // Reset specific quota when status filter changes
+                }}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-32 cursor-pointer"
+              >
+                <option value="">Status (Todos)</option>
+                <option value="ACTIVE">Em Andamento</option>
+                <option value="CONTEMPLATED">Contempladas</option>
+              </select>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2">
+              <FileText size={18} className="text-slate-400 ml-2" />
+              <select 
+                value={selectedQuotaId} 
+                onChange={(e) => setSelectedQuotaId(e.target.value)}
+                className="bg-transparent text-sm text-slate-700 outline-none p-2 w-full md:w-48 cursor-pointer"
+              >
+                <option value="">Todas as Cotas</option>
+                {quotas
+                  .filter(q => {
+                    const matchCompany = !globalFilters.companyId || q.companyId === globalFilters.companyId;
+                    const matchAdmin = !globalFilters.administratorId || q.administratorId === globalFilters.administratorId;
+                    const matchProduct = !globalFilters.productType || q.productType === globalFilters.productType;
+                    let matchStatus = true;
+                    if (globalFilters.status === 'ACTIVE') matchStatus = !q.isContemplated;
+                    if (globalFilters.status === 'CONTEMPLATED') matchStatus = q.isContemplated;
+                    return matchCompany && matchAdmin && matchProduct && matchStatus;
+                  })
+                  .map(q => (
+                  <option key={q.id} value={q.id}>
+                    {q.group} / {q.quotaNumber} {q.companyId ? `(${companies.find(c => c.id === q.companyId)?.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
         </div>
       </div>
 
@@ -515,18 +589,18 @@ const Dashboard = () => {
                     <div 
                       key={cIdx} 
                       onClick={card.onClick ? card.onClick : undefined}
-                      className={`p-4 sm:p-6 rounded-xl border shadow-sm flex flex-row items-center gap-4 sm:gap-5 transition-transform hover:scale-[1.01] ${card.bg} ${card.border}`}
+                      className={`p-6 rounded-xl border shadow-sm flex items-center gap-5 transition-transform hover:scale-[1.01] ${card.bg} ${card.border}`}
                     >
-                      <div className="p-3 sm:p-4 bg-white rounded-full shadow-sm shrink-0">
+                      <div className="p-4 bg-white rounded-full shadow-sm">
                           {card.icon}
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 truncate">{card.title}</p>
-                        <p className={`text-lg sm:text-2xl font-bold ${card.textColor} truncate`}>
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">{card.title}</p>
+                        <p className={`text-2xl font-bold ${card.textColor}`}>
                           {card.isCurrency ? formatCurrency(card.value as number) : (card.isRaw ? card.value : card.value)}
                         </p>
                         {(card as any).description && (
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 mt-1 truncate">{(card as any).description}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{(card as any).description}</p>
                         )}
                       </div>
                     </div>
@@ -549,8 +623,8 @@ const Dashboard = () => {
                           <X size={20} />
                       </button>
                   </div>
-                  <div className="p-0 overflow-x-auto custom-scrollbar flex-1">
-                      <table className="w-full text-sm text-left min-w-[600px]">
+                  <div className="p-0 overflow-y-auto flex-1">
+                      <table className="w-full text-sm text-left">
                           <thead className="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0">
                               <tr>
                                   <th className="px-6 py-3">Vencimento</th>

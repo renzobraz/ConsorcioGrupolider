@@ -1,57 +1,26 @@
 
 // Fix React import from named to default export
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useConsortium } from '../store/ConsortiumContext';
-import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
-import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr, safeParseNumber, generateUUID } from '../utils/formatters';
-import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer, ArrowLeft, Settings, Info } from 'lucide-react';
+import { formatCurrency, formatNumber, formatPercent, formatDate, getTodayStr } from '../utils/formatters';
+import { Pencil, Search, Gavel, TrendingUp, Calculator, X, Calendar, Building2, Filter, CheckCircle, Edit3, ShoppingBag, Plus, Trash2, Download, FileText, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { PaymentStatus, ManualTransactionType, CorrectionIndex, ProjectionConfig } from '../types';
-import { calculateScheduleSummary, calculateAverageIndices } from '../services/calculationService';
+import { PaymentStatus, ManualTransactionType } from '../types';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 const Simulation = () => {
-  const { 
-    quotas, 
-    currentQuota, 
-    setCurrentQuota, 
-    installments, 
-    payments, 
-    updateInstallmentPayment, 
-    companies, 
-    administrators, 
-    indices, 
-    globalFilters, 
-    setGlobalFilters, 
-    manualTransactions, 
-    addManualTransaction, 
-    updateManualTransaction, 
-    deleteManualTransaction,
-    projectionConfig,
-    setProjectionConfig
-  } = useConsortium();
+  const { quotas, currentQuota, setCurrentQuota, installments, payments, updateInstallmentPayment, companies, administrators, indices, globalFilters, setGlobalFilters, addManualTransaction, deleteManualTransaction } = useConsortium();
   const navigate = useNavigate();
   
-  // Sync with Global Filters
-  useEffect(() => {
-    if (globalFilters.quotaId && (!currentQuota || currentQuota.id !== globalFilters.quotaId)) {
-      const quota = quotas.find(q => q.id === globalFilters.quotaId);
-      if (quota) setCurrentQuota(quota);
-    }
-  }, [globalFilters.quotaId, quotas]);
-
+  const [searchText, setSearchText] = useState('');
   const [editingCell, setEditingCell] = useState<{ id: number, field: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [isBidModal, setIsBidModal] = useState(false);
-  const [isEmbeddedBidModal, setIsEmbeddedBidModal] = useState(false);
-  const [isProjectionSettingsOpen, setIsProjectionSettingsOpen] = useState(false);
 
   // Manual Transaction Modal State
   const [isManualTxModalOpen, setIsManualTxModalOpen] = useState(false);
-  const [editingManualTxId, setEditingManualTxId] = useState<string | null>(null);
   const [manualTxFormData, setManualTxFormData] = useState({
     date: getTodayStr(),
     amount: '0',
@@ -86,7 +55,6 @@ const Simulation = () => {
   const openPaymentModal = (inst: any, isBid: boolean = false, isEmbedded: boolean = false) => {
     setSelectedInstallment(inst);
     setIsBidModal(isBid);
-    setIsEmbeddedBidModal(isEmbedded);
     
     const toStr = (val: any) => {
       if (val === undefined || val === null) return '0';
@@ -94,7 +62,7 @@ const Simulation = () => {
     };
 
     if (isBid) {
-      const bidPayment = isEmbedded ? (payments[-1] || {}) : (payments[0] || {});
+      const bidPayment = payments[0] || {};
       const amount = isEmbedded ? (inst.bidEmbeddedApplied || 0) : (inst.bidFreeApplied || 0);
       const fc = isEmbedded ? (inst.bidEmbeddedAbatementFC || 0) : (inst.bidFreeAbatementFC || 0);
       const fr = isEmbedded ? (inst.bidEmbeddedAbatementFR || 0) : (inst.bidFreeAbatementFR || 0);
@@ -159,10 +127,7 @@ const Simulation = () => {
     if (!selectedInstallment && !isBidModal) return;
     
     try {
-      let installmentNumber = selectedInstallment?.installmentNumber;
-      if (isBidModal) {
-        installmentNumber = isEmbeddedBidModal ? -1 : 0;
-      }
+      const installmentNumber = isBidModal ? 0 : selectedInstallment.installmentNumber;
       const parse = (v: string) => parseFloat(v.replace(',', '.')) || 0;
       
       await updateInstallmentPayment(installmentNumber, {
@@ -214,13 +179,10 @@ const Simulation = () => {
   const handleManualTxSubmit = async () => {
     if (!currentQuota) return;
     try {
-      const parse = (v: string) => {
-        if (typeof v !== 'string') return v || 0;
-        return parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
-      };
+      const parse = (v: string) => parseFloat(v.replace(',', '.')) || 0;
       
-      const transaction = {
-        id: editingManualTxId || generateUUID(),
+      await addManualTransaction({
+        id: crypto.randomUUID(),
         quotaId: currentQuota.id,
         date: manualTxFormData.date,
         type: manualTxFormData.type,
@@ -233,16 +195,9 @@ const Simulation = () => {
         amortization: parse(manualTxFormData.amortization),
         fine: parse(manualTxFormData.fine),
         interest: parse(manualTxFormData.interest)
-      };
-
-      if (editingManualTxId) {
-        await updateManualTransaction(transaction);
-      } else {
-        await addManualTransaction(transaction);
-      }
+      });
       
       setIsManualTxModalOpen(false);
-      setEditingManualTxId(null);
       setManualTxFormData({
         date: getTodayStr(),
         amount: '0',
@@ -257,30 +212,9 @@ const Simulation = () => {
         interest: '0'
       });
     } catch (error: any) {
-      console.error("Error saving manual transaction:", error);
-      alert(error.message || "Erro ao salvar transação manual. Verifique sua conexão.");
+      console.error("Error adding manual transaction:", error);
+      alert(error.message || "Erro ao adicionar transação manual. Verifique sua conexão.");
     }
-  };
-
-  const handleEditManualTx = (txId: string) => {
-    const tx = manualTransactions.find(t => t.id === txId);
-    if (!tx) return;
-
-    setManualTxFormData({
-      date: tx.date,
-      amount: (tx.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      type: tx.type,
-      description: tx.description || '',
-      fc: (tx.fc || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      fr: (tx.fr || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      ta: (tx.ta || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      insurance: (tx.insurance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      amortization: (tx.amortization || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      fine: (tx.fine || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-      interest: (tx.interest || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-    });
-    setEditingManualTxId(txId);
-    setIsManualTxModalOpen(true);
   };
 
   const exportToExcel = () => {
@@ -329,7 +263,6 @@ const Simulation = () => {
 
       // 2. Embedded Bid Row
       if ((inst.bidEmbeddedApplied || 0) > 0) {
-        const bidPayment = payments[-1];
         rows.push({
           'P': 'LANCE',
           'Vencimento': 'EMBUTIDO',
@@ -351,11 +284,11 @@ const Simulation = () => {
           'Abat. FC': inst.bidEmbeddedAbatementFC,
           'Abat. FR': inst.bidEmbeddedAbatementFR,
           'Abat. TA': inst.bidEmbeddedAbatementTA,
-          'Data Lance': formatDate(bidPayment?.paymentDate || inst.bidDate),
+          'Data Lance': formatDate(inst.bidDate),
           'Total': -inst.bidEmbeddedApplied,
-          'Vlr Pago': bidPayment?.status === 'PAGO' ? inst.bidEmbeddedApplied : 0,
-          'Data Pagto': formatDate(bidPayment?.paymentDate),
-          'Status': bidPayment?.status || 'LANCE',
+          'Vlr Pago': 0,
+          'Data Pagto': '',
+          'Status': 'LANCE',
           'Saldo FC': inst.bidEmbeddedBalanceFC,
           '% Saldo FC': inst.bidEmbeddedPercentBalanceFC,
           'Saldo TA': inst.bidEmbeddedBalanceTA,
@@ -446,87 +379,10 @@ const Simulation = () => {
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
-    
-    if (projectionConfig.enabled) {
-      const note = `* VALORES PROJETADOS: Simulação com base em ${projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.`;
-      XLSX.utils.sheet_add_aoa(ws, [[""]], { origin: -1 });
-      XLSX.utils.sheet_add_aoa(ws, [[note]], { origin: -1 });
-    }
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Extrato');
     XLSX.writeFile(wb, `Extrato_${currentQuota.group}_${currentQuota.quotaNumber}.xlsx`);
   };
-
-  const chartData = useMemo(() => {
-    if (!installments || installments.length === 0) return [];
-    return installments.map(inst => ({
-      name: `P${inst.installmentNumber}`,
-      valor: inst.totalInstallment,
-      credito: inst.correctedCreditValue || inst.commonFund * (100 / (inst.monthlyRateFC || 1))
-    }));
-  }, [installments]);
-
-  const avgRates = useMemo(() => {
-    if (!indices || indices.length === 0) return {};
-    return calculateAverageIndices(indices, projectionConfig.periodMonths);
-  }, [indices, projectionConfig.periodMonths]);
-
-  const currentAvgRate = useMemo(() => {
-    if (!currentQuota) return 0;
-    if (projectionConfig.customRate) {
-      return (Math.pow(1 + (projectionConfig.customRate / 100), 1/12) - 1) * 100;
-    }
-    return avgRates[currentQuota.correctionIndex] || 0;
-  }, [currentQuota, avgRates, projectionConfig.customRate]);
-
-  const originalTotal = useMemo(() => {
-    if (!currentQuota || !installments) return 0;
-    // Calculate total without future projections
-    // This is a bit tricky since generateSchedule is already using projectionConfig
-    // We can estimate it by taking the last non-projected credit value
-    const lastPaid = [...installments].reverse().find(inst => inst.isPaid);
-    const baseCredit = lastPaid?.correctedCreditValue || currentQuota.creditValue;
-    
-    let total = 0;
-    installments.forEach(inst => {
-      if (inst.isPaid) {
-        total += inst.totalInstallment;
-      } else {
-        // Estimate remaining installments based on current credit
-        const fc = (baseCredit * (inst.monthlyRateFC || 0)) / 100;
-        const fr = (baseCredit * (inst.monthlyRateFR || 0)) / 100;
-        const ta = (baseCredit * (inst.monthlyRateTA || 0)) / 100;
-        total += fc + fr + ta + (inst.insurance || 0) + (inst.amortization || 0);
-      }
-    });
-    return total;
-  }, [currentQuota, installments]);
-
-  const finalProjectedCredit = useMemo(() => {
-    if (!installments || installments.length === 0) return 0;
-    return installments[installments.length - 1].correctedCreditValue || 0;
-  }, [installments]);
-
-  const detailedSummary = useMemo(() => {
-    if (!currentQuota) return {
-        paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
-        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0, percent: 0, bidFree: 0, bidEmbedded: 0, manualEarnings: 0 },
-        total: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, total: 0 },
-        counts: { total: 0 }
-    };
-
-    const summary = calculateScheduleSummary(currentQuota, installments, payments);
-    return {
-      ...summary,
-      counts: {
-        total: installments.filter(i => !i.isPaid && i.installmentNumber > 0).length
-      }
-    };
-  }, [currentQuota, installments, payments]);
-
-  const projectedTotal = detailedSummary?.total?.total || 0;
-  const inflationCost = projectedTotal - originalTotal;
 
   const exportToPDF = () => {
     if (!currentQuota || !installments.length) return;
@@ -542,7 +398,7 @@ const Simulation = () => {
 
     const tableColumn = [
       "P", "Vencimento", "Crédito", "FC", "TA", "FR", "Seguro", "Amort.", 
-      "Multa", "Juros", "Extra", "L. Livre", "L. Emb", "Abat. FC", "Abat. FR", "Abat. TA", "Total", "Vlr Pago", "Data Pagto", "Status", 
+      "Multa", "Juros", "Extra", "L. Livre", "L. Emb", "Abat. FC", "Total", "Vlr Pago", "Data Pagto", "Status", 
       "Saldo FC", "Saldo TA", "Saldo FR", "Saldo Dev"
     ];
     const tableRows: any[] = [];
@@ -556,7 +412,7 @@ const Simulation = () => {
           formatNumber(inst.correctionAmountFC),
           formatNumber(inst.correctionAmountTA),
           formatNumber(inst.correctionAmountFR),
-          "-", "-", "-", "-", "-", "-", "-", "-", "-", "-",
+          "-", "-", "-", "-", "-", "-", "-", "-",
           formatNumber(inst.correctionAmountTotal),
           "-", "-", "AJUSTE",
           formatNumber(inst.correctionBalanceFC),
@@ -568,7 +424,6 @@ const Simulation = () => {
 
       // 2. Embedded Bid Row
       if ((inst.bidEmbeddedApplied || 0) > 0) {
-        const bidPayment = payments[-1];
         tableRows.push([
           "LANCE",
           "EMBUTIDO",
@@ -579,12 +434,8 @@ const Simulation = () => {
           "-", "-", "-", "-", "-", "-",
           formatNumber(inst.bidEmbeddedApplied),
           formatNumber(inst.bidEmbeddedAbatementFC),
-          formatNumber(inst.bidEmbeddedAbatementFR),
-          formatNumber(inst.bidEmbeddedAbatementTA),
           `(${formatNumber(inst.bidEmbeddedApplied)})`,
-          bidPayment?.status === 'PAGO' ? formatNumber(inst.bidEmbeddedApplied) : "-",
-          formatDate(bidPayment?.paymentDate),
-          bidPayment?.status || "LANCE",
+          "-", "-", "LANCE",
           formatNumber(inst.bidEmbeddedBalanceFC),
           formatNumber(inst.bidEmbeddedBalanceTA),
           formatNumber(inst.bidEmbeddedBalanceFR),
@@ -606,11 +457,9 @@ const Simulation = () => {
           formatNumber(inst.bidFreeApplied),
           "-",
           formatNumber(inst.bidFreeAbatementFC),
-          formatNumber(inst.bidFreeAbatementFR),
-          formatNumber(inst.bidFreeAbatementTA),
           `(${formatNumber(inst.bidFreeApplied)})`,
           bidPayment?.status === 'PAGO' ? formatNumber(inst.bidFreeApplied) : "-",
-          formatDate(bidPayment?.paymentDate),
+          formatDate(bidPayment?.paymentDate || inst.bidDate),
           bidPayment?.status || "LANCE",
           formatNumber(inst.bidFreeBalanceFC),
           formatNumber(inst.bidFreeBalanceTA),
@@ -632,7 +481,7 @@ const Simulation = () => {
         formatNumber(inst.manualFine || 0),
         formatNumber(inst.manualInterest || 0),
         formatNumber(inst.manualEarnings || 0),
-        "-", "-", "-", "-", "-",
+        "-", "-", "-",
         formatNumber(inst.totalInstallment),
         formatNumber(inst.realAmountPaid || 0),
         formatDate(inst.paymentDate),
@@ -658,16 +507,6 @@ const Simulation = () => {
       }
     });
 
-    if (projectionConfig.enabled) {
-      const note = `* VALORES PROJETADOS: Simulação com base em ${projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.`;
-      autoTable(doc, {
-        body: [[note]],
-        startY: (doc as any).lastAutoTable.finalY + 5,
-        theme: 'plain',
-        styles: { fontSize: 6, textColor: [180, 83, 9], fontStyle: 'bold' }
-      });
-    }
-
     doc.save(`Extrato_${currentQuota.group}_${currentQuota.quotaNumber}.pdf`);
   };
 
@@ -687,23 +526,27 @@ const Simulation = () => {
     }
   };
 
+  const filteredOptions = useMemo(() => {
+    return quotas.filter(q => {
+      const textMatch = (q.group || '').toLowerCase().includes(searchText.toLowerCase()) || (q.quotaNumber || '').toLowerCase().includes(searchText.toLowerCase());
+      const companyMatch = globalFilters.companyId ? q.companyId === globalFilters.companyId : true;
+      const adminMatch = globalFilters.administratorId ? q.administratorId === globalFilters.administratorId : true;
+      const productMatch = globalFilters.productType ? q.productType === globalFilters.productType : true;
+      let statusMatch = true;
+      if (globalFilters.status === 'ACTIVE') statusMatch = !q.isContemplated;
+      if (globalFilters.status === 'CONTEMPLATED') statusMatch = q.isContemplated;
+      return textMatch && companyMatch && adminMatch && productMatch && statusMatch;
+    });
+  }, [quotas, searchText, globalFilters]);
+
   const todayStr = getTodayStr();
 
   const currentDisplayCredit = useMemo(() => {
-    if (!currentQuota) return 0;
-    if (installments.length === 0) return currentQuota.creditValue;
-
-    const pastOrPresent = installments.filter(i => {
-      if (!i.dueDate) return false;
-      return i.dueDate.split('T')[0] <= todayStr;
-    });
-
-    if (pastOrPresent.length > 0) {
-      const lastPast = pastOrPresent[pastOrPresent.length - 1];
-      return lastPast.correctedCreditValue || currentQuota.creditValue;
+    if (currentQuota && installments.length > 0) {
+        const pastOrPresent = installments.filter(i => i.dueDate.split('T')[0] <= todayStr);
+        return pastOrPresent.length > 0 ? pastOrPresent[pastOrPresent.length - 1].correctedCreditValue || currentQuota.creditValue : installments[0].correctedCreditValue || currentQuota.creditValue;
     }
-
-    return installments[0].correctedCreditValue || currentQuota.creditValue;
+    return currentQuota?.creditValue || 0;
   }, [currentQuota, installments, todayStr]);
 
   const quotaStatus = useMemo(() => {
@@ -719,6 +562,49 @@ const Simulation = () => {
     
     return today < firstAssembly ? 'Pré-Grupo' : 'Grupo Ativo';
   }, [currentQuota]);
+
+  const detailedSummary = useMemo(() => {
+    const stats = {
+        paid: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
+        toPay: { fc: 0, fr: 0, ta: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, total: 0 },
+        counts: { total: 0 }
+    };
+    if (!currentQuota) return stats;
+
+    installments.forEach(inst => {
+        if (inst.isPaid) {
+            stats.paid.fc += inst.commonFund + (inst.manualEarnings || 0);
+            stats.paid.fr += inst.reserveFund; 
+            stats.paid.ta += inst.adminFee;
+            stats.paid.insurance += (inst.insurance || 0); 
+            stats.paid.amortization += (inst.amortization || 0);
+            stats.paid.fine += (inst.manualFine || 0); 
+            stats.paid.interest += (inst.manualInterest || 0);
+        } else {
+            stats.toPay.fc += inst.commonFund; 
+            stats.toPay.fr += inst.reserveFund; 
+            stats.toPay.ta += inst.adminFee;
+            stats.toPay.insurance += (inst.insurance || 0); 
+            stats.toPay.amortization += (inst.amortization || 0);
+            stats.counts.total++;
+        }
+        if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
+            const isBidPaid = payments[0]?.status === 'PAGO';
+            if (isBidPaid) {
+                stats.paid.fc += (inst.bidAbatementFC || 0); 
+                stats.paid.fr += (inst.bidAbatementFR || 0); 
+                stats.paid.ta += (inst.bidAbatementTA || 0);
+            } else {
+                stats.toPay.fc += (inst.bidAbatementFC || 0); 
+                stats.toPay.fr += (inst.bidAbatementFR || 0); 
+                stats.toPay.ta += (inst.bidAbatementTA || 0);
+            }
+        }
+    });
+    stats.paid.total = stats.paid.fc + stats.paid.fr + stats.paid.ta + stats.paid.insurance + stats.paid.amortization + stats.paid.fine + stats.paid.interest;
+    stats.toPay.total = stats.toPay.fc + stats.toPay.fr + stats.toPay.ta + stats.toPay.insurance + stats.toPay.amortization;
+    return stats;
+  }, [currentQuota, installments, todayStr]);
 
   const footerTotals = useMemo(() => {
     const totals = installments.reduce((acc, inst) => {
@@ -748,15 +634,13 @@ const Simulation = () => {
             fine: acc.fine + (inst.manualFine || 0),
             interest: acc.interest + (inst.manualInterest || 0),
             manualEarnings: acc.manualEarnings + (inst.manualEarnings || 0),
-            total: acc.total + totalLineValue,
-            paidTotal: acc.paidTotal + (inst.isPaid ? (inst.realAmountPaid || 0) : 0)
+            total: acc.total + totalLineValue
         };
-    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, manualEarnings: 0, total: 0, paidTotal: 0 });
+    }, { fc: 0, fcPct: 0, ta: 0, taPct: 0, fr: 0, frPct: 0, insurance: 0, amortization: 0, fine: 0, interest: 0, manualEarnings: 0, total: 0 });
 
     return {
         ...totals,
-        totalPct: totals.fcPct + totals.taPct + totals.frPct,
-        paidTotalPct: currentDisplayCredit > 0 ? (totals.paidTotal / currentDisplayCredit) * 100 : 0
+        totalPct: totals.fcPct + totals.taPct + totals.frPct
     };
   }, [installments, currentDisplayCredit]);
 
@@ -767,7 +651,7 @@ const Simulation = () => {
 
   const handleSaveEdit = (installmentNum: number) => {
     if (!editingCell) return;
-    const val = safeParseNumber(editValue);
+    const val = parseFloat(editValue.replace(',', '.'));
     if (!isNaN(val)) {
         const update: any = {};
         if (editingCell.field === 'fc') update.fc = val;
@@ -790,8 +674,6 @@ const Simulation = () => {
 
   return (
     <div className="space-y-6">
-      <ConsortiumFilterBar showQuotaFilter={true} />
-
       {/* Payment Modal */}
       {isPaymentModalOpen && selectedInstallment && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -815,18 +697,15 @@ const Simulation = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
-                        <select
-                          name="status"
-                          value={paymentFormData.status}
-                          onChange={handlePaymentFormChange}
-                          className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                        >
-                          <option value={PaymentStatus.PREVISTO}>Previsto</option>
-                          <option value={PaymentStatus.PAGO}>Pago</option>
-                          <option value={PaymentStatus.CONCILIADO}>Conciliado</option>
-                          <option value={PaymentStatus.EFETIVADO}>Efetivado</option>
-                          <option value={PaymentStatus.QUITADO}>Quitado</option>
-                        </select>
+                      <select
+                        name="status"
+                        value={paymentFormData.status}
+                        onChange={handlePaymentFormChange}
+                        className="w-full p-2 border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      >
+                        <option value={PaymentStatus.PREVISTO}>Previsto</option>
+                        <option value={PaymentStatus.PAGO}>Pago</option>
+                      </select>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Data do Pagamento</label>
@@ -997,10 +876,10 @@ const Simulation = () => {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                {editingManualTxId ? <Edit3 className="text-blue-600" size={20} /> : <Plus className="text-blue-600" size={20} />}
-                {editingManualTxId ? 'Editar Transação Manual' : 'Nova Transação Manual'}
+                <Plus className="text-blue-600" size={20} />
+                Nova Transação Manual
               </h3>
-              <button onClick={() => { setIsManualTxModalOpen(false); setEditingManualTxId(null); }} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors">
+              <button onClick={() => setIsManualTxModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors">
                 <X size={20} />
               </button>
             </div>
@@ -1141,7 +1020,7 @@ const Simulation = () => {
             
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
               <button
-                onClick={() => { setIsManualTxModalOpen(false); setEditingManualTxId(null); }}
+                onClick={() => setIsManualTxModalOpen(false)}
                 className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
               >
                 Cancelar
@@ -1150,182 +1029,174 @@ const Simulation = () => {
                 onClick={handleManualTxSubmit}
                 className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors flex items-center gap-2"
               >
-                {editingManualTxId ? <Edit3 size={16} /> : <Plus size={16} />}
-                {editingManualTxId ? 'Salvar Alterações' : 'Adicionar Transação'}
+                <Plus size={16} />
+                Adicionar Transação
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div className="flex items-center gap-3">
-          {currentQuota && (
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider ml-0.5">Status Quota</span>
-              <span className={`px-2 py-1 rounded-md text-[11px] font-bold uppercase ${quotaStatus === 'Pré-Grupo' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
-                {quotaStatus}
-              </span>
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-4 print:hidden">
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600" /> Simulador e Extrato</h2>
+                {currentQuota && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${quotaStatus === 'Pré-Grupo' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                        {quotaStatus}
+                    </span>
+                )}
             </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {currentQuota && (
-            <div className="flex items-center gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg">
-              <button 
-                onClick={() => setProjectionConfig({ ...projectionConfig, enabled: !projectionConfig.enabled })}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${
-                  projectionConfig.enabled 
-                    ? 'bg-amber-100 text-amber-700 border border-amber-200 shadow-sm' 
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                }`}
-                title="Simular correções futuras"
-              >
-                <TrendingUp size={14} className={projectionConfig.enabled ? 'animate-pulse' : ''} />
-                {projectionConfig.enabled ? 'Projeção Ativa' : 'Simular Futuro'}
-              </button>
-              
-              <button
-                onClick={() => setIsProjectionSettingsOpen(!isProjectionSettingsOpen)}
-                className={`p-1.5 rounded-md border transition-all ${
-                  isProjectionSettingsOpen ? 'bg-white border-blue-300 text-blue-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                }`}
-                title="Configurar Projeção"
-              >
-                <Settings size={14} />
-              </button>
-
-              {isProjectionSettingsOpen && (
-                <div className="absolute top-20 right-4 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-50">
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Configurar Projeção</h4>
-                    <button onClick={() => setIsProjectionSettingsOpen(false)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+              <div className="flex items-center gap-2">
+                {currentQuota && (
+                  <button 
+                    onClick={() => {
+                      setManualTxFormData({
+                        date: getTodayStr(),
+                        amount: '0',
+                        type: ManualTransactionType.EARNING,
+                        description: '',
+                        fc: '0',
+                        fr: '0',
+                        ta: '0',
+                        insurance: '0',
+                        amortization: '0',
+                        fine: '0',
+                        interest: '0'
+                      });
+                      setIsManualTxModalOpen(true);
+                    }} 
+                    className="px-3 py-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-200 text-sm font-medium flex items-center gap-2"
+                  >
+                    <Plus size={16} /> Transação Manual
+                  </button>
+                )}
+                {currentQuota && (
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={exportToExcel}
+                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                      title="Exportar para Excel"
+                    >
+                      <Download size={18} />
+                    </button>
+                    <button 
+                      onClick={exportToPDF}
+                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                      title="Exportar para PDF"
+                    >
+                      <FileText size={18} />
+                    </button>
+                    <button 
+                      onClick={handlePrint}
+                      className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                      title="Imprimir"
+                    >
+                      <Printer size={18} />
+                    </button>
                   </div>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1 ml-0.5">Período da Média</label>
-                      <select 
-                        value={projectionConfig.periodMonths}
-                        onChange={(e) => setProjectionConfig({ ...projectionConfig, periodMonths: Number(e.target.value), customRate: undefined })}
-                        className="w-full text-xs border border-slate-200 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value={12}>Últimos 12 meses</option>
-                        <option value={24}>Últimos 24 meses</option>
-                        <option value={36}>Últimos 36 meses (3 anos)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-500 uppercase block mb-1 ml-0.5">Taxa Anual Fixa (%)</label>
-                      <div className="flex gap-2">
-                        <input 
-                          type="number"
-                          step="0.1"
-                          placeholder="Ex: 5.0"
-                          value={projectionConfig.customRate || ''}
-                          onChange={(e) => setProjectionConfig({ ...projectionConfig, customRate: e.target.value ? Number(e.target.value) : undefined })}
-                          className="flex-1 text-xs border border-slate-200 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none font-bold"
-                        />
-                        {projectionConfig.customRate && (
-                          <button 
-                            onClick={() => setProjectionConfig({ ...projectionConfig, customRate: undefined })}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-md"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-slate-400 mt-1 italic">Ignora a média histórica se preenchido.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {currentQuota && (
-            <div className="h-6 w-px bg-slate-200 mx-1 hidden md:block"></div>
-          )}
-
-          {currentQuota && (
-            <div className="flex items-center gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg">
-              <button 
-                onClick={() => {
-                  setManualTxFormData({
-                    date: getTodayStr(),
-                    amount: '0',
-                    type: ManualTransactionType.EARNING,
-                    description: '',
-                    fc: '0',
-                    fr: '0',
-                    ta: '0',
-                    insurance: '0',
-                    amortization: '0',
-                    fine: '0',
-                    interest: '0'
-                  });
-                  setIsManualTxModalOpen(true);
-                }} 
-                className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 text-xs font-bold flex items-center gap-2 transition-all"
-              >
-                <Plus size={14} /> Transação Manual
-              </button>
-
-              <div className="flex items-center gap-1 border-l border-slate-200 ml-1 pl-1">
-                <button 
-                  onClick={exportToExcel}
-                  className="p-1.5 text-slate-500 hover:bg-white hover:text-emerald-600 rounded-md transition-all"
-                  title="Exportar Excel"
-                >
-                  <Download size={16} />
-                </button>
-                <button 
-                  onClick={exportToPDF}
-                  className="p-1.5 text-slate-500 hover:bg-white hover:text-red-600 rounded-md transition-all"
-                  title="Exportar PDF"
-                >
-                  <FileText size={16} />
-                </button>
-                <button 
-                  onClick={handlePrint}
-                  className="p-1.5 text-slate-500 hover:bg-white hover:text-blue-600 rounded-md transition-all"
-                  title="Imprimir"
-                >
-                  <Printer size={16} />
-                </button>
+                )}
+                {currentQuota && <button onClick={() => navigate(`/edit/${currentQuota.id}`)} className="px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 text-sm font-medium flex items-center gap-2"><Pencil size={16} /> Editar Cota</button>}
               </div>
-            </div>
-          )}
+        </div>
+        
+        {/* FILTERS ROW */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+             {/* Search */}
+             <div className="md:col-span-2 relative">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input type="text" placeholder="Pesquisar..." value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500" />
+             </div>
+             
+             {/* Company Filter */}
+             <div className="md:col-span-2 relative">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.companyId || ''}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, companyId: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Empresa</option>
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+             </div>
 
-          {currentQuota && (
-            <button 
-              onClick={() => navigate(`/edit/${currentQuota.id}`)} 
-              className="px-3 py-2 bg-white text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
-            >
-              <Pencil size={14} /> Editar Cota
-            </button>
-          )}
+             {/* Administrator Filter */}
+             <div className="md:col-span-2 relative">
+                <Gavel className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.administratorId || ''}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, administratorId: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Administradora</option>
+                    {administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+             </div>
+
+             {/* Product Filter */}
+             <div className="md:col-span-2 relative">
+                <ShoppingBag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white truncate"
+                    value={globalFilters.productType || ''}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, productType: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Produto</option>
+                    <option value="VEICULO">Veículo</option>
+                    <option value="IMOVEL">Imóvel</option>
+                </select>
+             </div>
+
+             {/* Status Filter */}
+             <div className="md:col-span-2 relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <select 
+                    className="w-full pl-9 pr-2 py-2 text-sm border border-slate-300 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 appearance-none bg-white"
+                    value={globalFilters.status}
+                    onChange={(e) => {
+                        setGlobalFilters({ ...globalFilters, status: e.target.value });
+                        setCurrentQuota(null); // Reset selection
+                    }}
+                >
+                    <option value="">Status</option>
+                    <option value="CONTEMPLATED">Contempladas</option>
+                    <option value="ACTIVE">Em Andamento</option>
+                </select>
+             </div>
+
+             {/* Quota Select */}
+             <div className="md:col-span-2">
+                 <select 
+                    className="w-full py-2 px-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md outline-none cursor-pointer" 
+                    value={currentQuota?.id || ''} 
+                    onChange={(e) => { const found = quotas.find(q => q.id === e.target.value); setCurrentQuota(found || null); }}
+                >
+                    <option value="">Cota ({filteredOptions.length})</option>
+                    {filteredOptions.map(q => (
+                        <option key={q.id} value={q.id}>
+                            {q.group}-{q.quotaNumber}
+                        </option>
+                    ))}
+                 </select>
+             </div>
         </div>
       </div>
 
       {currentQuota && (
         <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex items-center justify-between text-sm text-emerald-800">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <Calendar size={18} />
-              <span>Mês de Referência do Índice: <strong>{currentQuota.indexReferenceMonth || 'Não definido'}</strong></span>
-            </div>
-            {currentQuota.isContemplated && currentQuota.contemplationDate && (
-              <div className="flex items-center gap-2 border-l border-emerald-200 pl-6">
-                <CheckCircle size={18} className="text-emerald-600" />
-                <span>Data de Contemplação: <strong>{formatDate(currentQuota.contemplationDate)}</strong></span>
-                {currentQuota.isDrawContemplation && (
-                  <span className="ml-2 px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-full text-[10px] font-bold uppercase">Sorteio</span>
-                )}
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <Calendar size={18} />
+            <span>Mês de Referência do Índice: <strong>{currentQuota.indexReferenceMonth || 'Não definido'}</strong></span>
           </div>
           <span className="text-xs opacity-75 italic">Utilizado para o cálculo de correção anual (M-2)</span>
         </div>
@@ -1333,8 +1204,8 @@ const Simulation = () => {
 
       {currentQuota && (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-xs text-left border-collapse min-w-[1400px]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-[10px] uppercase sticky top-0 z-20">
                 <tr>
                   <th className="p-2 text-center bg-slate-100 sticky left-0 z-30 w-10">P</th>
@@ -1348,24 +1219,18 @@ const Simulation = () => {
                   <th className="p-2 text-right">Multa</th>
                   <th className="p-2 text-right">Juros</th>
                   <th className="p-2 text-right text-blue-700 bg-blue-50/30">Extra/Rend.</th>
-                  <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Previsto (%)</th>
+                  <th className="p-2 text-right font-bold text-slate-800 bg-emerald-50/50">Vlr Pago (%)</th>
                   <th className="p-2 text-right border-l border-slate-200 bg-slate-50/80">Saldo FC (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo TA (%)</th>
                   <th className="p-2 text-right bg-slate-50/80">Saldo FR (%)</th>
                   <th className="p-2 text-right font-bold bg-slate-100 border-l border-slate-200">Saldo Total (%)</th>
-                  <th className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/50 border-l border-slate-200">Vlr Efetivado</th>
                   <th className="p-2 text-center bg-slate-100 border-l border-slate-200 w-12 print:hidden">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {installments.map((inst, idx) => {
-                  const uniqueKey = inst.isManualTransaction 
-                    ? `manual-${inst.manualTransactionId}-${idx}` 
-                    : `inst-${inst.installmentNumber}-${idx}`;
-                  
-                  return (
-                    <React.Fragment key={uniqueKey}>
-                    {inst.correctionApplied && (
+                {installments.map((inst, idx) => (
+                  <React.Fragment key={inst.isManualTransaction ? `manual-${inst.manualTransactionId || idx}` : `inst-${inst.installmentNumber}`}>
+                  {inst.correctionApplied && (
                       <tr className="bg-blue-50 border-y border-blue-100">
                          <td className="p-2 text-center text-blue-600 sticky left-0 bg-blue-50 z-10"><TrendingUp size={12} className="mx-auto"/></td>
                          <td colSpan={11} className="p-2 text-blue-800 text-[10px] font-bold uppercase tracking-wide">
@@ -1397,17 +1262,17 @@ const Simulation = () => {
                   {((inst.bidEmbeddedApplied ?? 0) > 0 || (inst.bidFreeApplied ?? 0) > 0) && (
                     <React.Fragment>
                       {inst.bidEmbeddedApplied! > 0 && (
-                        <tr className={`bg-amber-50 border-y border-amber-100/50 ${payments[-1]?.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
+                        <tr className={`bg-amber-50 border-y border-amber-100/50 ${payments[0]?.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
                             <td className="p-2 text-center font-bold text-amber-700 sticky left-0 bg-amber-50 z-10">
                                 <div className="flex flex-col items-center">
                                     <Gavel size={14} className="mx-auto" />
-                                    {payments[-1]?.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
+                                    {payments[0]?.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
                                 </div>
                             </td>
                             <td className="p-2 text-left font-bold text-amber-800 text-[9px] uppercase whitespace-nowrap">
                                 <div>LANCE EMBUTIDO</div>
                                 <div className="text-[8px] text-amber-600 font-medium flex items-center gap-0.5 mt-0.5">
-                                    <Calendar size={8} /> {formatDate(payments[-1]?.paymentDate || inst.bidDate || '')}
+                                    <Calendar size={8} /> {formatDate(payments[0]?.paymentDate || inst.bidDate || '')}
                                 </div>
                             </td>
                             <td></td>
@@ -1423,11 +1288,11 @@ const Simulation = () => {
                             <td className="p-2 text-center border-l border-amber-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, true)}
-                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
+                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-amber-700 bg-amber-100 hover:bg-amber-200'}`}
                                     title="Efetivar Lance"
                                 >
-                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? <Edit3 size={12} /> : <CheckCircle size={12} />}
-                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[-1]?.status || '') ? 'Editar' : 'Efetivar'}
+                                    {payments[0]?.status === 'PAGO' ? <Edit3 size={12} /> : <CheckCircle size={12} />}
+                                    {payments[0]?.status === 'PAGO' ? 'Editar' : 'Efetivar'}
                                 </button>
                             </td>
                         </tr>
@@ -1459,24 +1324,24 @@ const Simulation = () => {
                             <td className="p-2 text-center border-l border-orange-200 print:hidden">
                                 <button 
                                     onClick={() => openPaymentModal(inst, true, false)}
-                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-orange-700 bg-orange-100 hover:bg-orange-200'}`}
+                                    className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${payments[0]?.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-orange-700 bg-orange-100 hover:bg-orange-200'}`}
                                     title="Efetivar Lance"
                                 >
-                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? <Edit3 size={12} /> : <CheckCircle size={12} />}
-                                    {['PAGO', 'EFETIVADO', 'QUITADO', 'CONCILIADO'].includes(payments[0]?.status || '') ? 'Editar' : 'Efetivar'}
+                                    {payments[0]?.status === 'PAGO' ? <Edit3 size={12} /> : <CheckCircle size={12} />}
+                                    {payments[0]?.status === 'PAGO' ? 'Editar' : 'Efetivar'}
                                 </button>
                             </td>
                         </tr>
                       )}
                     </React.Fragment>
                   )}
-                  <tr className={`hover:bg-slate-50 transition-colors ${inst.isPaid ? 'bg-emerald-50/30' : ''}`}>
+                  <tr className={`hover:bg-slate-50 transition-colors ${inst.status === 'PAGO' ? 'bg-emerald-50/30' : ''}`}>
                     <td className="p-2 text-center font-medium sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100">
                       <div className="flex flex-col items-center">
-                        <span className={`text-[9px] ${inst.isPaid ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                        <span className={`text-[9px] ${inst.status === 'PAGO' ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
                           {inst.installmentNumber === 0 ? '000' : inst.installmentNumber}
                         </span>
-                        {inst.isPaid && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
+                        {inst.status === 'PAGO' && <CheckCircle size={10} className="text-emerald-500 mx-auto mt-0.5" />}
                         {inst.tag && (
                           <span className="text-[8px] font-black text-blue-600 uppercase mt-0.5 bg-blue-50 px-1 rounded border border-blue-100">
                             {inst.tag}
@@ -1486,7 +1351,7 @@ const Simulation = () => {
                     </td>
                     <td className="p-2 text-slate-500">
                       {formatDate(inst.dueDate)}
-                      {inst.isPaid && inst.paymentDate && (
+                      {inst.status === 'PAGO' && inst.paymentDate && (
                         <div className="text-[8px] text-emerald-600 font-medium">Pago: {formatDate(inst.paymentDate)}</div>
                       )}
                     </td>
@@ -1503,9 +1368,9 @@ const Simulation = () => {
                     </td>
                     <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/20">
                       <div className="flex flex-col items-end">
-                        <span>{formatNumber((inst.isManualTransaction ? (inst.totalInstallment || 0) : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
+                        <span>{formatNumber((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0))}</span>
                         <span className="text-[8px] text-slate-400">
-                          {((((inst.isManualTransaction ? (inst.totalInstallment || 0) : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0)) / (inst.correctedCreditValue || 1)) * 100).toFixed(4)}%
+                          {((((inst.isManualTransaction ? inst.realAmountPaid : (inst.totalInstallment || 0)) + (!inst.isManualTransaction ? (inst.manualEarnings || 0) : 0)) / (inst.correctedCreditValue || 1)) * 100).toFixed(4)}%
                         </span>
                       </div>
                     </td>
@@ -1513,47 +1378,28 @@ const Simulation = () => {
                     <td className="p-2 text-right"><span>{formatNumber(inst.balanceTA)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceTA.toFixed(4)}%</span></td>
                     <td className="p-2 text-right"><span>{formatNumber(inst.balanceFR)}</span><br/><span className="text-[8px] text-slate-400">{inst.percentBalanceFR.toFixed(4)}%</span></td>
                     <td className="p-2 text-right font-bold text-slate-800 bg-slate-100/50 border-l border-slate-200"><span>{formatNumber(inst.balanceTotal)}</span><br/><span className="text-[9px] text-slate-500 font-black">{inst.percentBalanceTotal.toFixed(4)}%</span></td>
-                    <td className="p-2 text-right font-bold text-emerald-800 bg-emerald-50/30 border-l border-slate-200">
-                      <div className="flex flex-col items-end">
-                        <span>{inst.isPaid ? formatNumber(inst.realAmountPaid || 0) : '-'}</span>
-                        {inst.isPaid && (
-                          <span className="text-[8px] text-emerald-600 font-black">
-                            {((inst.realAmountPaid || 0) / (inst.correctedCreditValue || 1) * 100).toFixed(4)}%
-                          </span>
-                        )}
-                      </div>
-                    </td>
                     <td className="p-2 text-center border-l border-slate-200 print:hidden">
                       {inst.isManualTransaction ? (
-                        <div className="flex flex-col gap-1">
-                          <button 
-                            onClick={() => handleEditManualTx(inst.manualTransactionId || '')}
-                            className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-blue-700 bg-blue-50 hover:bg-blue-100"
-                            title="Editar Transação"
-                          >
-                            <Edit3 size={12} /> Editar
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteManualTx(inst.manualTransactionId || '')}
-                            className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-red-700 bg-red-50 hover:bg-red-100"
-                            title="Excluir Transação"
-                          >
-                            <Trash2 size={12} /> Excluir
-                          </button>
-                        </div>
+                        <button 
+                          onClick={() => handleDeleteManualTx(inst.manualTransactionId || '')}
+                          className="flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full text-red-700 bg-red-50 hover:bg-red-100"
+                          title="Excluir Transação"
+                        >
+                          <Trash2 size={12} /> Excluir
+                        </button>
                       ) : (
                         <button 
                           onClick={() => openPaymentModal(inst)}
-                          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${inst.isPaid ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}
-                          title={inst.isPaid ? 'Editar Pagamento' : 'Efetivar Parcela'}
+                          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-md transition-colors text-[10px] font-medium w-full ${inst.status === 'PAGO' ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100'}`}
+                          title={inst.status === 'PAGO' ? 'Editar Pagamento' : 'Efetivar Parcela'}
                         >
-                          {inst.isPaid ? <><Edit3 size={12} /> Editar</> : <><CheckCircle size={12} /> Efetivar</>}
+                          {inst.status === 'PAGO' ? <><Edit3 size={12} /> Editar</> : <><CheckCircle size={12} /> Efetivar</>}
                         </button>
                       )}
                     </td>
                   </tr>
                   </React.Fragment>
-                ); })}
+                ))}
               </tbody>
               <tfoot className="bg-slate-200 text-slate-800 font-bold text-[10px] uppercase border-t-2 border-slate-300 sticky bottom-0 z-20">
                 <tr>
@@ -1567,9 +1413,7 @@ const Simulation = () => {
                   <td className="p-2 text-right text-red-700">{formatNumber(footerTotals.interest)}</td>
                   <td className="p-2 text-right text-blue-800 bg-blue-100/50">{formatNumber(footerTotals.manualEarnings)}</td>
                   <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.total)}</span><span className="text-[10px]">{footerTotals.totalPct.toFixed(4)}%</span></div></td>
-                  <td colSpan={4} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
-                  <td className="p-2 text-right bg-emerald-100 font-black text-emerald-900 border-l border-slate-200"><div className="flex flex-col items-end"><span>{formatNumber(footerTotals.paidTotal)}</span><span className="text-[10px]">{footerTotals.paidTotalPct.toFixed(4)}%</span></div></td>
-                  <td className="p-2 print:hidden"></td>
+                  <td colSpan={5} className="p-2 text-right text-[8px] text-slate-500 italic lowercase font-normal">* fechamento 100% FC + Taxas</td>
                 </tr>
               </tfoot>
             </table>
@@ -1578,106 +1422,31 @@ const Simulation = () => {
       )}
 
       {currentQuota && (
-          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-12 print:border-none relative">
-                {projectionConfig.enabled && (
-                  <div className="absolute top-0 left-0 right-0 bg-amber-50 border-b border-amber-200 px-4 py-1 text-[10px] text-amber-700 font-bold flex items-center justify-center gap-2">
-                    <TrendingUp size={12} />
-                    VALORES PROJETADOS: Simulação com base em {projectionConfig.customRate ? `taxa fixa de ${projectionConfig.customRate}% a.a.` : `média de ${projectionConfig.periodMonths} meses (${(currentAvgRate).toFixed(4)}% a.m.)`}.
-                  </div>
-                )}
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-12 print:border-none">
                 <div className="space-y-4">
                     <h3 className="text-sm font-medium text-slate-700 uppercase border-b border-slate-300 pb-1">Resumo Pago (Histórico)</h3>
                     <div className="space-y-1.5 text-xs font-medium text-slate-800">
-                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fc || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.fc || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.ta || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.ta || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fr || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.paid?.fr || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.insurance || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.amortization || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.fine || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.interest || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL PAGO</span> <div className="flex gap-12"><span>{(detailedSummary?.paid?.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{((detailedSummary?.paid?.total || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.paid.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.paid.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.paid.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.paid.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.paid.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL PAGO</span> <div className="flex gap-12"><span>{detailedSummary.paid.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.paid.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
-
-                    {projectionConfig.enabled && (
-                      <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                          <Calculator size={12} /> Impacto da Projeção
-                        </h4>
-                        <div className="space-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-slate-600">Total s/ Projeção:</span>
-                            <span className="font-medium">{formatCurrency(originalTotal)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-600">Total c/ Projeção:</span>
-                            <span className="font-medium">{formatCurrency(projectedTotal)}</span>
-                          </div>
-                          <div className="flex justify-between pt-1 border-t border-slate-200 text-amber-700 font-bold">
-                            <span>Custo da Inflação:</span>
-                            <span>{formatCurrency(inflationCost)}</span>
-                          </div>
-                        </div>
-                        <div className="pt-2 flex justify-between items-center text-[10px]">
-                          <span className="text-slate-500">Crédito Final Est.:</span>
-                          <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{formatCurrency(finalProjectedCredit)}</span>
-                        </div>
-                      </div>
-                    )}
                 </div>
                 <div className="space-y-4">
                     <h3 className="text-sm font-medium text-slate-700 uppercase border-b border-slate-300 pb-1">Resumo a Pagar (Saldo)</h3>
                     <div className="space-y-1.5 text-xs font-medium text-slate-800">
-                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fc || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.fc || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.ta || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.ta || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fr || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{((detailedSummary?.toPay?.fr || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
-                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.insurance || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.amortization || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Multa:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.fine || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="flex justify-between items-center"><span>Juros:</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.interest || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
-                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL A VENCER</span> <div className="flex gap-12"><span>{(detailedSummary?.toPay?.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{((detailedSummary?.toPay?.total || 0) / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Comum:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fc.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fc / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Taxa Adm:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.ta.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.ta / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Fundo Reserva:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.fr.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right">{(detailedSummary.toPay.fr / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
+                        <div className="flex justify-between items-center"><span>Seguro:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.insurance.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="flex justify-between items-center"><span>Amortização:</span> <div className="flex gap-12"><span>{detailedSummary.toPay.amortization.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="font-black w-16 text-right"></span></div></div>
+                        <div className="pt-2 border-t border-dotted border-slate-400 flex justify-between items-center font-black text-sm"><span>TOTAL A VENCER</span> <div className="flex gap-12"><span>{detailedSummary.toPay.total.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span> <span className="w-16 text-right">{(detailedSummary.toPay.total / (currentDisplayCredit || 1) * 100).toFixed(4)}%</span></div></div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-slate-300 flex justify-between text-xs font-black">
                         <span>Qtde Parcelas Restantes:</span>
-                        <span className="text-sm">{(detailedSummary?.counts?.total ?? 0).toFixed(2).replace('.', ',')}</span>
-                    </div>
-
-                    <div className="mt-6 pt-4 border-t border-slate-200">
-                      <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
-                        <TrendingUp size={12} /> Evolução das Parcelas
-                      </h4>
-                      <div className="h-32 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={chartData}>
-                            <defs>
-                              <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                            <XAxis 
-                              dataKey="name" 
-                              hide 
-                            />
-                            <YAxis 
-                              hide 
-                              domain={['auto', 'auto']}
-                            />
-                            <Tooltip 
-                              contentStyle={{ fontSize: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                              formatter={(value: number) => [formatCurrency(value), 'Parcela']}
-                            />
-                            <Area 
-                              type="monotone" 
-                              dataKey="valor" 
-                              stroke="#3b82f6" 
-                              fillOpacity={1} 
-                              fill="url(#colorVal)" 
-                              strokeWidth={2}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
+                        <span className="text-sm">{detailedSummary.counts.total.toFixed(2).replace('.', ',')}</span>
                     </div>
                 </div>
           </div>

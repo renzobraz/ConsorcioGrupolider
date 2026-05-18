@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate, SMTPConfig } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -8,10 +8,8 @@ const INDICES_KEY = 'consortium_indices_db';
 const ADMINS_KEY = 'consortium_admins_db';
 const COMPANIES_KEY = 'consortium_companies_db';
 const CREDIT_USAGES_KEY = 'consortium_credit_usages_db';
-const CREDIT_UPDATES_KEY = 'consortium_credit_updates_db';
 const MANUAL_TRANSACTIONS_KEY = 'consortium_manual_transactions_db';
 const USERS_KEY = 'consortium_users_db';
-const SMTP_CONFIG_KEY = 'consortium_smtp_config_db';
 
 const toDbUser = (u: User) => ({
   id: u.id,
@@ -68,14 +66,7 @@ const toDbQuota = (q: Quota) => ({
   index_reference_month: q.indexReferenceMonth || null,
   bid_base: q.bidBase || null,
   anticipate_correction_month: q.anticipateCorrectionMonth || false,
-  prioritize_fees_in_bid: q.prioritizeFeesInBid || false,
-  is_draw_contemplation: q.isDrawContemplation || false,
-  contract_file_url: q.contractFileUrl || null,
-  is_announced: q.isAnnounced || false,
-  announced_at: q.announcedAt || null,
-  market_value_override: q.marketValueOverride || null,
-  market_status: q.marketStatus || 'DRAFT',
-  market_notes: q.marketNotes || null
+  prioritize_fees_in_bid: q.prioritizeFeesInBid || false
 });
 
 const fromDbQuota = (dbQ: any): Quota => ({
@@ -114,160 +105,44 @@ const fromDbQuota = (dbQ: any): Quota => ({
   recalculateBalanceAfterHalfOrContemplation: dbQ.calculation_method === 'TABELA_INDICES_REDUZIDA',
   bidBase: dbQ.bid_base,
   anticipateCorrectionMonth: dbQ.anticipate_correction_month || false,
-  prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false,
-  isDrawContemplation: dbQ.is_draw_contemplation || false,
-  contractFileUrl: dbQ.contract_file_url,
-  isAnnounced: dbQ.is_announced || false,
-  announcedAt: dbQ.announced_at,
-  marketValueOverride: dbQ.market_value_override ? Number(dbQ.market_value_override) : undefined,
-  marketStatus: dbQ.market_status as any,
-  marketNotes: dbQ.market_notes
+  prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false
 });
-
-export const uploadContractFile = async (file: File, quotaId: string): Promise<string | null> => {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${quotaId}_${Date.now()}.${fileExt}`;
-  const filePath = `contracts/${fileName}`;
-
-  // Tenta primeiro 'contracts' (padrão), depois 'Contratos' (comum em PT)
-  let bucketName = 'contracts';
-  let { data, error } = await supabase.storage
-    .from(bucketName)
-    .upload(filePath, file);
-
-  if (error && (error.message.includes('not found') || error.message.includes('bucket'))) {
-    bucketName = 'Contratos';
-    const retry = await supabase.storage
-      .from(bucketName)
-      .upload(filePath, file);
-    data = retry.data;
-    error = retry.error;
-  }
-
-  if (error) {
-    console.error('Error uploading file:', error.message);
-    if (error.message.includes('not found')) {
-      alert(`Erro: O bucket de armazenamento '${bucketName}' não foi encontrado no Supabase. Por favor, crie um bucket chamado 'contracts' no Storage do Supabase e marque como 'Public'.`);
-    }
-    return null;
-  }
-
-  const { data: { publicUrl } } = supabase.storage
-    .from(bucketName)
-    .getPublicUrl(filePath);
-
-  return publicUrl;
-};
 
 export const db = {
   isCloudEnabled: () => !!getSupabase(),
-
-  checkColumnExists: async (tableName: string, columnName: string): Promise<boolean> => {
-    const supabase = getSupabase();
-    if (!supabase) return true;
-    try {
-      const { error } = await supabase.from(tableName).select(columnName).limit(1);
-      if (error) {
-        // PGRST204 is "Column not found"
-        if (error.code === 'PGRST204' || error.message.toLowerCase().includes('column') || error.message.toLowerCase().includes('does not exist')) {
-          return false;
-        }
-        // Se for erro de permissão (403), a coluna provavelmente existe mas o RLS bloqueia o select
-        if (error.code === '42501' || error.message.toLowerCase().includes('permission denied') || error.message.toLowerCase().includes('forbidden')) {
-          return true;
-        }
-      }
-      return true;
-    } catch (err) {
-      return false;
-    }
-  },
-
-  checkTableExists: async (tableName: string): Promise<boolean> => {
-    const supabase = getSupabase();
-    if (!supabase) return true;
-    try {
-      const { error } = await supabase.from(tableName).select('*').limit(1);
-      if (error) {
-        // PGRST204 is "Relation not found"
-        if (error.code === 'PGRST204' || error.message.toLowerCase().includes('relation') || error.message.toLowerCase().includes('does not exist')) {
-          return false;
-        }
-        // Se for erro de permissão (403), a tabela provavelmente existe mas o RLS bloqueia o select
-        if (error.code === '42501' || error.message.toLowerCase().includes('permission denied') || error.message.toLowerCase().includes('forbidden')) {
-          return true;
-        }
-      }
-      return true;
-    } catch (err) {
-      return false;
-    }
-  },
-
-  checkBucketExists: async (bucketName: string): Promise<boolean> => {
-    const supabase = getSupabase();
-    if (!supabase) return true;
-    try {
-      // Tenta listar arquivos no bucket (mesmo que vazio) com limite 1
-      // Isso é mais confiável para detectar existência sem precisar de permissão de leitura de metadados do bucket
-      const { error } = await supabase.storage.from(bucketName).list('', { limit: 1 });
-      
-      if (error) {
-        // Se o erro for explicitamente "not found", o bucket realmente não existe
-        const msg = error.message.toLowerCase();
-        if (msg.includes('not found') || msg.includes('does not exist')) {
-          // Tenta o nome em português como fallback
-          if (bucketName === 'contracts') {
-            const { error: errorPt } = await supabase.storage.from('Contratos').list('', { limit: 1 });
-            if (!errorPt || (!errorPt.message.toLowerCase().includes('not found') && !errorPt.message.toLowerCase().includes('does not exist'))) {
-              return true;
-            }
-          }
-          return false;
-        }
-        // Se for qualquer outro erro (como 403 Forbidden), assumimos que o bucket existe 
-        // mas a chave anon não tem permissão para listar (o que é comum se não houver políticas de RLS)
-        return true;
-      }
-      
-      // Se não houve erro, o bucket existe
-      return true;
-    } catch (err) {
-      // Em caso de exceção crítica, retornamos false para segurança, 
-      // mas o list() acima já deve cobrir a maioria dos casos
-      return false;
-    }
-  },
 
   getQuotas: async (): Promise<Quota[]> => {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        let allData: any[] = [];
-        let from = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from('quotas')
-            .select('*')
-            .range(from, from + pageSize - 1);
-          
-          if (error) throw new Error(error.message);
-          if (data && data.length > 0) {
-            allData = [...allData, ...data];
-            if (data.length < pageSize) hasMore = false;
-            else from += pageSize;
-          } else {
-            hasMore = false;
+        const { data, error } = await supabase.from('quotas').select('*');
+        if (error) {
+          console.warn(`Supabase Quotas Error [${error.code}]: ${error.message}`);
+          // Se for erro de permissão ou tabela inexistente, tenta local
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+             const localData = localStorage.getItem(DB_KEY);
+             return localData ? JSON.parse(localData).map(fromDbQuota) : [];
           }
+          throw new Error(error.message);
         }
-        return allData.map(fromDbQuota);
-      } catch (err: any) { throw err; }
+        
+        if (!data || data.length === 0) {
+          console.info("Supabase: Consulta retornou 0 cotas. Verifique se a tabela 'quotas' possui dados e se as políticas RLS permitem a leitura.");
+        } else {
+          console.log(`Supabase: Carregadas ${data.length} cotas.`);
+        }
+
+        try {
+          return (data || []).map(fromDbQuota);
+        } catch (mapError) {
+          console.error("Erro ao converter dados das cotas:", mapError);
+          return [];
+        }
+      } catch (err: any) { 
+        console.error("Erro ao carregar quotas do banco:", err);
+        const localData = localStorage.getItem(DB_KEY);
+        return localData ? JSON.parse(localData).map(fromDbQuota) : [];
+      }
     } else {
       const data = localStorage.getItem(DB_KEY);
       return data ? JSON.parse(data) : [];
@@ -277,8 +152,29 @@ export const db = {
   saveQuota: async (quota: Quota): Promise<void> => {
     const supabase = getSupabase();
     if (supabase) {
-      const { error } = await supabase.from('quotas').upsert(toDbQuota(quota));
-      if (error) throw new Error(error.message);
+      try {
+        const { error } = await supabase.from('quotas').upsert(toDbQuota(quota));
+        if (error) {
+          console.warn("Falha ao salvar no Supabase, salvando localmente:", error.message);
+          // Fallback local
+          const quotas = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
+          const existingIndex = quotas.findIndex((q: Quota) => q.id === quota.id);
+          if (existingIndex >= 0) quotas[existingIndex] = quota;
+          else quotas.push(quota);
+          localStorage.setItem(DB_KEY, JSON.stringify(quotas));
+          
+          if (error.message.toLowerCase().includes("permission denied")) {
+            console.error("ERRO DE PERMISSÃO: Sua chave da API pode estar incorreta ou você precisa habilitar o RLS no Supabase.");
+          }
+        }
+      } catch (err) {
+        // Fallback local em caso de erro crítico de rede
+        const quotas = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
+        const existingIndex = quotas.findIndex((q: Quota) => q.id === quota.id);
+        if (existingIndex >= 0) quotas[existingIndex] = quota;
+        else quotas.push(quota);
+        localStorage.setItem(DB_KEY, JSON.stringify(quotas));
+      }
     } else {
       const quotas = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
       const existingIndex = quotas.findIndex((q: Quota) => q.id === quota.id);
@@ -327,7 +223,7 @@ export const db = {
                manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
                manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
                manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
-               status: (p.status && p.status.trim() !== '') ? p.status.trim().toUpperCase() : (Number(p.amount_paid) > 0 || p.payment_date ? 'PAGO' : 'PREVISTO'),
+               status: p.status || 'PREVISTO',
                paymentDate: p.payment_date || undefined,
             };
           });
@@ -336,19 +232,19 @@ export const db = {
           if (err.code === '42703') {
             // Fallback for missing columns
             console.warn("Missing columns in payments table, falling back to basic columns");
-          const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date').eq('quota_id', quotaId);
-          if (error) throw error;
-          const paymentMap: Record<number, any> = {};
-          (data || []).forEach((p: any) => {
-            paymentMap[p.installment_number] = {
-               amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
-               manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
-               manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
-               manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
-               status: (Number(p.amount_paid) > 0 || p.payment_date) ? 'PAGO' : 'PREVISTO',
-               paymentDate: p.payment_date || undefined,
-            };
-          });
+            const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date').eq('quota_id', quotaId);
+            if (error) throw error;
+            const paymentMap: Record<number, any> = {};
+            (data || []).forEach((p: any) => {
+              paymentMap[p.installment_number] = {
+                 amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
+                 manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
+                 manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
+                 manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
+                 status: 'PREVISTO',
+                 paymentDate: p.payment_date || undefined,
+              };
+            });
             return paymentMap;
           }
           throw err;
@@ -366,33 +262,13 @@ export const db = {
     
     if (supabase) {
       try {
-        let allData: any[] = [];
-        let from = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from('payments')
-            .select('*')
-            .range(from, from + pageSize - 1);
-          
-          if (error) throw error;
-          if (data && data.length > 0) {
-            allData = [...allData, ...data];
-            if (data.length < pageSize) hasMore = false;
-            else from += pageSize;
-          } else {
-            hasMore = false;
-          }
-        }
+        const { data, error } = await supabase.from('payments').select('*');
+        if (error) throw error;
         
-        console.log(`Fetched ${allData.length} raw payment records from DB.`);
-        
-        allData.forEach((p: any) => {
+        (data || []).forEach((p: any) => {
           if (!dict[p.quota_id]) dict[p.quota_id] = {};
           dict[p.quota_id][p.installment_number] = {
-            amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
+            amount: Number(p.amount_paid),
             manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
             manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
             manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
@@ -401,43 +277,24 @@ export const db = {
             manualInsurance: p.manual_insurance !== null ? Number(p.manual_insurance) : undefined,
             manualAmortization: p.manual_amortization !== null ? Number(p.manual_amortization) : undefined,
             manualEarnings: p.manual_earnings !== null ? Number(p.manual_earnings) : undefined,
-            status: (p.status && p.status.trim() !== '') ? p.status.trim().toUpperCase() : (Number(p.amount_paid) > 0 || p.payment_date ? 'PAGO' : 'PREVISTO'),
+            status: p.status || 'PREVISTO',
             paymentDate: p.payment_date || undefined,
           };
         });
       } catch (err: any) {
         if (err.code === '42703') {
           console.warn("Missing columns in payments table, falling back to basic columns for dictionary");
+          const { data, error } = await supabase.from('payments').select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date');
+          if (error) throw error;
           
-          let allData: any[] = [];
-          let from = 0;
-          const pageSize = 1000;
-          let hasMore = true;
-
-          while (hasMore) {
-            const { data, error } = await supabase
-              .from('payments')
-              .select('quota_id, installment_number, amount_paid, manual_fc, manual_fr, manual_ta, payment_date')
-              .range(from, from + pageSize - 1);
-            
-            if (error) throw error;
-            if (data && data.length > 0) {
-              allData = [...allData, ...data];
-              if (data.length < pageSize) hasMore = false;
-              else from += pageSize;
-            } else {
-              hasMore = false;
-            }
-          }
-          
-          allData.forEach((p: any) => {
+          (data || []).forEach((p: any) => {
             if (!dict[p.quota_id]) dict[p.quota_id] = {};
             dict[p.quota_id][p.installment_number] = {
-              amount: p.amount_paid !== null ? Number(p.amount_paid) : undefined,
+              amount: Number(p.amount_paid),
               manualFC: p.manual_fc !== null ? Number(p.manual_fc) : undefined,
               manualFR: p.manual_fr !== null ? Number(p.manual_fr) : undefined,
               manualTA: p.manual_ta !== null ? Number(p.manual_ta) : undefined,
-              status: (Number(p.amount_paid) > 0 || p.payment_date) ? 'PAGO' : 'PREVISTO',
+              status: 'PREVISTO',
               paymentDate: p.payment_date || undefined,
             };
           });
@@ -479,13 +336,25 @@ export const db = {
         status: data.status || 'PAGO',
         payment_date: (data.paymentDate && data.paymentDate.trim() !== '') 
           ? (data.paymentDate.includes('T') ? data.paymentDate : `${data.paymentDate}T12:00:00Z`) 
-          : ((data.status === 'PAGO' || data.status === 'CONCILIADO') ? new Date().toISOString() : null)
+          : (data.status === 'PAGO' ? new Date().toISOString() : null)
       };
 
       try {
         const { error } = await supabase.from('payments').upsert(payload, { onConflict: 'quota_id, installment_number' });
         
         if (error) {
+          // Fallback para LocalStorage se houver erro de permissão ou esquema
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            console.warn("Permissão negada ou tabela ausente em 'payments', salvando localmente...");
+            const payments = JSON.parse(localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`) || '{}');
+            payments[installmentNumber] = {
+              ...data,
+              paymentDate: payload.payment_date
+            };
+            localStorage.setItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`, JSON.stringify(payments));
+            return;
+          }
+
           // If the error is about a missing column (like 'status' or 'manual_earnings'), 
           // try saving without those columns as a fallback
           if (error.code === '42703') {
@@ -510,8 +379,13 @@ export const db = {
           }
         }
       } catch (err: any) {
-        console.error("Error in savePayment:", err);
-        throw err;
+        console.error("Error in savePayment, falling back to local:", err);
+        const payments = JSON.parse(localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`) || '{}');
+        payments[installmentNumber] = {
+          ...data,
+          paymentDate: payload.payment_date
+        };
+        localStorage.setItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`, JSON.stringify(payments));
       }
     } else {
       const payments = JSON.parse(localStorage.getItem(`${PAYMENTS_KEY_PREFIX}${quotaId}`) || '{}');
@@ -528,8 +402,21 @@ export const db = {
   getIndices: async (): Promise<MonthlyIndex[]> => {
     const supabase = getSupabase();
     if (supabase) {
-       const { data } = await supabase.from('correction_indices').select('*').order('date', { ascending: false });
-       return (data || []).map((i: any) => ({ id: i.id, type: i.type, date: i.date, rate: Number(i.rate) }));
+      try {
+        const { data, error } = await supabase.from('correction_indices').select('*').order('date', { ascending: false });
+        if (error) {
+          console.warn(`Supabase Indices Error [${error.code}]: ${error.message}`);
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            const dataLocal = localStorage.getItem(INDICES_KEY);
+            return dataLocal ? JSON.parse(dataLocal) : [];
+          }
+          throw error;
+        }
+        return (data || []).map((i: any) => ({ id: i.id, type: i.type, date: i.date, rate: Number(i.rate) }));
+      } catch (err) {
+        const dataLocal = localStorage.getItem(INDICES_KEY);
+        return dataLocal ? JSON.parse(dataLocal) : [];
+      }
     } else {
       const data = localStorage.getItem(INDICES_KEY);
       return data ? JSON.parse(data) : [];
@@ -559,8 +446,19 @@ export const db = {
   getAdministrators: async (): Promise<Administrator[]> => {
     const supabase = getSupabase();
     if (supabase) {
-       const { data } = await supabase.from('administrators').select('*').order('name');
-       return data || [];
+      try {
+        const { data, error } = await supabase.from('administrators').select('*').order('name');
+        if (error) {
+          console.warn(`Supabase Admins Error [${error.code}]: ${error.message}`);
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            return JSON.parse(localStorage.getItem(ADMINS_KEY) || '[]');
+          }
+          throw error;
+        }
+        return data || [];
+      } catch (err) {
+        return JSON.parse(localStorage.getItem(ADMINS_KEY) || '[]');
+      }
     }
     return JSON.parse(localStorage.getItem(ADMINS_KEY) || '[]');
   },
@@ -587,8 +485,19 @@ export const db = {
   getCompanies: async (): Promise<Company[]> => {
     const supabase = getSupabase();
     if (supabase) {
-       const { data } = await supabase.from('companies').select('*').order('name');
-       return data || [];
+      try {
+        const { data, error } = await supabase.from('companies').select('*').order('name');
+        if (error) {
+          console.warn(`Supabase Companies Error [${error.code}]: ${error.message}`);
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            return JSON.parse(localStorage.getItem(COMPANIES_KEY) || '[]');
+          }
+          throw error;
+        }
+        return data || [];
+      } catch (err) {
+        return JSON.parse(localStorage.getItem(COMPANIES_KEY) || '[]');
+      }
     }
     return JSON.parse(localStorage.getItem(COMPANIES_KEY) || '[]');
   },
@@ -615,15 +524,26 @@ export const db = {
   getAllCreditUsages: async (): Promise<CreditUsageEntry[]> => {
     const supabase = getSupabase();
     if (supabase) {
-        const { data } = await supabase.from('credit_usages').select('*');
+      try {
+        const { data, error } = await supabase.from('credit_usages').select('*');
+        if (error) {
+          console.warn(`Supabase CreditUsages Error [${error.code}]: ${error.message}`);
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            return JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]');
+          }
+          throw error;
+        }
         return (data || []).map(u => ({
-            id: u.id,
-            quotaId: u.quota_id,
-            description: u.description,
-            date: u.date,
-            amount: Number(u.amount),
-            seller: u.seller
+          id: u.id,
+          quotaId: u.quota_id,
+          description: u.description,
+          date: u.date,
+          amount: Number(u.amount),
+          seller: u.seller
         }));
+      } catch (err) {
+        return JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]');
+      }
     }
     return JSON.parse(localStorage.getItem(CREDIT_USAGES_KEY) || '[]');
   },
@@ -704,28 +624,9 @@ export const db = {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        let allData: any[] = [];
-        let from = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data, error } = await supabase
-            .from('manual_transactions')
-            .select('*')
-            .range(from, from + pageSize - 1);
-          
-          if (error) throw new Error(error.message);
-          if (data && data.length > 0) {
-            allData = [...allData, ...data];
-            if (data.length < pageSize) hasMore = false;
-            else from += pageSize;
-          } else {
-            hasMore = false;
-          }
-        }
-        
-        return allData.map((t: any) => ({
+        const { data, error } = await supabase.from('manual_transactions').select('*');
+        if (error) throw new Error(error.message);
+        return (data || []).map((t: any) => ({
           id: t.id,
           quotaId: t.quota_id,
           date: t.date,
@@ -835,166 +736,25 @@ export const db = {
     }
   },
 
-  getSMTPConfig: async (): Promise<SMTPConfig | null> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('smtp_config').select('*').single();
-        if (error) {
-          if (error.code === 'PGRST116') return null;
-          if (error.code === 'PGRST204' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
-            return null;
-          }
-          console.error('Error fetching SMTP config:', error.message);
-          return null;
-        }
-        if (!data) return null;
-        return {
-          id: data.id,
-          host: data.host,
-          port: Number(data.port),
-          secure: data.secure,
-          user: data.user_name,
-          pass: data.password,
-          fromName: data.from_name,
-          fromEmail: data.from_email,
-          reportRecipient: data.report_recipient
-        };
-      } catch (err) {
-        return null;
-      }
-    }
-    const data = localStorage.getItem(SMTP_CONFIG_KEY);
-    return data ? JSON.parse(data) : null;
-  },
-
-  saveSMTPConfig: async (config: SMTPConfig): Promise<void> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      const payload = {
-        id: config.id || 'default',
-        host: config.host,
-        port: config.port,
-        secure: config.secure,
-        user_name: config.user,
-        password: config.pass,
-        from_name: config.fromName,
-        from_email: config.fromEmail,
-        report_recipient: config.reportRecipient
-      };
-      const { error } = await supabase.from('smtp_config').upsert(payload);
-      if (error) {
-        if (error.message.includes('schema cache') || error.message.includes('does not exist')) {
-          console.warn('SMTP config table not found in Supabase. Saving to local storage as fallback.');
-          localStorage.setItem(SMTP_CONFIG_KEY, JSON.stringify(config));
-          return;
-        }
-        throw new Error(error.message);
-      }
-    } else {
-      localStorage.setItem(SMTP_CONFIG_KEY, JSON.stringify(config));
-    }
-  },
-
-  // --- Credit Updates (Aplicação Financeira) ---
-  getCreditUpdates: async (quotaId: string): Promise<CreditUpdate[]> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('credit_updates').select('*').eq('quota_id', quotaId);
-        if (error) throw error;
-        return (data || []).map(u => ({
-          id: u.id,
-          quotaId: u.quota_id,
-          date: u.date,
-          value: Number(u.value)
-        }));
-      } catch (err) {
-        console.warn('Error fetching credit_updates from Supabase:', err);
-        const all = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-        return all.filter((u: any) => u.quotaId === quotaId);
-      }
-    }
-    const all = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-    return all.filter((u: any) => u.quotaId === quotaId);
-  },
-
-  getAllCreditUpdates: async (): Promise<CreditUpdate[]> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('credit_updates').select('*').limit(10000);
-        if (error) throw error;
-        return (data || []).map(u => ({
-          id: u.id,
-          quotaId: u.quota_id,
-          date: u.date,
-          value: Number(u.value)
-        }));
-      } catch (err) {
-        console.warn('Error fetching all credit_updates from Supabase:', err);
-        return JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-      }
-    }
-    return JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-  },
-
-  saveCreditUpdate: async (update: CreditUpdate): Promise<void> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('credit_updates').upsert({
-          id: update.id,
-          quota_id: update.quotaId,
-          date: update.date,
-          value: update.value
-        });
-        if (error) throw error;
-      } catch (err) {
-        console.error('Error saving credit_update to Supabase:', err);
-        // Fallback to local storage
-        const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-        const idx = list.findIndex((u: any) => u.id === update.id);
-        if (idx >= 0) list[idx] = update;
-        else list.push(update);
-        localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list));
-        throw err;
-      }
-    } else {
-      const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-      const idx = list.findIndex((u: any) => u.id === update.id);
-      if (idx >= 0) list[idx] = update;
-      else list.push(update);
-      localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list));
-    }
-  },
-
-  deleteCreditUpdate: async (id: string): Promise<void> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('credit_updates').delete().eq('id', id);
-        if (error) throw error;
-      } catch (err) {
-        console.error('Error deleting credit_update from Supabase:', err);
-        const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-        localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list.filter((u: any) => u.id !== id)));
-        throw err;
-      }
-    } else {
-      const list = JSON.parse(localStorage.getItem(CREDIT_UPDATES_KEY) || '[]');
-      localStorage.setItem(CREDIT_UPDATES_KEY, JSON.stringify(list.filter((u: any) => u.id !== id)));
-    }
-  },
-
   getUsers: async (): Promise<User[]> => {
     const supabase = getSupabase();
     if (supabase) {
       try {
         const { data, error } = await supabase.from('users').select('*');
-        if (error) throw new Error(error.message);
+        if (error) {
+          console.warn(`Supabase Users Error [${error.code}]: ${error.message}`);
+          if (error.message.toLowerCase().includes("permission denied") || error.code === '42P01') {
+            const localData = localStorage.getItem(USERS_KEY);
+            return localData ? JSON.parse(localData).map(fromDbUser) : [];
+          }
+          throw new Error(error.message);
+        }
         return (data || []).map(fromDbUser);
-      } catch (err: any) { throw err; }
+      } catch (err: any) { 
+        console.error("Erro ao carregar usuários do banco:", err);
+        const localData = localStorage.getItem(USERS_KEY);
+        return localData ? JSON.parse(localData).map(fromDbUser) : [];
+      }
     } else {
       const data = localStorage.getItem(USERS_KEY);
       return data ? JSON.parse(data) : [];
@@ -1004,8 +764,23 @@ export const db = {
   saveUser: async (user: User): Promise<void> => {
     const supabase = getSupabase();
     if (supabase) {
-      const { error } = await supabase.from('users').upsert(toDbUser(user));
-      if (error) throw new Error(error.message);
+      try {
+        const { error } = await supabase.from('users').upsert(toDbUser(user));
+        if (error) {
+          console.warn("Falha ao salvar usuário no Supabase, salvando localmente:", error.message);
+          const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+          const existingIndex = users.findIndex((u: User) => u.id === user.id);
+          if (existingIndex >= 0) users[existingIndex] = user;
+          else users.push(user);
+          localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        }
+      } catch (err) {
+        const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+        const existingIndex = users.findIndex((u: User) => u.id === user.id);
+        if (existingIndex >= 0) users[existingIndex] = user;
+        else users.push(user);
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      }
     } else {
       const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
       const existingIndex = users.findIndex((u: User) => u.id === user.id);
@@ -1023,91 +798,6 @@ export const db = {
     } else {
       const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
       localStorage.setItem(USERS_KEY, JSON.stringify(users.filter((u: User) => u.id !== id)));
-    }
-  },
-
-  // --- Scheduled Reports ---
-  getScheduledReports: async (): Promise<any[]> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.from('scheduled_reports').select('*').order('created_at', { ascending: false });
-        if (error) {
-          if (error.code === 'PGRST204') return []; // Table doesn't exist yet
-          throw error;
-        }
-        return (data || []).map(r => ({
-          id: r.id,
-          name: r.name,
-          recipient: r.recipient,
-          subject: r.subject,
-          message: r.message,
-          frequency: r.frequency,
-          selectedColumns: r.selected_columns,
-          filters: r.filters,
-          lastSent: r.last_sent,
-          lastError: r.last_error,
-          isActive: r.is_active,
-          createdAt: r.created_at
-        }));
-      } catch (err) {
-        console.warn('Error fetching scheduled_reports from Supabase:', err);
-        return JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-      }
-    }
-    return JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-  },
-
-  saveScheduledReport: async (report: any): Promise<void> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('scheduled_reports').upsert({
-          id: report.id,
-          name: report.name,
-          recipient: report.recipient,
-          subject: report.subject,
-          message: report.message,
-          frequency: report.frequency,
-          selected_columns: report.selectedColumns,
-          filters: report.filters,
-          last_sent: report.lastSent,
-          last_error: report.lastError,
-          is_active: report.isActive,
-          created_at: report.createdAt
-        });
-        if (error) throw error;
-      } catch (err) {
-        console.error('Error saving scheduled_report to Supabase:', err);
-        const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-        const idx = list.findIndex((r: any) => r.id === report.id);
-        if (idx >= 0) list[idx] = report;
-        else list.push(report);
-        localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list));
-      }
-    } else {
-      const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-      const idx = list.findIndex((r: any) => r.id === report.id);
-      if (idx >= 0) list[idx] = report;
-      else list.push(report);
-      localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list));
-    }
-  },
-
-  deleteScheduledReport: async (id: string): Promise<void> => {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { error } = await supabase.from('scheduled_reports').delete().eq('id', id);
-        if (error) throw error;
-      } catch (err) {
-        console.error('Error deleting scheduled_report from Supabase:', err);
-        const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-        localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list.filter((r: any) => r.id !== id)));
-      }
-    } else {
-      const list = JSON.parse(localStorage.getItem('consortium_scheduled_reports_db') || '[]');
-      localStorage.setItem('consortium_scheduled_reports_db', JSON.stringify(list.filter((r: any) => r.id !== id)));
     }
   },
 

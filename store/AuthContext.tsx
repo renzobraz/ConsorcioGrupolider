@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { db } from '../services/database';
+import { getSupabase } from '../services/supabaseClient';
 
 interface AuthContextType {
   user: User | null;
@@ -13,115 +14,119 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock initial admin user
-const DEFAULT_ADMIN: User = {
-  id: '00000000-0000-0000-0000-000000000000',
-  email: 'renzo.amaral@gmail.com',
-  name: 'Administrador Geral',
-  password: '123',
-  role: UserRole.ADMIN,
-  isActive: true,
-  permissions: {
-    canViewDashboard: true,
-    canManageQuotas: true,
-    canSimulate: true,
-    canViewReports: true,
-    canManageSettings: true,
-    canMarkQuotas: true,
-  }
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        let users: User[] = [];
-        try {
-          users = await db.getUsers();
-        } catch (fetchError) {
-          console.warn("Retrying fetch users...", fetchError);
-          // Wait a bit and retry once (maybe RLS is being applied)
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          try {
-            users = await db.getUsers();
-          } catch (e) {
-            console.error("Fetch users failed after retry", e);
-          }
-        }
-        
-        // If no administrators exist, attempt to create default admin
-        const hasAdmin = users.some(u => u.role === UserRole.ADMIN);
-        if (!hasAdmin) {
-          try {
-            await db.saveUser(DEFAULT_ADMIN);
-            // Refresh users list after saving default admin
-            users = await db.getUsers();
-          } catch (saveError) {
-            console.error("Policy blocking initial user creation. Check RLS settings and run SQL script.", saveError);
-          }
-        }
+  // Função para buscar o perfil completo na tabela 'users'
+  const fetchUserProfile = async (uid: string): Promise<User | null> => {
+    const supabase = getSupabase();
+    if (!supabase) return null;
 
-        // Check if there's a logged in user in local storage
-        const loggedInUserId = localStorage.getItem('consortium_logged_in_user');
-        if (loggedInUserId) {
-          const foundUser = users.find(u => u.id === loggedInUserId && u.isActive);
-          if (foundUser) {
-            setUser(foundUser);
-          } else {
-            localStorage.removeItem('consortium_logged_in_user');
-          }
-        }
-      } catch (error) {
-        console.error("Failed to initialize auth", error);
-      } finally {
-        setIsLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', uid)
+        .single();
+
+      if (error) {
+        console.warn("Perfil não encontrado na tabela 'users', tentando buscar por e-mail no banco de usuários...");
+        // Fallback: Se não encontrou pelo ID do Auth, tenta buscar todos e filtrar (útil se o ID for diferente)
+        const allUsers = await db.getUsers();
+        return allUsers.find(u => u.id === uid) || null;
       }
+
+      // Converte do formato do banco para o formato do App
+      return {
+        id: data.id,
+        email: data.email,
+        name: data.name,
+        role: data.role as UserRole,
+        isActive: data.is_active,
+        permissions: data.permissions
+      };
+    } catch (err) {
+      console.error("Erro ao buscar perfil:", err);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+
+    // 1. Verifica se já existe uma sessão ativa ao carregar o app
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+      }
+      setIsLoading(false);
     };
 
-    initAuth();
+    checkSession();
+
+    // 2. Escuta mudanças no estado de autenticação (Login, Logout, Token renovado)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password?: string) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password?.trim() || '';
-    
-    const users = await db.getUsers();
-    const foundUser = users.find(u => u.email.toLowerCase() === cleanEmail);
-    
-    if (!foundUser) {
-      throw new Error('Usuário não encontrado neste dispositivo ou na nuvem.');
-    }
+    const supabase = getSupabase();
+    if (!supabase) throw new Error('Conexão com o banco não configurada.');
+    if (!password) throw new Error('A senha é obrigatória para o login oficial.');
 
-    if (!foundUser.isActive) {
-      throw new Error('Este usuário está inativo. Contate o administrador.');
-    }
+    // Autenticação oficial no Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    // Se o usuário tem senha definida, precisamos validar
-    if (foundUser.password) {
-      if (foundUser.password !== cleanPassword) {
-        throw new Error('Senha incorreta.');
+    if (error) {
+      // Tradução de erros comuns
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('E-mail ou senha incorretos.');
       }
-    } else if (cleanPassword !== '') {
-      // Se o usuário não tem senha mas tentou entrar com uma, podemos permitir ou não.
-      // Por segurança, se não tem senha, só entra se a senha enviada for vazia.
-      // Mas para facilitar, vamos permitir entrar se não houver senha no banco.
+      throw new Error(error.message);
     }
 
-    setUser(foundUser);
-    localStorage.setItem('consortium_logged_in_user', foundUser.id);
+    if (data.user) {
+      const profile = await fetchUserProfile(data.user.id);
+      if (profile && !profile.isActive) {
+        await supabase.auth.signOut();
+        throw new Error('Sua conta está inativa. Entre em contato com o administrador.');
+      }
+      setUser(profile);
+    }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const supabase = getSupabase();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     setUser(null);
-    localStorage.removeItem('consortium_logged_in_user');
   };
 
   const hasPermission = (permission: keyof User['permissions']) => {
     if (!user) return false;
-    if (user.role === UserRole.ADMIN) return true; // Admin has all permissions
+    // Administradores têm permissão total por padrão
+    if (user.role === UserRole.ADMIN) return true;
     return user.permissions[permission] === true;
   };
 
