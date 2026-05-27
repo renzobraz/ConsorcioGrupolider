@@ -27,14 +27,37 @@ export const getSupabaseConfig = () => {
   const isLocalKeyValid = cleanKey.length > 50; // Chaves anon do Supabase são bem longas
 
   // Prioridade 1: LocalStorage (se válido)
-  // Prioridade 2: Variáveis de ambiente VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+  // Prioridade 2: Variáveis de ambiente SUPABASE_URL / SUPABASE_ANON_KEY (com ou sem prefixo VITE_)
+  let envUrl = '';
+  let envKey = '';
+
+  try {
+    envUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  } catch (e) {}
+
+  if (!envUrl) {
+    try {
+      envUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '') as string;
+    } catch (e) {}
+  }
+
   const finalUrl = (cleanUrl && isLocalUrlValid) 
     ? cleanUrl 
-    : cleanConfig(import.meta.env.VITE_SUPABASE_URL || '');
+    : cleanConfig(envUrl);
+
+  try {
+    envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  } catch (e) {}
+
+  if (!envKey) {
+    try {
+      envKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '') as string;
+    } catch (e) {}
+  }
 
   const finalKey = (cleanKey && isLocalKeyValid) 
     ? cleanKey 
-    : cleanConfig(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
+    : cleanConfig(envKey);
 
   return { 
     url: finalUrl, 

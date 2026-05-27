@@ -181,7 +181,18 @@ const UserManagement = () => {
       setIsEditing(null);
     } catch (error: any) {
       console.error("Failed to save user", error);
-      alert("Erro ao salvar usuário: " + (error.message || "Erro desconhecido"));
+      let userMessage = error.message || "Erro desconhecido";
+      
+      // Tradução de erros comuns do Supabase Auth para o usuário
+      if (userMessage.includes("weak and easy to guess")) {
+        userMessage = "A senha escolhida é muito fraca ou comum. Por favor, use uma combinação mais complexa de letras, números e símbolos para sua segurança.";
+      } else if (userMessage.includes("already registered")) {
+        userMessage = "Este e-mail já está cadastrado no sistema.";
+      } else if (userMessage.includes("at least 8 characters") || userMessage.includes("at least 6 characters")) {
+        userMessage = "A senha deve ter no mínimo 8 caracteres para sua segurança.";
+      }
+
+      alert("Erro ao salvar usuário: " + userMessage);
     } finally {
       setIsLoading(false);
     }
@@ -343,15 +354,18 @@ const UserManagement = () => {
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-1">
                         <input 
                           type="password" 
                           value={editForm.password || ''} 
                           onChange={e => setEditForm({...editForm, password: e.target.value})}
                           className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
-                          placeholder="Senha (min 6 carac.)"
-                          minLength={6}
+                          placeholder="Senha de acesso"
+                          minLength={8}
                         />
+                        <p className="text-[10px] text-slate-400 leading-tight">
+                          Use min. 8 caracteres. Evite sequências simples (ex: 12345678).
+                        </p>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-center">
