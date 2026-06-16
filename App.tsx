@@ -12,6 +12,7 @@ import {
 
 // Components
 import Dashboard from './pages/Dashboard';
+import ManagementDashboard from './pages/ManagementDashboard';
 import SellerDashboard from './pages/SellerDashboard';
 import Marketplace from './pages/Marketplace';
 import NegotiationRoom from './pages/NegotiationRoom';
@@ -63,6 +64,7 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
 
   const navItems = [
     { to: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", show: hasPermission('dashboard') },
+    { to: "/management-dashboard", icon: <Activity size={20} />, label: "Dashboard Gerencial", show: hasPermission('dashboard') },
     { to: "/marketplace", icon: <ShoppingBag size={20} />, label: "Marketplace", show: hasPermission('marketplace') },
   ].filter(item => item.show);
 
@@ -491,6 +493,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
   const getPageTitle = (pathname: string) => {
     if (pathname === '/') return 'Dashboard';
+    if (pathname === '/management-dashboard') return 'Dashboard Gerencial';
     if (pathname === '/marketplace') return 'Marketplace';
     if (pathname === '/quotas') return 'Minhas Cotas';
     if (pathname === '/new') return 'Novo Cadastro';
@@ -623,6 +626,7 @@ const App = () => {
           <Layout>
             <Routes>
               <Route path="/" element={<ProtectedRoute permission="dashboard"><Dashboard /></ProtectedRoute>} />
+              <Route path="/management-dashboard" element={<ProtectedRoute permission="dashboard"><ManagementDashboard /></ProtectedRoute>} />
               <Route path="/marketplace" element={<ProtectedRoute permission="marketplace"><Marketplace /></ProtectedRoute>} />
               <Route path="/negotiation/:id" element={<ProtectedRoute permission="marketplace"><NegotiationRoom /></ProtectedRoute>} />
               <Route path="/admin/moderation" element={<ProtectedRoute><AdModeration /></ProtectedRoute>} />
