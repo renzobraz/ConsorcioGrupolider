@@ -3,20 +3,25 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
-import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign, ArrowLeft, ShieldCheck, BadgeCheck, Info } from 'lucide-react';
+import { Trash2, Search, Calculator, Plus, Car, Home, FileText, Pencil, Filter, X, ShoppingBag, AlertTriangle, Loader, Copy, ChevronUp, ChevronDown, Tag, TrendingUp, DollarSign, ArrowLeft, ArrowRight, ShieldCheck, BadgeCheck, Info } from 'lucide-react';
 import { ProductType, Quota } from '../types';
 import { calculateCurrentCreditValue, generateSchedule, calculateIRR, calculateScheduleSummary } from '../services/calculationService';
 import { calculateMarketAnalysis, MarketAnalysis } from '../services/marketService';
 import { db } from '../services/database';
 import ConsortiumFilterBar from '../components/ConsortiumFilterBar';
 
+const PAGE_SIZE = 50;
+
 const QuotaList = () => {
   const { quotas, deleteQuota, updateQuota, setCurrentQuota, administrators, companies, indices, allCreditUpdates, allCreditUsages, globalFilters, setGlobalFilters } = useConsortium();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Sync URL search params with global filters
   React.useEffect(() => {
@@ -62,6 +67,9 @@ const QuotaList = () => {
   const [verificationDoc, setVerificationDoc] = useState('');
   const [verificationError, setVerificationError] = useState('');
   const [askingPrice, setAskingPrice] = useState<number>(0);
+
+  // Reset to page 1 whenever filters or sort change
+  React.useEffect(() => { setCurrentPage(1); }, [globalFilters, sortConfig]);
 
   const filteredQuotas = quotas.filter(q => {
     const search = globalFilters.searchText || '';
@@ -131,6 +139,9 @@ const QuotaList = () => {
     if (aValue > bValue) return direction === 'asc' ? 1 : -1;
     return 0;
   });
+
+  const totalPages = Math.max(1, Math.ceil(sortedQuotas.length / PAGE_SIZE));
+  const paginatedQuotas = sortedQuotas.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleSort = (key: string) => {
     setSortConfig(prev => {
@@ -227,7 +238,7 @@ const QuotaList = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedQuotas.map((quota) => {
+                {paginatedQuotas.map((quota) => {
                   const currentValue = calculateCurrentCreditValue(quota, indices);
                   const usedCredit = allCreditUsages
                       .filter(u => u.quotaId === quota.id)
@@ -491,6 +502,34 @@ const QuotaList = () => {
           </div>
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {sortedQuotas.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
+          <span className="text-sm text-slate-500">
+            {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, sortedQuotas.length)} de {sortedQuotas.length} cotas
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <span className="text-sm font-medium text-slate-700 min-w-[80px] text-center">
+              Página {currentPage} de {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {quotaToDelete && (

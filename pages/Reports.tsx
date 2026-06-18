@@ -61,15 +61,22 @@ const Reports = () => {
   const [referenceDate, setReferenceDate] = useState(getTodayStr());
   const [sortConfig, setSortConfig] = useState<{ key: keyof ReportRow, direction: 'asc' | 'desc' } | null>(null);
 
+  const REPORTS_PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+
   const buildReport = useCallback(async (refDateStr: string) => {
     const refDate = new Date(refDateStr + 'T23:59:59');
 
     try {
-      const rows = await Promise.all(quotas.map(async (quota) => {
-        const [quotaPayments, quotaManualTransactions] = await Promise.all([
-          db.getPayments(quota.id),
-          db.getManualTransactions(quota.id)
-        ]);
+      // Batch fetch: 2 queries instead of N*2 individual roundtrips
+      const [allPaymentsDict, allManualTxs] = await Promise.all([
+        db.getAllPaymentsDictionary(),
+        db.getAllManualTransactions()
+      ]);
+
+      const rows = quotas.map((quota) => {
+        const quotaPayments = allPaymentsDict[quota.id] || {};
+        const quotaManualTransactions = allManualTxs.filter(t => t.quotaId === quota.id);
 
         const schedule = generateSchedule({ ...quota, manualTransactions: quotaManualTransactions }, indices, quotaPayments);
         
@@ -129,7 +136,7 @@ const Reports = () => {
           creditoUtilizado,
           saldoDisponivel: creditoTotal - creditoUtilizado
         };
-      }));
+      });
       return rows;
     } catch (err) { 
       console.error(err); 
@@ -214,6 +221,12 @@ const Reports = () => {
     }
     return items;
   }, [filteredData, sortConfig]);
+
+  // Reset to page 1 when filters, sort, or date change
+  React.useEffect(() => { setCurrentPage(1); }, [globalFilters, sortConfig, referenceDate]);
+
+  const totalReportPages = Math.max(1, Math.ceil(sortedData.length / REPORTS_PAGE_SIZE));
+  const paginatedData = sortedData.slice((currentPage - 1) * REPORTS_PAGE_SIZE, currentPage * REPORTS_PAGE_SIZE);
 
   const sums = sortedData.reduce((acc, row) => ({
     creditValue: acc.creditValue + (row.creditValue || 0),
@@ -787,7 +800,7 @@ const Reports = () => {
 
       {/* Visualização Mobile (Cards) - Aparece apenas em celular */}
       <div className="block md:hidden space-y-4 print:hidden">
-        {sortedData.map((row) => (
+        {paginatedData.map((row) => (
           <div key={row.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className={`px-4 py-3 border-b border-slate-100 flex justify-between items-center ${row.isContemplated ? 'bg-emerald-50/50' : 'bg-slate-50'}`}>
               <div className="flex flex-col">
@@ -875,8 +888,8 @@ const Reports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {loading ? (<tr><td colSpan={21} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) : 
-                 sortedData.map(row => (
+                {loading ? (<tr><td colSpan={21} className="p-10 text-center"><Loader className="animate-spin mx-auto mb-2" /> Carregando dados...</td></tr>) :
+                 paginatedData.map(row => (
                   <tr key={row.id} className="hover:bg-slate-50">
                     <td className="p-2 font-bold text-slate-700 sticky left-0 bg-white border-r border-slate-100 shadow-sm print:static print:bg-transparent">{row.group}</td>
                     <td className="p-2 font-bold text-slate-700 sticky left-[50px] bg-white border-r border-slate-100 shadow-sm print:static print:bg-transparent">{row.quotaNumber}</td>
@@ -928,6 +941,34 @@ const Reports = () => {
               </tfoot>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {!loading && sortedData.length > REPORTS_PAGE_SIZE && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 print:hidden">
+              <span className="text-xs text-slate-500">
+                {(currentPage - 1) * REPORTS_PAGE_SIZE + 1}–{Math.min(currentPage * REPORTS_PAGE_SIZE, sortedData.length)} de {sortedData.length} cotas
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowLeft size={14} />
+                </button>
+                <span className="text-xs font-medium text-slate-700 min-w-[100px] text-center">
+                  Página {currentPage} de {totalReportPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalReportPages, p + 1))}
+                  disabled={currentPage === totalReportPages}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
       </div>
       {editingId && (
           <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 p-4 print:hidden">
