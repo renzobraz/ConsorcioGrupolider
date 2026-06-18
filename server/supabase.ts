@@ -4,7 +4,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 let supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
-const supabaseKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+// Serverless functions must use the Service Role Key to bypass RLS.
+// NEVER use the anon key here — it would be blocked by RLS policies.
+const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
 // Auto-fix if only project ID is provided
 if (supabaseUrl && !supabaseUrl.includes('://')) {
@@ -32,7 +34,7 @@ if (supabaseUrl) {
 }
 
 if (!supabaseKey) {
-  console.warn('⚠️ SUPABASE_ANON_KEY não encontrada no ambiente do servidor.');
+  console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY não encontrada no ambiente do servidor. Relatórios agendados estão desativados.');
 }
 
 // Only create the client if we have valid credentials
