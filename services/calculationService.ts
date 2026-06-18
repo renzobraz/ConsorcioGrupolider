@@ -65,12 +65,10 @@ export const calculateAverageIndices = (indices: MonthlyIndex[], periodMonths: n
   startDate.setMonth(today.getMonth() - periodMonths);
   
   types.forEach(type => {
-    const relevantIndices = indices.filter(i => 
-      i.type === type && 
-      new Date(i.date) >= startDate &&
-      new Date(i.date) <= today &&
-      i.rate !== 0
-    );
+    const relevantIndices = indices.filter(i => {
+      const idxDate = createLocalDate(i.date);
+      return i.type === type && idxDate >= startDate && idxDate <= today && i.rate !== 0;
+    });
     
     if (relevantIndices.length > 0) {
       const sum = relevantIndices.reduce((s, i) => s + i.rate, 0);

@@ -15,7 +15,7 @@
  * Se um teste falhar por resultado inesperado, paramos e reportamos antes de mexer.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   calculateIRR,
   calculateCDICorrection,
@@ -1511,6 +1511,31 @@ describe('calculateAverageIndices', () => {
     expect(result[CorrectionIndex.INCC]).toBeCloseTo(2.0, 4); // (1+3)/2
     expect(result[CorrectionIndex.CDI]).toBeCloseTo(0.8, 4);
     expect(result[CorrectionIndex.IPCA]).toBe(0.45); // fallback (sem dados)
+  });
+
+  it('#004 — índice na fronteira exata do período não é descartado por deslocamento UTC (BRT UTC-3)', () => {
+    // Configura "agora" como 2024-04-01 00:00 horário local.
+    // startDate = new Date() com setMonth(-1) → 2024-03-01 00:00 horário local.
+    //
+    // Índice com date='2024-03-01':
+    //   Bug:  new Date('2024-03-01') = midnight UTC = 2024-02-29 21:00 BRT → < startDate → EXCLUÍDO
+    //   Fix:  createLocalDate('2024-03-01') = midnight local → === startDate → INCLUÍDO
+    //
+    // Nota: este teste detecta o bug apenas em ambientes UTC-3 (BRT).
+    // Em UTC os dois caminhos são equivalentes e o teste passa de qualquer forma.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2024, 3, 1, 0, 0, 0)); // 1 Apr 2024 00:00 local
+
+    const indices: MonthlyIndex[] = [
+      { id: '1', type: CorrectionIndex.INCC, date: '2024-03-01', rate: 1.23 },
+    ];
+
+    const result = calculateAverageIndices(indices, 1);
+    vi.useRealTimers();
+
+    // Bug retorna fallback INCC = 0.5 (índice excluído por deslocamento UTC).
+    // Fix retorna a taxa real = 1.23 (índice incluído com createLocalDate).
+    expect(result[CorrectionIndex.INCC]).toBeCloseTo(1.23, 4);
   });
 });
 

@@ -109,44 +109,42 @@ balanceFC_Reais -= earningsToApply;
 ## #004 — `calculateAverageIndices` usa `new Date(i.date)` (UTC) em vez de `createLocalDate` (local)
 
 **Severidade:** 🔵 Baixo (edge case em datas de fronteira de período)  
+**Status:** ✅ **CORRIGIDO** em 2026-06-18 — pendente commit  
 **Arquivo:** `services/calculationService.ts`  
-**Linhas:** 70–71
+**Linhas afetadas:** 68–73
 
-### Descrição
+### Correção aplicada
 
 ```typescript
-// L70–71 — usa UTC
+// Antes (bugado):
 const relevantIndices = indices.filter(i =>
     i.type === type &&
-    new Date(i.date) >= startDate &&   // ← new Date('2020-01-01') = UTC midnight
+    new Date(i.date) >= startDate &&   // UTC midnight ≠ local midnight em UTC-3
     new Date(i.date) <= today &&
     i.rate !== 0
 );
+
+// Depois (corrigido):
+const relevantIndices = indices.filter(i => {
+    const idxDate = createLocalDate(i.date);
+    return i.type === type && idxDate >= startDate && idxDate <= today && i.rate !== 0;
+});
 ```
 
-`new Date('2020-01-01')` em JavaScript interpreta a string como **UTC midnight** (00:00:00 UTC).
-No fuso horário de Brasília (UTC-3), isso equivale a **31/Dez/2019 às 21:00 local**.
-
-Enquanto isso, `startDate` é criado com `new Date()` (horário local), gerando uma comparação
-entre um Date UTC e um Date local — inconsistência que pode excluir incorretamente o primeiro
-índice do período.
-
-### Impacto
-
-- Afeta apenas `calculateAverageIndices`, que é usada para **projeções futuras** quando não há índices históricos.
-- Produção de saldos levemente errados em projeções de cenários futuros.
-- Não afeta cálculos com dados históricos reais (onde os índices existem).
-
-### Correção sugerida
-
-Substituir `new Date(i.date)` por `createLocalDate(i.date)` nas linhas 70–71:
-
-```typescript
-const idxDate = createLocalDate(i.date);
-return i.type === type && idxDate >= startDate && idxDate <= today && i.rate !== 0;
-```
+`createLocalDate` já é o padrão em todo o restante do `calculationService.ts` (15+ chamadas).
+Esta era a única exceção — agora consistente com o restante do código.
 
 **Supabase schema:** Nenhuma alteração necessária.
+
+### Testes (TDD)
+
+- Novo teste: `'#004 — índice na fronteira exata do período não é descartado por deslocamento UTC (BRT UTC-3)'`
+- Usa `vi.useFakeTimers()` / `vi.setSystemTime(new Date(2024, 3, 1, 0, 0, 0))` para fixar "agora" como 2024-04-01 00:00 local
+- Índice com `date: '2024-03-01'` e `rate: 1.23` — na fronteira exata de `startDate`
+- Bug: `new Date('2024-03-01')` = UTC midnight = 2024-02-29 21:00 BRT → excluído → fallback 0.5 retornado
+- Fix: `createLocalDate('2024-03-01')` = local midnight → incluído → 1.23 retornado
+- Confirmado falhando com `expected 0.5 to be 1.23` antes da correção
+- 111/111 passando após o fix, zero regressões
 
 ---
 
@@ -196,4 +194,4 @@ Callers existentes (Simulation.tsx, Dashboard.tsx, scheduler.ts etc.) já usavam
 | #003 | ✅ Corrigido | — | Linhas 863–866 + types.ts | Não |
 | #002 | ✅ Corrigido | — | Linhas 486–490 (reset no início do loop) | Não |
 | #005 | ✅ Corrigido | — | Linhas 238–242 + 287–288 (constantes exportadas) | Não |
-| #004 | 🔵 Baixa | Sim — índice de fronteira de período incluído | Linhas 70–71 | Não |
+| #004 | ✅ Corrigido | Sim — índice de fronteira de período incluído | Linhas 68–73 (createLocalDate) | Não |
