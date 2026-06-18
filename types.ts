@@ -341,7 +341,11 @@ export interface PaymentInstallment {
   manualInsurance?: number | null;
   manualAmortization?: number | null;
   manualEarnings?: number | null;
-  
+  manualFCExcess?: number;
+  manualTAExcess?: number;
+  manualFRExcess?: number;
+  manualEarningsExcess?: number;
+
   // Manual Transaction Info
   isManualTransaction?: boolean;
   manualTransactionId?: string;

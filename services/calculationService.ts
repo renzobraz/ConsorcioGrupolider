@@ -235,6 +235,9 @@ export interface ScheduleSummary {
   };
 }
 
+export const BID_FREE_PAYMENT_KEY = 0 as const;
+export const BID_EMBEDDED_PAYMENT_KEY = -1 as const;
+
 export function calculateScheduleSummary(
   quota: Quota,
   schedule: PaymentInstallment[],
@@ -277,8 +280,8 @@ export function calculateScheduleSummary(
     }
 
     if (inst.bidAmountApplied && inst.bidAmountApplied > 0) {
-      const isFreeBidPaid = payments[0]?.status === 'PAGO';
-      const isEmbeddedBidPaid = payments[-1]?.status === 'PAGO';
+      const isFreeBidPaid = payments[BID_FREE_PAYMENT_KEY]?.status === 'PAGO';
+      const isEmbeddedBidPaid = payments[BID_EMBEDDED_PAYMENT_KEY]?.status === 'PAGO';
 
       const freeBidPct = (inst.bidFreePercentFC || 0) + (inst.bidFreePercentFR || 0) + (inst.bidFreePercentTA || 0);
       const embeddedBidPct = (inst.bidEmbeddedPercentFC || 0) + (inst.bidEmbeddedPercentFR || 0) + (inst.bidEmbeddedPercentTA || 0);
@@ -484,7 +487,12 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let correctionRealRate = 0;
     let correctionBalanceFC = 0, correctionBalanceTA = 0, correctionBalanceFR = 0, correctionBalanceTotal = 0;
     let correctionPercentBalanceFC = 0, correctionPercentBalanceTA = 0, correctionPercentBalanceFR = 0, correctionPercentBalanceTotal = 0;
-    
+
+    correctionAmountFC = 0;
+    correctionAmountTA = 0;
+    correctionAmountFR = 0;
+    correctionAmountTotal = 0;
+
     // TRAVA DO GATILHO DE REAJUSTE (A Regra de Ouro):
     // Data_Proximo_Reajuste DEVE obrigatoriamente ser calculada como: Data_1a_Assembleia + 12 meses.
     if (firstAssemblyDate) {
@@ -843,6 +851,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
     let realAmountPaid = null;
     let paymentDate = null;
     let status = 'PREVISTO';
+    let manualFCExcess: number | undefined = undefined;
+    let manualTAExcess: number | undefined = undefined;
+    let manualFRExcess: number | undefined = undefined;
+    let manualEarningsExcess: number | undefined = undefined;
 
     // Apply manual overrides from payments
     const payment = payments[i];
@@ -859,20 +871,36 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
         paymentDate = payment.paymentDate || null;
         status = payment.status || 'PREVISTO';
 
-        // Apply manual earnings (reduces balance)
+        // Apply manual earnings (reduces balance), clamped to available balance
         if (payment.manualEarnings && typeof payment.manualEarnings === 'number') {
-            balanceFC_Reais -= payment.manualEarnings;
+            const earningsToApply = Math.min(payment.manualEarnings, Math.max(0, balanceFC_Reais));
+            const excess = payment.manualEarnings - earningsToApply;
+            if (excess > 0) manualEarningsExcess = parseFloat(excess.toFixed(2));
+            balanceFC_Reais -= earningsToApply;
         }
     }
 
-    // Ajuste final para não cobrar mais do que o saldo devedor
-    if (installmentFC > balanceFC_Reais) installmentFC = Math.max(0, balanceFC_Reais);
-    if (installmentTA > balanceTA_Reais) installmentTA = Math.max(0, balanceTA_Reais);
-    if (installmentFR > balanceFR_Reais) installmentFR = Math.max(0, balanceFR_Reais);
+    // Ajuste final para não cobrar mais do que o saldo devedor — registra excesso de overrides manuais
+    if (installmentFC > balanceFC_Reais) {
+        if (payment?.manualFC !== undefined && payment?.manualFC !== null)
+            manualFCExcess = parseFloat((installmentFC - Math.max(0, balanceFC_Reais)).toFixed(2));
+        installmentFC = Math.max(0, balanceFC_Reais);
+    }
+    if (installmentTA > balanceTA_Reais) {
+        if (payment?.manualTA !== undefined && payment?.manualTA !== null)
+            manualTAExcess = parseFloat((installmentTA - Math.max(0, balanceTA_Reais)).toFixed(2));
+        installmentTA = Math.max(0, balanceTA_Reais);
+    }
+    if (installmentFR > balanceFR_Reais) {
+        if (payment?.manualFR !== undefined && payment?.manualFR !== null)
+            manualFRExcess = parseFloat((installmentFR - Math.max(0, balanceFR_Reais)).toFixed(2));
+        installmentFR = Math.max(0, balanceFR_Reais);
+    }
 
     // Calculate actual rates used (for display purposes)
     // Include manual earnings in the FC rate to ensure the total sum reflects all contributions
-    let actualRateFC = ((installmentFC + (payment?.manualEarnings || 0)) / currentCreditValue) * 100;
+    const appliedEarnings = payment?.manualEarnings !== undefined ? (payment.manualEarnings - (manualEarningsExcess ?? 0)) : 0;
+    let actualRateFC = ((installmentFC + appliedEarnings) / currentCreditValue) * 100;
     let actualRateTA = (installmentTA / currentCreditValue) * 100;
     let actualRateFR = (installmentFR / currentCreditValue) * 100;
 
@@ -965,6 +993,10 @@ export const generateSchedule = (quota: Quota, indices: MonthlyIndex[] = [], pay
       manualInsurance: payment?.manualInsurance,
       manualAmortization: payment?.manualAmortization,
       manualEarnings: payment?.manualEarnings,
+      manualFCExcess,
+      manualTAExcess,
+      manualFRExcess,
+      manualEarningsExcess,
     });
   }
 
