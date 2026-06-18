@@ -6,6 +6,7 @@ import { useConsortium } from '../store/ConsortiumContext';
 import { db } from '../services/database';
 
 import { getTodayStr } from '../utils/formatters';
+import { isValidSupabaseUrl, isValidSupabaseKey } from '../utils/validateSupabaseCredentials';
 import { EmailSettings } from '../components/EmailSettings';
 import { SendEmailModal } from '../components/SendEmailModal';
 import { AVAILABLE_REPORT_COLUMNS } from '../constants/reportAvailableColumns';
@@ -136,44 +137,37 @@ const Settings = () => {
     let cleanedUrl = url.trim().replace(/\/$/, "");
     const cleanedKey = key.trim().replace(/^Bearer\s+/i, "");
 
-    // Se o usuário colou apenas o ID (ex: seu-projeto-id), transforma em URL
+    // Se o usuário colou apenas o ID do projeto (ex: xyzproject), transforma em URL completa
     if (cleanedUrl && !cleanedUrl.includes('.') && !cleanedUrl.startsWith('http')) {
       cleanedUrl = `https://${cleanedUrl}.supabase.co`;
       setUrl(cleanedUrl);
     }
 
-    if (cleanedUrl.startsWith('postgres://') || cleanedUrl.startsWith('postgresql://') || cleanedUrl.includes('@')) {
-      alert("Erro: Você inseriu a String de Conexão do Banco de Dados (PostgreSQL).\n\nVocê deve usar a 'Project URL' (API REST).\n\n1. Vá em Project Settings > API no Supabase.\n2. Copie a URL que começa com 'https://'.");
+    const urlResult = isValidSupabaseUrl(cleanedUrl);
+    if (!urlResult.valid) {
+      alert(`⚠️ URL INVÁLIDA\n\n${urlResult.error}`);
       return;
     }
 
-    if (cleanedUrl && !cleanedUrl.startsWith('https://')) {
-      alert("Erro: A URL do projeto deve começar com 'https://'.");
+    const keyResult = isValidSupabaseKey(cleanedKey);
+    if (!keyResult.valid) {
+      alert(`⚠️ API KEY INVÁLIDA\n\n${keyResult.error}\n\nCertifique-se de copiar a chave 'anon' (public) completa do painel Supabase.`);
       return;
     }
 
-    if (cleanedUrl && !cleanedUrl.includes('.')) {
-      alert("Erro: A URL deve ser o link completo (ex: https://xyz.supabase.co), não apenas o ID do projeto.");
-      return;
+    // Confirmação explícita ao trocar para uma URL diferente da configuração atual
+    const currentConfig = getSupabaseConfig();
+    if (currentConfig.url && currentConfig.url !== cleanedUrl) {
+      const confirmed = window.confirm(
+        `⚠️ Você está alterando a conexão do banco de dados.\n\nAtual:  ${currentConfig.url}\nNova:   ${cleanedUrl}\n\nConfirma a alteração?`
+      );
+      if (!confirmed) return;
     }
 
-    const isNewFormat = cleanedKey.startsWith('sb_');
-    if (cleanedKey && !isNewFormat && cleanedKey.length < 50) {
-      alert("⚠️ CHAVE INVÁLIDA\n\nA API Key que você colou parece muito curta. \n\nSe a sua chave NÃO começa com 'sb_', ela deve ser um texto bem longo (JWT) começando com 'eyJ...'.\n\nCertifique-se de que copiou o código inteiro da 'Publishable key' ou 'anon' key.");
-      return;
-    }
-
-    if (cleanedKey && isNewFormat && cleanedKey.length < 20) {
-        alert("⚠️ CHAVE MUITO CURTA\n\nMesmo no formato novo (sb_), a chave deve ser mais longa que isso.");
-        return;
-    }
-
-    if (cleanedUrl && cleanedKey) {
-      saveSupabaseConfig(cleanedUrl, cleanedKey);
-      setSaved(true);
-      refreshData();
-      setTimeout(() => setSaved(false), 3000);
-    }
+    saveSupabaseConfig(cleanedUrl, cleanedKey);
+    setSaved(true);
+    refreshData();
+    setTimeout(() => setSaved(false), 3000);
   };
 
   const handleClear = () => {
