@@ -7,6 +7,7 @@ import { Save, ArrowLeft, Gavel, Loader, Calculator, Info, AlertCircle, Plus, Tr
 import { formatCurrency, calculateIndexReferenceMonth, getTodayStr } from '../utils/formatters';
 import { extractQuotaDataFromContract } from '../services/aiService';
 import { uploadContractFile } from '../services/database';
+import { parseQuotaForm, QuotaFormErrors } from '../services/schemas';
 
 const NewQuota = () => {
   const navigate = useNavigate();
@@ -19,6 +20,14 @@ const NewQuota = () => {
   const [isManualMonth, setIsManualMonth] = useState(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<QuotaFormErrors>({});
+
+  const FieldError = ({ field }: { field: string }) =>
+    fieldErrors[field] ? (
+      <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+        <AlertCircle size={11} /> {fieldErrors[field]}
+      </p>
+    ) : null;
 
   const [formData, setFormData] = useState<Partial<Quota>>({
     productType: ProductType.VEHICLE,
@@ -238,8 +247,28 @@ const NewQuota = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.group || !formData.quotaNumber || !formData.creditValue) {
-      alert("Preencha os campos obrigatórios");
+    setFieldErrors({});
+
+    const validation = parseQuotaForm({
+      ...formData,
+      creditValue: Number(formData.creditValue) || 0,
+      termMonths: Number(formData.termMonths) || 0,
+      adminFeeRate: Number(formData.adminFeeRate) || 0,
+      reserveFundRate: Number(formData.reserveFundRate) || 0,
+      dueDay: Number(formData.dueDay) || 0,
+      indexReferenceMonth: Number(formData.indexReferenceMonth) || 0,
+      bidFree: Number(formData.bidFree) || 0,
+      bidEmbedded: Number(formData.bidEmbedded) || 0,
+      assumedInstallment: formData.assumedInstallment !== undefined ? Number(formData.assumedInstallment) : undefined,
+      prePaidFCPercent: formData.prePaidFCPercent !== undefined ? Number(formData.prePaidFCPercent) : undefined,
+      acquisitionCost: formData.acquisitionCost !== undefined ? Number(formData.acquisitionCost) : undefined,
+    });
+
+    if (!validation.success) {
+      setFieldErrors(validation.errors);
+      const firstErrorField = Object.keys(validation.errors)[0];
+      const el = document.querySelector(`[name="${firstErrorField}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
@@ -489,11 +518,13 @@ const NewQuota = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Grupo *</label>
-              <input required name="group" value={formData.group || ''} type="text" className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="group" value={formData.group || ''} type="text" className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.group ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="group" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Número da Cota *</label>
-              <input required name="quotaNumber" value={formData.quotaNumber || ''} type="text" className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="quotaNumber" value={formData.quotaNumber || ''} type="text" className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.quotaNumber ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="quotaNumber" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Contrato</label>
@@ -523,16 +554,19 @@ const NewQuota = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">1º Vencimento *</label>
-              <input required name="firstDueDate" type="date" value={formData.firstDueDate || ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="firstDueDate" type="date" value={formData.firstDueDate || ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.firstDueDate ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="firstDueDate" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Dia Fixo de Vencimento</label>
-              <input required name="dueDay" type="number" min="1" max="31" value={formData.dueDay ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-emerald-700" onChange={handleChange} />
-              <p className="text-[10px] text-slate-400 mt-1 italic">Padrão Sicredi: Dia 25 (Ajusta p/ dia útil)</p>
+              <input required name="dueDay" type="number" min="1" max="31" value={formData.dueDay ?? ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-emerald-700 ${fieldErrors.dueDay ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="dueDay" />
+              {!fieldErrors.dueDay && <p className="text-[10px] text-slate-400 mt-1 italic">Padrão Sicredi: Dia 25 (Ajusta p/ dia útil)</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Prazo (Meses)</label>
-              <input required name="termMonths" type="number" min="1" value={formData.termMonths ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="termMonths" type="number" min="1" value={formData.termMonths ?? ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.termMonths ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="termMonths" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Mês Ref. Índice Reajuste</label>
@@ -577,11 +611,13 @@ const NewQuota = () => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                           <label className="block text-xs font-medium text-amber-700 mb-1">Parcela Inicial Assumida</label>
-                          <input required={formData.acquiredFromThirdParty} name="assumedInstallment" type="number" min="1" value={formData.assumedInstallment ?? ''} className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" onChange={handleChange} />
+                          <input required={formData.acquiredFromThirdParty} name="assumedInstallment" type="number" min="1" value={formData.assumedInstallment ?? ''} className={`w-full bg-white border rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none ${fieldErrors.assumedInstallment ? 'border-red-400' : 'border-amber-300'}`} onChange={handleChange} />
+                          <FieldError field="assumedInstallment" />
                       </div>
                       <div>
                           <label className="block text-xs font-medium text-amber-700 mb-1">% Fundo Comum Pago (Ex-dono)</label>
-                          <input required={formData.acquiredFromThirdParty} name="prePaidFCPercent" type="number" step="0.0001" value={formData.prePaidFCPercent ?? ''} className="w-full bg-white border border-amber-300 rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none" onChange={handleChange} />
+                          <input required={formData.acquiredFromThirdParty} name="prePaidFCPercent" type="number" step="0.0001" value={formData.prePaidFCPercent ?? ''} className={`w-full bg-white border rounded p-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none ${fieldErrors.prePaidFCPercent ? 'border-red-400' : 'border-amber-300'}`} onChange={handleChange} />
+                          <FieldError field="prePaidFCPercent" />
                       </div>
                       <div>
                           <label className="block text-xs font-medium text-amber-700 mb-1">Valor Pago (Ágio/Repasse) R$</label>
@@ -651,8 +687,9 @@ const NewQuota = () => {
               <label className="block text-sm font-medium text-slate-600 mb-1">Valor da Carta (R$) *</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><span className="text-slate-500 sm:text-sm">R$</span></div>
-                <input required name="creditValue" value={displayCreditValue} type="text" placeholder="0,00" className="w-full bg-white border border-slate-300 rounded-lg p-2.5 pl-10 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleCreditChange} />
+                <input required name="creditValue" value={displayCreditValue} type="text" placeholder="0,00" className={`w-full bg-white border rounded-lg p-2.5 pl-10 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.creditValue ? 'border-red-400' : 'border-slate-300'}`} onChange={handleCreditChange} />
               </div>
+              <FieldError field="creditValue" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Produto</label>
@@ -665,11 +702,13 @@ const NewQuota = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Taxa Adm (TA) %</label>
-              <input required name="adminFeeRate" type="number" step="0.0001" placeholder="0.0000" value={formData.adminFeeRate ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} />
+              <input required name="adminFeeRate" type="number" step="0.0001" placeholder="0.0000" value={formData.adminFeeRate ?? ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.adminFeeRate ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="adminFeeRate" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Fundo Reserva (FR) %</label>
-              <input required name="reserveFundRate" type="number" step="0.01" value={formData.reserveFundRate ?? ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={handleChange} onBlur={handleReserveFundBlur} />
+              <input required name="reserveFundRate" type="number" step="0.01" value={formData.reserveFundRate ?? ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none ${fieldErrors.reserveFundRate ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} onBlur={handleReserveFundBlur} />
+              <FieldError field="reserveFundRate" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Índice Correção Anual</label>
@@ -757,15 +796,18 @@ const NewQuota = () => {
           <div className={`grid grid-cols-1 md:grid-cols-4 gap-6 transition-all duration-300 ${formData.isContemplated ? 'opacity-100' : 'opacity-50 grayscale'}`}>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Data Contemplação</label>
-              <input name="contemplationDate" type="date" disabled={!formData.isContemplated} value={formData.contemplationDate || ''} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="contemplationDate" type="date" disabled={!formData.isContemplated} value={formData.contemplationDate || ''} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100 ${fieldErrors.contemplationDate ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="contemplationDate" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Livre (R$)</label>
-              <input name="bidFree" type="number" step="0.01" value={formData.bidFree ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidFree" type="number" step="0.01" value={formData.bidFree ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100 ${fieldErrors.bidFree ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="bidFree" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Lance Embutido (R$)</label>
-              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className="w-full bg-white border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100" onChange={handleChange} />
+              <input name="bidEmbedded" type="number" step="0.01" value={formData.bidEmbedded ?? ''} disabled={!formData.isContemplated || formData.isDrawContemplation} className={`w-full bg-white border rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100 ${fieldErrors.bidEmbedded ? 'border-red-400' : 'border-slate-300'}`} onChange={handleChange} />
+              <FieldError field="bidEmbedded" />
             </div>
             <div>
                <label className="block text-sm font-medium text-slate-700 mb-1">Valor Total Lance</label>
