@@ -179,8 +179,14 @@ ac9c0f6  fix(calculationService): corrige 4 bugs críticos via TDD (110 testes p
 ### 2. 🟠 Integração de gateway de pagamento
 **Decisão pendente:** escolher o gateway (Stripe, Mercado Pago, PagSeguro). A integração deve usar webhooks assinados para confirmar pagamentos no servidor — nunca confiar no frontend para confirmar aprovação de pagamento.
 
-### 3. 🟠 Paginação no frontend
-`Reports.tsx` e `QuotaList.tsx` carregam todas as cotas sem paginar, mesmo com paginação implementada em `database.ts`. Risco de travamento com volume alto.
+### 3. ✅ Paginação no frontend — CONCLUÍDO
+
+**O que foi feito:**
+- `QuotaList.tsx`: paginação de UI com `PAGE_SIZE = 50`, reset automático ao filtrar/ordenar, controles de navegação.
+- `Reports.tsx`: paginação de UI com `REPORTS_PAGE_SIZE = 50`, paginação no mobile (cards) e desktop (tabela).
+- `QuotaList.tsx`: cálculo de CET Anual (`generateSchedule` + `calculateIRR`) movido para `useMemo` por página, evitando recomputação a cada re-render.
+
+**Risco residual:** o contexto ainda carrega todas as cotas na inicialização. Se o volume crescer para milhares de cotas por tenant, será necessário implementar paginação server-side real (query com `.range()` por página no Supabase + refatoração do `ConsortiumContext`).
 
 ### 4. 🟡 Validação de entrada com Zod
 Formulários principais sem validação de schema (só checagens ad-hoc inline). Especialmente crítico nos formulários que alimentam o `calculationService.ts`.

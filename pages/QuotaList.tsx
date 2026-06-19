@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { formatCurrency } from '../utils/formatters';
@@ -184,6 +184,29 @@ const QuotaList = () => {
 
   const hasActiveFilters = globalFilters.searchText || globalFilters.administratorId || globalFilters.companyId || globalFilters.productType;
 
+  const cetCache = useMemo(() => {
+    return paginatedQuotas.reduce((acc, quota) => {
+      const schedule = generateSchedule(quota, indices);
+      const embeddedBid = quota.bidEmbedded || 0;
+      const netCredit = calculateCurrentCreditValue(quota, indices) - embeddedBid;
+      const acqCost = quota.acquisitionCost || 0;
+      const cashFlows = [netCredit - acqCost];
+      schedule.forEach(inst => {
+        let outflow = inst.totalInstallment;
+        if (inst.bidFreeApplied && inst.bidFreeApplied > 0) outflow += inst.bidFreeApplied;
+        cashFlows.push(-outflow);
+      });
+      const irrMonthly = calculateIRR(cashFlows);
+      const irrAnnual = irrMonthly !== null && !isNaN(irrMonthly) ? Math.pow(1 + irrMonthly, 12) - 1 : null;
+      const totalPaid = irrAnnual === null && netCredit > 0
+        ? schedule.reduce((sum, inst) => sum + inst.totalInstallment + (inst.bidFreeApplied || 0), 0)
+        : 0;
+      const linearCET = netCredit > 0 ? (((totalPaid + acqCost) / netCredit) - 1) / (quota.termMonths / 12) : 0;
+      acc[quota.id] = { irrAnnual, netCredit, linearCET };
+      return acc;
+    }, {} as Record<string, { irrAnnual: number | null; netCredit: number; linearCET: number }>);
+  }, [paginatedQuotas, indices]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -319,41 +342,20 @@ const QuotaList = () => {
                     </td>
                     <td className="p-4 text-center bg-slate-50/50 border-l border-slate-100">
                       {(() => {
-                        const schedule = generateSchedule(quota, indices);
-                        const embeddedBid = quota.bidEmbedded || 0;
-                        const netCredit = (calculateCurrentCreditValue(quota, indices)) - embeddedBid;
-                        const acqCost = quota.acquisitionCost || 0;
-                        
-                        const cashFlows = [netCredit - acqCost];
-                        schedule.forEach(inst => {
-                            let outflow = inst.totalInstallment;
-                            if (inst.bidFreeApplied && inst.bidFreeApplied > 0) {
-                                outflow += inst.bidFreeApplied;
-                            }
-                            cashFlows.push(-outflow);
-                        });
-
-                        const irrMonthly = calculateIRR(cashFlows);
-                        if (irrMonthly !== null && !isNaN(irrMonthly) && netCredit > 0) {
-                            const irrAnnual = Math.pow(1 + irrMonthly, 12) - 1;
-                            return (
-                                <div className="flex flex-col items-center">
-                                    <span className="text-sm font-black text-slate-800">{(irrAnnual * 100).toFixed(2)}%</span>
-                                    <span className="text-[9px] text-slate-400 uppercase">a.a.</span>
-                                </div>
-                            );
-                        } else if (netCredit > 0) {
-                            const totalPaidInSchedule = schedule.reduce((sum, inst) => sum + inst.totalInstallment + (inst.bidFreeApplied || 0), 0);
-                            const totalCost = totalPaidInSchedule + acqCost;
-                            const linearCETAnnual = ((totalCost / netCredit) - 1) / (quota.termMonths / 12);
-                            return (
-                                <div className="flex flex-col items-center">
-                                    <span className="text-sm font-bold text-slate-500">{(linearCETAnnual * 100).toFixed(2)}%</span>
-                                    <span className="text-[9px] text-slate-400 uppercase">a.a. (lin)</span>
-                                </div>
-                            );
-                        }
-                        return <span className="text-slate-300">-</span>;
+                        const cet = cetCache[quota.id];
+                        if (!cet || cet.netCredit <= 0) return <span className="text-slate-300">-</span>;
+                        if (cet.irrAnnual !== null) return (
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-black text-slate-800">{(cet.irrAnnual * 100).toFixed(2)}%</span>
+                            <span className="text-[9px] text-slate-400 uppercase">a.a.</span>
+                          </div>
+                        );
+                        return (
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm font-bold text-slate-500">{(cet.linearCET * 100).toFixed(2)}%</span>
+                            <span className="text-[9px] text-slate-400 uppercase">a.a. (lin)</span>
+                          </div>
+                        );
                       })()}
                     </td>
                     <td className="p-4 text-center text-sm">
