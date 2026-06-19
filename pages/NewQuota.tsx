@@ -264,7 +264,7 @@ const NewQuota = () => {
       acquisitionCost: formData.acquisitionCost !== undefined ? Number(formData.acquisitionCost) : undefined,
     });
 
-    if (!validation.success) {
+    if (validation.success === false) {
       setFieldErrors(validation.errors);
       const firstErrorField = Object.keys(validation.errors)[0];
       const el = document.querySelector(`[name="${firstErrorField}"]`);

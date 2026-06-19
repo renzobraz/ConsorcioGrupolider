@@ -11,23 +11,23 @@ export const quotaFormSchema = z.object({
 
   // Financeiro
   creditValue: z
-    .number({ invalid_type_error: 'Valor da carta é obrigatório' })
+    .number({ error: 'Valor da carta é obrigatório' })
     .positive('Valor da carta deve ser maior que zero'),
   termMonths: z
-    .number({ invalid_type_error: 'Prazo é obrigatório' })
+    .number({ error: 'Prazo é obrigatório' })
     .int('Prazo deve ser um número inteiro')
     .min(1, 'Prazo mínimo é 1 mês')
     .max(360, 'Prazo máximo é 360 meses'),
   adminFeeRate: z
-    .number({ invalid_type_error: 'Taxa de administração é obrigatória' })
+    .number({ error: 'Taxa de administração é obrigatória' })
     .min(0, 'Taxa não pode ser negativa')
     .max(30, 'Taxa de administração inválida (máx 30%)'),
   reserveFundRate: z
-    .number({ invalid_type_error: 'Fundo de reserva é obrigatório' })
+    .number({ error: 'Fundo de reserva é obrigatório' })
     .min(0, 'Taxa não pode ser negativa')
     .max(10, 'Fundo de reserva inválido (máx 10%)'),
   dueDay: z
-    .number({ invalid_type_error: 'Dia de vencimento é obrigatório' })
+    .number({ error: 'Dia de vencimento é obrigatório' })
     .int()
     .min(1, 'Dia inválido')
     .max(31, 'Dia inválido'),
@@ -97,7 +97,7 @@ export function parseQuotaForm(data: unknown): { success: true } | { success: fa
   if (result.success) return { success: true };
 
   const errors: QuotaFormErrors = {};
-  result.error.errors.forEach(err => {
+  result.error.issues.forEach(err => {
     const field = err.path[0] as string;
     if (field && !errors[field]) {
       errors[field] = err.message;
