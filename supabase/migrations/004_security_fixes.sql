@@ -1,17 +1,19 @@
 -- 004_security_fixes.sql
 -- Corrige avisos de segurança reportados pelo Supabase Advisor
 
--- ─── 1. Revogar EXECUTE de anon nas funções SECURITY DEFINER ─────────────────
--- Funções internas não devem ser acessíveis via REST sem autenticação
+-- ─── 1. Revogar grant PUBLIC nas funções SECURITY DEFINER ────────────────────
+-- Por padrão PostgreSQL concede EXECUTE a PUBLIC (= anon + authenticated).
+-- Revogar de roles individuais não basta — é preciso revogar do PUBLIC.
 
-REVOKE EXECUTE ON FUNCTION public.get_my_tenant_id()   FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_super_admin()     FROM anon;
-REVOKE EXECUTE ON FUNCTION public.auto_set_tenant_id() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_my_tenant_id()   FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_super_admin()     FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.auto_set_tenant_id() FROM PUBLIC;
 
--- ─── 2. Revogar EXECUTE de authenticated em auto_set_tenant_id ───────────────
--- Função de trigger exclusivamente — não deve ser chamada via RPC
+-- ─── 2. Regranar EXECUTE só para authenticated nas funções usadas por RLS ─────
+-- auto_set_tenant_id é trigger exclusivamente — não recebe grant.
 
-REVOKE EXECUTE ON FUNCTION public.auto_set_tenant_id() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_tenant_id() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_super_admin()   TO authenticated;
 
 -- ─── 3. Corrigir RLS de correction_indices ───────────────────────────────────
 -- Dado público de mercado: qualquer autenticado pode ler,
