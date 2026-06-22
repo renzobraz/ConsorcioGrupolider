@@ -43,8 +43,9 @@ Sistema de gestão de consórcios desenvolvido para o **Grupo Líder**, com aspi
 ## Estrutura do Projeto
 
 ```
-├── pages/           (26 páginas — Simulation, Reports, ExecutiveReport, 
-│                     QuotaList, Marketplace, UserManagement, Settings...)
+├── pages/           (27 páginas — Simulation/, Reports, ExecutiveReport, 
+│                     QuotaList, Marketplace, UserManagement, Settings,
+│                     TenantAdmin — acesso apenas SUPER_ADMIN)
 ├── components/      (FilterBar, EmailSettings, SendEmailModal)
 ├── services/        (calculationService.ts, supabaseClient.ts, database.ts, 
 │                     aiService.ts, supabaseValidation.test.ts)
@@ -52,7 +53,7 @@ Sistema de gestão de consórcios desenvolvido para o **Grupo Líder**, com aspi
 ├── store/           (ConsortiumContext.tsx, AuthContext.tsx)
 ├── api/             (delete-user.ts — Vercel Serverless Function)
 ├── server/          (scheduler.ts, supabase.ts — usa SUPABASE_SERVICE_ROLE_KEY)
-├── supabase/        (rls_setup.sql, rls_cleanup.sql — migrations versionadas)
+├── supabase/        (migrations/ com 001, 002, 003 — schema versionado no git)
 ├── constants/       (colunas de relatórios)
 ├── App.tsx          (router principal com sidebar e proteção de rotas)
 ├── types.ts         (tipos manuais — sem geração automática do Supabase)
@@ -67,17 +68,19 @@ Sistema de gestão de consórcios desenvolvido para o **Grupo Líder**, com aspi
 
 | Tabela | Propósito |
 |---|---|
-| `quotas` | Cotas — tabela central (~40 colunas) |
-| `payments` | Parcelas pagas por cota (FC, FR, TA, multa, juros, overrides manuais) |
-| `correction_indices` | Índices mensais: INCC, IPCA, INPC, CDI e variantes acumuladas |
-| `administrators` | Cadastro de administradoras |
-| `companies` | Empresas compradoras (CPF/CNPJ) |
-| `credit_usages` | Utilizações de crédito pós-contemplação |
-| `manual_transactions` | Aportes e rendimentos manuais por cota |
-| `credit_updates` | Atualizações manuais de valor de crédito |
-| `users` | Usuários com role (ADMIN/USER) e permissions (JSON) |
-| `smtp_config` | Config SMTP para envio de emails |
-| `scheduled_reports` | Relatórios agendados (DAILY/WEEKLY/MONTHLY) |
+| `subscription_plans` | Planos SaaS (preço, limites, features, IDs Mercado Pago) |
+| `tenants` | Tenants (clientes SaaS) com status trial/active/suspended/cancelled |
+| `quotas` | Cotas — tabela central (~40 colunas), isolada por `tenant_id` |
+| `payments` | Parcelas pagas por cota (FC, FR, TA, multa, juros, overrides manuais), isolada por `tenant_id` |
+| `correction_indices` | Índices mensais: INCC, IPCA, INPC, CDI e variantes acumuladas — dado público, **sem** isolamento por tenant |
+| `administrators` | Cadastro de administradoras, isolada por `tenant_id` |
+| `companies` | Empresas compradoras (CPF/CNPJ), isolada por `tenant_id` |
+| `credit_usages` | Utilizações de crédito pós-contemplação, isolada por `tenant_id` |
+| `manual_transactions` | Aportes e rendimentos manuais por cota, isolada por `tenant_id` |
+| `credit_updates` | Atualizações manuais de valor de crédito, isolada por `tenant_id` |
+| `users` | Usuários com role (ADMIN/USER/SUPER_ADMIN) e permissions (JSON), isolada por `tenant_id` |
+| `smtp_config` | Config SMTP para envio de emails, isolada por `tenant_id` (unique por tenant) |
+| `scheduled_reports` | Relatórios agendados (DAILY/WEEKLY/MONTHLY), isolada por `tenant_id` |
 
 ---
 
@@ -134,11 +137,15 @@ Exportadas constantes `BID_FREE_PAYMENT_KEY = 0` e `BID_EMBEDDED_PAYMENT_KEY = -
 ## Commits Recentes (ordem cronológica)
 
 ```
-09d8ca6  feat(security): valida formato URL/key Supabase em Settings + confirmação ao trocar credenciais
-d840818  chore: adiciona coverage/ ao .gitignore
-d16c904  chore: @vitest/coverage-v8 como devDependency
-ac9c0f6  fix(calculationService): corrige 4 bugs críticos via TDD (110 testes passando)
-810c501  ManagementDashboard + integração App.tsx
+4e86605  feat(saas): painel de administracao de tenants e planos de assinatura
+87fe9bc  fix(simulation): surfacea erros de gravacao de lance que eram silenciados
+eb4e7e4  perf(quota-list): memoize CET calculation per page
+9fdc66d  refactor(simulation): split Simulation.tsx (~1690 lines) into Simulation/ directory
+fad1340  chore(migrations): versiona schema inicial e policies RLS no repositório
+6fd87ea  feat(validation): Zod schema em NewQuota com erros inline por campo
+329a10e  perf: paginação em QuotaList e Reports + batch queries no buildReport
+146979f  feat(security): auditoria RLS completa + corrige server usar service role key
+09d8ca6  feat(security): valida formato URL/key Supabase em Settings
 ```
 
 ---
@@ -156,6 +163,10 @@ ac9c0f6  fix(calculationService): corrige 4 bugs críticos via TDD (110 testes p
 - Dashboard Gerencial (`ManagementDashboard.tsx`) com gráficos recharts
 - Validação de credenciais Supabase em Settings com confirmação ao trocar URL
 - Multi-tenant: cada cliente configura sua própria URL/key via tela de Settings (localStorage tem prioridade sobre env vars — comportamento intencional)
+- **Infraestrutura SaaS multi-tenant** (migration `003`): tabelas `subscription_plans` e `tenants`, coluna `tenant_id` em todas as tabelas operacionais, trigger `auto_set_tenant_id`, RLS com isolamento por tenant, funções `get_my_tenant_id()` e `is_super_admin()`
+- **Painel SUPER_ADMIN** (`TenantAdmin.tsx`): CRUD de tenants e planos de assinatura, ativação/suspensão/cancelamento de tenants
+- **Validação Zod** em `NewQuota.tsx` com erros inline por campo
+- Simulation.tsx refatorado em diretório `pages/Simulation/` com ~1690 linhas divididas em componentes
 
 ---
 
@@ -163,39 +174,31 @@ ac9c0f6  fix(calculationService): corrige 4 bugs críticos via TDD (110 testes p
 
 ### 1. ✅ Auditoria de RLS e página pública do Marketplace — CONCLUÍDO
 
-**O que foi encontrado:**
-- O Marketplace NÃO é uma página pública — todas as rotas exigem login (`Layout` retorna `<Login />` se sem usuário)
-- 11 tabelas tinham policies inseguras: `"Allow select for all"`, `"public_read_*"` etc., que concediam acesso ao role `anon` — qualquer pessoa com a `anon key` conseguia ler todos os dados via API REST diretamente
-- `server/supabase.ts` usava `SUPABASE_ANON_KEY` em vez de `SUPABASE_SERVICE_ROLE_KEY`, o que quebraria o scheduler após ativar RLS
-
 **O que foi feito:**
 - Corrigido `server/supabase.ts` para usar `SUPABASE_SERVICE_ROLE_KEY`
-- Criado `supabase/rls_setup.sql` com as policies corretas
-- Criado `supabase/rls_cleanup.sql` para remover as policies inseguras antigas
-- Aplicado no Supabase: todas as 11 tabelas agora têm `rls_enabled = true` e apenas a policy `authenticated_full_access` (acesso total para `authenticated`, zero para `anon`)
+- Criado `supabase/rls_setup.sql` + `rls_cleanup.sql`
+- Todas as 11 tabelas com RLS ativo, sem acesso anônimo
 
-**Observação futura:** `smtp_config` ainda é acessível a todos os usuários autenticados porque o frontend lê as credenciais SMTP para enviar e-mails via `/api/send-email`. Mover o envio totalmente para serverless eliminaria essa exposição.
+**Observação futura:** `smtp_config` ainda é acessível a todos os usuários autenticados. Mover envio de e-mail inteiramente para serverless eliminaria essa exposição.
 
-### 2. 🟠 Integração de gateway de pagamento
-**Decisão pendente:** escolher o gateway (Stripe, Mercado Pago, PagSeguro). A integração deve usar webhooks assinados para confirmar pagamentos no servidor — nunca confiar no frontend para confirmar aprovação de pagamento.
+### 2. 🟠 Integração de gateway de pagamento (Mercado Pago) — PENDENTE
+A migration `003` já prevê as colunas `mp_plan_id_monthly`, `mp_plan_id_yearly`, `mp_subscription_id`, `mp_preapproval_id`. Falta a integração com a API do Mercado Pago via webhooks assinados no servidor — **nunca confiar no frontend para confirmar aprovação de pagamento**.
 
 ### 3. ✅ Paginação no frontend — CONCLUÍDO
 
-**O que foi feito:**
-- `QuotaList.tsx`: paginação de UI com `PAGE_SIZE = 50`, reset automático ao filtrar/ordenar, controles de navegação.
-- `Reports.tsx`: paginação de UI com `REPORTS_PAGE_SIZE = 50`, paginação no mobile (cards) e desktop (tabela).
-- `QuotaList.tsx`: cálculo de CET Anual (`generateSchedule` + `calculateIRR`) movido para `useMemo` por página, evitando recomputação a cada re-render.
+**Risco residual:** o contexto ainda carrega todas as cotas na inicialização. Se o volume crescer para milhares de cotas por tenant, será necessário paginação server-side real (`.range()` no Supabase + refatoração do `ConsortiumContext`).
 
-**Risco residual:** o contexto ainda carrega todas as cotas na inicialização. Se o volume crescer para milhares de cotas por tenant, será necessário implementar paginação server-side real (query com `.range()` por página no Supabase + refatoração do `ConsortiumContext`).
+### 4. 🟡 Validação de entrada com Zod — PARCIALMENTE CONCLUÍDO
+Feito em `NewQuota.tsx`. Formulários ainda sem Zod: Settings, Administrators, Companies, UserManagement.
 
-### 4. 🟡 Validação de entrada com Zod
-Formulários principais sem validação de schema (só checagens ad-hoc inline). Especialmente crítico nos formulários que alimentam o `calculationService.ts`.
+### 5. ✅ Migrations versionadas no repositório — CONCLUÍDO
+`supabase/migrations/` com `001_initial_schema.sql`, `002_rls_policies.sql`, `003_saas_tenants.sql`.
 
-### 5. 🟡 Migrations versionadas no repositório
-Schema só existe no Supabase Cloud, sem histórico no Git. Risco de perda de rastreabilidade.
+### 6. ✅ Refatorar Simulation.tsx — CONCLUÍDO
+Dividido em `pages/Simulation/` com múltiplos componentes.
 
-### 6. 🟡 Refatorar Simulation.tsx
-~2.500 linhas misturando UI, cálculo e estado. Vale extrair lógica para serviço testável.
+### 7. ✅ Infraestrutura SaaS multi-tenant — CONCLUÍDO
+Migration `003` aplicada. Painel `TenantAdmin.tsx` implementado. Roles `SUPER_ADMIN` adicionado.
 
 ---
 
