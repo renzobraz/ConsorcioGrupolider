@@ -391,21 +391,26 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPayments(updatedPayments);
 
     // 2. Save to DB
+    let dbSaveError: any = null;
     try {
       await db.savePayment(currentQuota.id, installmentNumber, mergedData);
     } catch (err: any) {
-      console.error("Failed to save payment", err);
+      dbSaveError = err;
+      const isBidPayment = installmentNumber <= 0;
+      console.error(`Failed to save ${isBidPayment ? 'BID' : ''} payment (installment=${installmentNumber}):`, err);
       if (db.isCloudEnabled()) {
         setConnectionError(err.message || "Erro ao salvar pagamento");
       }
-      // Note: We keep the local state updated even if DB save fails for better UX,
-      // but in a production app we might want to revert or show a retry button.
     }
 
     // 3. Re-generate Schedule
     const schedule = generateSchedule({ ...currentQuota, manualTransactions }, indices, updatedPayments, undefined, projectionConfig);
     setInstallments(schedule);
-    setConnectionError(null);
+    // Only clear the error badge if this save succeeded — do not hide a real failure
+    if (!dbSaveError) setConnectionError(null);
+
+    // Re-throw so callers (e.g. savePaymentModal) can show a proper alert to the user
+    if (dbSaveError) throw dbSaveError;
 
   }, [currentQuota, installments, indices, payments, manualTransactions, projectionConfig]); // dependencies
 

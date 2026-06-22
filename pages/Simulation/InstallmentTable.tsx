@@ -17,7 +17,7 @@ interface InstallmentTableProps {
   installments: PaymentInstallment[];
   payments: Record<number, any>;
   footerTotals: FooterTotals;
-  updateInstallmentPayment: (num: number, data: any) => void;
+  updateInstallmentPayment: (num: number, data: any) => Promise<void>;
   openPaymentModal: (inst: any, isBid?: boolean, isEmbedded?: boolean) => void;
   onEditManualTx: (txId: string) => void;
   onDeleteManualTx: (txId: string) => void;
@@ -50,7 +50,7 @@ const InstallmentTable: React.FC<InstallmentTableProps> = ({
       else if (f === 'interest') update.interest = val;
       else if (f === 'insurance') update.insurance = val;
       else if (f === 'amortization') update.amortization = val;
-      updateInstallmentPayment(installmentNum, update);
+      updateInstallmentPayment(installmentNum, update).catch(console.error);
     }
     setEditingCell(null);
   };
