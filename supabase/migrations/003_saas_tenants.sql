@@ -89,7 +89,7 @@ UPDATE scheduled_reports   SET tenant_id = '00000000-0000-0000-0000-000000000001
 -- Promover renzo para SUPER_ADMIN
 UPDATE public.users
 SET role = 'SUPER_ADMIN'
-WHERE id = (SELECT id FROM auth.users WHERE email = 'renzo.braz@grupolider.com.br' LIMIT 1);
+WHERE id = (SELECT id::text FROM auth.users WHERE email = 'renzo.braz@grupolider.com.br' LIMIT 1);
 
 -- ─── 5. Funções auxiliares ────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT tenant_id FROM public.users WHERE id = auth.uid()
+  SELECT tenant_id FROM public.users WHERE id = auth.uid()::text
 $$;
 
 -- Verifica se o usuário autenticado é SUPER_ADMIN
@@ -114,7 +114,7 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.users
-    WHERE id = auth.uid() AND role = 'SUPER_ADMIN'
+    WHERE id = auth.uid()::text AND role = 'SUPER_ADMIN'
   )
 $$;
 
