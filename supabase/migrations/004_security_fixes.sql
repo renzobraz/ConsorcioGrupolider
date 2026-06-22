@@ -19,7 +19,9 @@ GRANT EXECUTE ON FUNCTION public.is_super_admin()   TO authenticated;
 -- Dado público de mercado: qualquer autenticado pode ler,
 -- mas escrita restrita a SUPER_ADMIN (evita adulteração de índices)
 
-DROP POLICY IF EXISTS authenticated_full_access ON public.correction_indices;
+DROP POLICY IF EXISTS authenticated_full_access  ON public.correction_indices;
+DROP POLICY IF EXISTS correction_indices_read    ON public.correction_indices;
+DROP POLICY IF EXISTS correction_indices_write   ON public.correction_indices;
 
 CREATE POLICY correction_indices_read ON public.correction_indices
   FOR SELECT TO authenticated USING (true);
