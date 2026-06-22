@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
-import { 
-  LayoutDashboard, PlusCircle, Table, Calculator, Menu, X, PiggyBank, 
-  List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp, 
-  AlertCircle, FileBarChart, Building2, Briefcase, BookOpen, 
+import {
+  LayoutDashboard, PlusCircle, Table, Calculator, Menu, X, PiggyBank,
+  List, Settings as SettingsIcon, Cloud, CloudOff, TrendingUp,
+  AlertCircle, FileBarChart, Building2, Briefcase, BookOpen,
   ShoppingBag, FileText, ChevronLeft, ChevronRight, CalendarDays,
   CalendarClock, Tag, ShieldCheck, ChevronDown,
-  Activity, Loader, CheckCircle 
+  Activity, Loader, CheckCircle, Server
 } from 'lucide-react';
 
 // Components
@@ -37,9 +37,11 @@ import ExecutiveReport from './pages/ExecutiveReport';
 import Login from './pages/Login';
 import UserManagement from './pages/UserManagement';
 import ResetPassword from './pages/ResetPassword';
+import TenantAdmin from './pages/TenantAdmin';
 import { ConsortiumProvider, useConsortium } from './store/ConsortiumContext';
 import { AuthProvider, useAuth } from './store/AuthContext';
 import { db } from './services/database';
+import { UserRole } from './types';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -51,6 +53,7 @@ interface SidebarProps {
 const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarProps) => {
   const location = useLocation();
   const { hasPermission, isAdmin, user } = useAuth();
+  const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
   const [isQuotasOpen, setIsQuotasOpen] = useState(() => {
     return location.pathname === '/quotas' || location.pathname === '/new' || location.pathname.startsWith('/edit/');
   });
@@ -95,6 +98,7 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
 
   const backofficeItems = [
     { to: "/admin/moderation", icon: <ShieldCheck size={20} />, label: "Moderação de Anúncios", show: isAdmin },
+    { to: "/admin/tenants", icon: <Server size={20} />, label: "Plataforma SaaS", show: isSuperAdmin },
   ].filter(item => item.show);
 
   const systemItems = [
@@ -515,6 +519,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     if (pathname === '/users') return 'Usuários';
     if (pathname.startsWith('/negotiation/')) return 'Sala de Negociação';
     if (pathname === '/admin/moderation') return 'Moderação de Anúncios';
+    if (pathname === '/admin/tenants') return 'Plataforma SaaS';
     return 'Painel Administrativo';
   };
 
@@ -630,6 +635,7 @@ const App = () => {
               <Route path="/marketplace" element={<ProtectedRoute permission="marketplace"><Marketplace /></ProtectedRoute>} />
               <Route path="/negotiation/:id" element={<ProtectedRoute permission="marketplace"><NegotiationRoom /></ProtectedRoute>} />
               <Route path="/admin/moderation" element={<ProtectedRoute><AdModeration /></ProtectedRoute>} />
+              <Route path="/admin/tenants" element={<ProtectedRoute><TenantAdmin /></ProtectedRoute>} />
               <Route path="/quotas" element={<ProtectedRoute permission="minhas_cotas"><QuotaList /></ProtectedRoute>} />
               <Route path="/new" element={<ProtectedRoute permission="minhas_cotas"><NewQuota /></ProtectedRoute>} />
               <Route path="/edit/:id" element={<ProtectedRoute permission="minhas_cotas"><NewQuota /></ProtectedRoute>} />

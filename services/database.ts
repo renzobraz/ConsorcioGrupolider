@@ -1,5 +1,5 @@
 
-import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate, SMTPConfig } from '../types';
+import { Quota, MonthlyIndex, Administrator, Company, CreditUsageEntry, User, CalculationMethod, ManualTransaction, CreditUpdate, SMTPConfig, Tenant, SubscriptionPlan } from '../types';
 import { getSupabase } from './supabaseClient';
 
 const DB_KEY = 'consortium_quotas_db';
@@ -21,6 +21,7 @@ const toDbUser = (u: User) => ({
   permissions: u.permissions,
   is_active: u.isActive,
   company_id: u.companyId,
+  tenant_id: u.tenantId,
 });
 
 const fromDbUser = (dbU: any): User => ({
@@ -31,6 +32,38 @@ const fromDbUser = (dbU: any): User => ({
   permissions: dbU.permissions,
   isActive: dbU.is_active,
   companyId: dbU.company_id,
+  tenantId: dbU.tenant_id,
+});
+
+const fromDbPlan = (d: any): SubscriptionPlan => ({
+  id: d.id,
+  name: d.name,
+  description: d.description,
+  priceMonthly: Number(d.price_monthly),
+  priceYearly: Number(d.price_yearly),
+  maxQuotas: d.max_quotas,
+  maxUsers: d.max_users,
+  features: d.features || [],
+  isActive: d.is_active,
+  mpPlanIdMonthly: d.mp_plan_id_monthly,
+  mpPlanIdYearly: d.mp_plan_id_yearly,
+  createdAt: d.created_at,
+});
+
+const fromDbTenant = (d: any): Tenant => ({
+  id: d.id,
+  name: d.name,
+  document: d.document,
+  email: d.email,
+  planId: d.plan_id,
+  status: d.status,
+  gracePeriodDays: d.grace_period_days,
+  trialEndsAt: d.trial_ends_at,
+  currentPeriodStart: d.current_period_start,
+  currentPeriodEnd: d.current_period_end,
+  mpSubscriptionId: d.mp_subscription_id,
+  mpPreapprovalId: d.mp_preapproval_id,
+  createdAt: d.created_at,
 });
 
 const toDbQuota = (q: Quota) => ({
@@ -880,7 +913,7 @@ export const db = {
     const supabase = getSupabase();
     if (supabase) {
       const payload = {
-        id: config.id || 'default',
+        id: config.id || crypto.randomUUID(),
         host: config.host,
         port: config.port,
         secure: config.secure,
@@ -890,7 +923,9 @@ export const db = {
         from_email: config.fromEmail,
         report_recipient: config.reportRecipient
       };
-      const { error } = await supabase.from('smtp_config').upsert(payload);
+      const { error } = await supabase
+        .from('smtp_config')
+        .upsert(payload, { onConflict: 'tenant_id' });
       if (error) {
         if (error.message.includes('schema cache') || error.message.includes('does not exist')) {
           console.warn('SMTP config table not found in Supabase. Saving to local storage as fallback.');
@@ -1245,5 +1280,110 @@ export const db = {
         return acc;
       }, {} as any)
     };
-  }
+  },
+
+  // ─── Subscription Plans ───────────────────────────────────────────────────
+
+  getSubscriptionPlans: async (): Promise<SubscriptionPlan[]> => {
+    const supabase = getSupabase();
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .order('created_at');
+    if (error) throw new Error(error.message);
+    return (data || []).map(fromDbPlan);
+  },
+
+  saveSubscriptionPlan: async (plan: Partial<SubscriptionPlan> & { name: string }): Promise<SubscriptionPlan> => {
+    const supabase = getSupabase();
+    if (!supabase) throw new Error('Supabase não configurado');
+    const payload = {
+      name: plan.name,
+      description: plan.description ?? null,
+      price_monthly: plan.priceMonthly ?? 0,
+      price_yearly: plan.priceYearly ?? 0,
+      max_quotas: plan.maxQuotas ?? null,
+      max_users: plan.maxUsers ?? 10,
+      features: plan.features ?? [],
+      is_active: plan.isActive ?? true,
+      mp_plan_id_monthly: plan.mpPlanIdMonthly ?? null,
+      mp_plan_id_yearly: plan.mpPlanIdYearly ?? null,
+    };
+    if (plan.id) {
+      const { data, error } = await supabase
+        .from('subscription_plans')
+        .update(payload)
+        .eq('id', plan.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return fromDbPlan(data);
+    } else {
+      const { data, error } = await supabase
+        .from('subscription_plans')
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return fromDbPlan(data);
+    }
+  },
+
+  // ─── Tenants ──────────────────────────────────────────────────────────────
+
+  getTenants: async (): Promise<Tenant[]> => {
+    const supabase = getSupabase();
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('tenants')
+      .select('*')
+      .order('created_at');
+    if (error) throw new Error(error.message);
+    return (data || []).map(fromDbTenant);
+  },
+
+  saveTenant: async (tenant: Partial<Tenant> & { name: string; email: string }): Promise<Tenant> => {
+    const supabase = getSupabase();
+    if (!supabase) throw new Error('Supabase não configurado');
+    const payload = {
+      name: tenant.name,
+      document: tenant.document ?? null,
+      email: tenant.email,
+      plan_id: tenant.planId ?? null,
+      status: tenant.status ?? 'trial',
+      grace_period_days: tenant.gracePeriodDays ?? 7,
+      trial_ends_at: tenant.trialEndsAt ?? null,
+      current_period_start: tenant.currentPeriodStart ?? null,
+      current_period_end: tenant.currentPeriodEnd ?? null,
+    };
+    if (tenant.id) {
+      const { data, error } = await supabase
+        .from('tenants')
+        .update(payload)
+        .eq('id', tenant.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return fromDbTenant(data);
+    } else {
+      const { data, error } = await supabase
+        .from('tenants')
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return fromDbTenant(data);
+    }
+  },
+
+  updateTenantStatus: async (id: string, status: Tenant['status']): Promise<void> => {
+    const supabase = getSupabase();
+    if (!supabase) throw new Error('Supabase não configurado');
+    const { error } = await supabase
+      .from('tenants')
+      .update({ status })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+  },
 };

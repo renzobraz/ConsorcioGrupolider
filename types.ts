@@ -5,8 +5,42 @@ export enum ProductType {
 }
 
 export enum UserRole {
+  SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
   USER = 'USER'
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  priceMonthly: number;
+  priceYearly: number;
+  maxQuotas: number | null;
+  maxUsers: number;
+  features: string[];
+  isActive: boolean;
+  mpPlanIdMonthly: string | null;
+  mpPlanIdYearly: string | null;
+  createdAt: string;
+}
+
+export type TenantStatus = 'trial' | 'active' | 'suspended' | 'cancelled';
+
+export interface Tenant {
+  id: string;
+  name: string;
+  document: string | null;
+  email: string;
+  planId: string | null;
+  status: TenantStatus;
+  gracePeriodDays: number;
+  trialEndsAt: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  mpSubscriptionId: string | null;
+  mpPreapprovalId: string | null;
+  createdAt: string;
 }
 
 export interface UserPermissions {
@@ -35,7 +69,8 @@ export interface User {
   role: UserRole;
   permissions: UserPermissions;
   isActive: boolean;
-  companyId?: string; // ID da empresa principal do usuário
+  companyId?: string;
+  tenantId?: string;
 }
 
 export enum CorrectionIndex {
