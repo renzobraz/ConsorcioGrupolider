@@ -235,20 +235,23 @@ const Sidebar = ({ isOpen, isCollapsed, toggleMobile, toggleCollapse }: SidebarP
           )}
         </div>
 
-        <div className={`my-4 border-t border-slate-800 transition-all ${isCollapsed ? 'mx-2' : 'mx-1'}`}></div>
-        {!isCollapsed && <p className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Cadastros</p>}
-
-        {registryItems.map((item) => (
-          <Link 
-            key={item.to} 
-            to={item.to} 
-            title={isCollapsed ? item.label : ""}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive(item.to)} ${isCollapsed ? 'justify-center' : ''}`}
-          >
-            <span className="shrink-0">{item.icon}</span>
-            {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
-          </Link>
-        ))}
+        {registryItems.length > 0 && (
+          <>
+            <div className={`my-4 border-t border-slate-800 transition-all ${isCollapsed ? 'mx-2' : 'mx-1'}`}></div>
+            {!isCollapsed && <p className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Cadastros</p>}
+            {registryItems.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                title={isCollapsed ? item.label : ""}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive(item.to)} ${isCollapsed ? 'justify-center' : ''}`}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                {!isCollapsed && <span className="font-medium text-sm truncate">{item.label}</span>}
+              </Link>
+            ))}
+          </>
+        )}
 
         {backofficeItems.length > 0 && (
           <>

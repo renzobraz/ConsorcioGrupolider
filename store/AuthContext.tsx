@@ -32,12 +32,20 @@ const fetchUserProfile = async (uid: string, email?: string): Promise<User | nul
       role: data.role as UserRole,
       isActive: data.is_active ?? data.isActive ?? true,
       permissions: data.permissions ?? {
-        canViewDashboard: true,
-        canManageQuotas: false,
-        canSimulate: true,
-        canViewReports: false,
-        canManageSettings: false,
-        canMarkQuotas: false,
+        dashboard: true,
+        marketplace: false,
+        minhas_cotas: false,
+        simulador_extrato: true,
+        gestao_creditos: false,
+        calculadora_avulsa: true,
+        relatorios_inadimplencia: false,
+        relatorios_assembleia: false,
+        relatorios_contemplados: false,
+        relatorios_agendados: false,
+        cadastro_administradoras: false,
+        cadastro_empresas: false,
+        cadastro_indices: false,
+        usuarios: false,
         allowedCompanyIds: [],
       },
     };
@@ -83,12 +91,20 @@ const fetchUserProfile = async (uid: string, email?: string): Promise<User | nul
         role: UserRole.ADMIN,
         is_active: true,
         permissions: {
-          canViewDashboard: true,
-          canManageQuotas: true,
-          canSimulate: true,
-          canViewReports: true,
-          canManageSettings: true,
-          canMarkQuotas: true,
+          dashboard: true,
+          marketplace: true,
+          minhas_cotas: true,
+          simulador_extrato: true,
+          gestao_creditos: true,
+          calculadora_avulsa: true,
+          relatorios_inadimplencia: true,
+          relatorios_assembleia: true,
+          relatorios_contemplados: true,
+          relatorios_agendados: true,
+          cadastro_administradoras: true,
+          cadastro_empresas: true,
+          cadastro_indices: true,
+          usuarios: true,
           allowedCompanyIds: [],
         }
       };
@@ -195,12 +211,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = (permission: keyof User['permissions']) => {
     if (!user) return false;
-    if (user.role === UserRole.ADMIN) return true;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN) return true;
     return !!user.permissions[permission];
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, hasPermission, isAdmin: user?.role === UserRole.ADMIN, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, hasPermission, isAdmin: user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
