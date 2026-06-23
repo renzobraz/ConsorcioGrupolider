@@ -88,7 +88,10 @@ const QuotaList = () => {
     
     const matchesProduct = !globalFilters.productType || qProduct === globalFilters.productType;
 
-    return matchesSearch && matchesAdmin && matchesCompany && matchesProduct;
+    const matchesStatus = !globalFilters.status ||
+      (globalFilters.status === 'CONTEMPLATED' ? q.isContemplated === true : q.isContemplated !== true);
+
+    return matchesSearch && matchesAdmin && matchesCompany && matchesProduct && matchesStatus;
   });
 
   const sortedQuotas = [...filteredQuotas].sort((a, b) => {
