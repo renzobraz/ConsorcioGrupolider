@@ -271,15 +271,17 @@ const NewQuota = () => {
       adminFeeRate: Number(formData.adminFeeRate) || 0,
       reserveFundRate: Number(formData.reserveFundRate) || 0,
       dueDay: Number(formData.dueDay) || 0,
-      indexReferenceMonth: Number(formData.indexReferenceMonth) || 0,
+      indexReferenceMonth: Number(formData.indexReferenceMonth) || 1,
       bidFree: Number(formData.bidFree) || 0,
       bidEmbedded: Number(formData.bidEmbedded) || 0,
+      contemplationDate: formData.contemplationDate || null,
       assumedInstallment: formData.assumedInstallment !== undefined ? Number(formData.assumedInstallment) : undefined,
       prePaidFCPercent: formData.prePaidFCPercent !== undefined ? Number(formData.prePaidFCPercent) : undefined,
       acquisitionCost: formData.acquisitionCost !== undefined ? Number(formData.acquisitionCost) : undefined,
     });
 
     if (validation.success === false) {
+      console.error('[NewQuota] Validation failed:', validation.errors);
       setFieldErrors(validation.errors);
       const firstErrorField = Object.keys(validation.errors)[0];
       const el = document.querySelector(`[name="${firstErrorField}"]`);
@@ -387,7 +389,7 @@ const NewQuota = () => {
     try {
       if (id) {
         await updateQuota(quotaData);
-        alert("Cota atualizada com sucesso!");
+        navigate('/quotas');
       } else {
         await addQuota(quotaData);
         navigate('/quotas');
@@ -476,7 +478,7 @@ const NewQuota = () => {
   return (
     <div className="max-w-4xl mx-auto pt-4">
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <form onSubmit={handleSubmit} noValidate className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="mb-8 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="text-blue-600" size={20} />
