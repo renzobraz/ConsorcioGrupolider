@@ -136,20 +136,32 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const migrateQuotas = useCallback(async (quotasToMigrate: Quota[]) => {
     console.log(`Iniciando migração de ${quotasToMigrate.length} cotas...`);
+
+    const patches: { id: string; indexReferenceMonth: number }[] = [];
     for (const q of quotasToMigrate) {
       const anchorDate = q.firstAssemblyDate || q.adhesionDate || q.firstDueDate;
       if (anchorDate) {
-        const refMonth = calculateIndexReferenceMonth(anchorDate);
-        try {
-          await db.saveQuota({ ...q, indexReferenceMonth: refMonth });
-        } catch (err) {
-          console.error(`Falha ao migrar cota ${q.id}:`, err);
-        }
+        patches.push({ id: q.id, indexReferenceMonth: calculateIndexReferenceMonth(anchorDate) });
       }
     }
-    // Recarrega os dados após a migração silenciosa
-    const updatedQuotas = await db.getQuotas();
-    setQuotas(updatedQuotas);
+
+    for (const patch of patches) {
+      try {
+        await db.patchQuotaIndexMonth(patch.id, patch.indexReferenceMonth);
+      } catch (err) {
+        console.error(`Falha ao migrar cota ${patch.id}:`, err);
+      }
+    }
+
+    // Atualiza apenas o campo migrado no estado local — não recarrega tudo do banco
+    // para não sobrescrever edições otimistas que o usuário possa ter feito.
+    setQuotas(prev => prev.map(q => {
+      const patch = patches.find(p => p.id === q.id);
+      if (patch && (q.indexReferenceMonth === undefined || q.indexReferenceMonth === null)) {
+        return { ...q, indexReferenceMonth: patch.indexReferenceMonth };
+      }
+      return q;
+    }));
   }, []);
 
   const refreshData = useCallback(async () => {
@@ -265,12 +277,8 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await db.saveQuota(quota);
     } catch (err: any) {
       console.error("Failed to save quota to DB", err);
-      if (db.isCloudEnabled()) {
-         // Throw specific errors for UI handling
-         throw err;
-      }
-      await refreshData(); // Revert optimistic update if needed
-      throw err; 
+      await refreshData(); // Reverte o optimistic update (nuvem e local)
+      throw err;
     }
   }, [refreshData]);
 

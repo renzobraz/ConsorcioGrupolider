@@ -103,6 +103,7 @@ const toDbQuota = (q: Quota) => ({
   anticipate_correction_month: q.anticipateCorrectionMonth || false,
   prioritize_fees_in_bid: q.prioritizeFeesInBid || false,
   is_draw_contemplation: q.isDrawContemplation || false,
+  stop_credit_correction: q.stopCreditCorrection !== undefined ? q.stopCreditCorrection : true,
   contract_file_url: q.contractFileUrl || null,
   is_announced: q.isAnnounced || false,
   announced_at: q.announcedAt || null,
@@ -152,6 +153,7 @@ const fromDbQuota = (dbQ: any): Quota => ({
   anticipateCorrectionMonth: dbQ.anticipate_correction_month || false,
   prioritizeFeesInBid: dbQ.prioritize_fees_in_bid || false,
   isDrawContemplation: dbQ.is_draw_contemplation || false,
+  stopCreditCorrection: dbQ.stop_credit_correction !== undefined ? Boolean(dbQ.stop_credit_correction) : true,
   contractFileUrl: dbQ.contract_file_url,
   isAnnounced: dbQ.is_announced || false,
   announcedAt: dbQ.announced_at,
@@ -324,6 +326,24 @@ export const db = {
       if (existingIndex >= 0) quotas[existingIndex] = quota;
       else quotas.push(quota);
       localStorage.setItem(DB_KEY, JSON.stringify(quotas));
+    }
+  },
+
+  patchQuotaIndexMonth: async (id: string, indexReferenceMonth: number): Promise<void> => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { error } = await supabase
+        .from('quotas')
+        .update({ index_reference_month: indexReferenceMonth })
+        .eq('id', id);
+      if (error) throw new Error(error.message);
+    } else {
+      const quotas = JSON.parse(localStorage.getItem(DB_KEY) || '[]');
+      const idx = quotas.findIndex((q: any) => q.id === id);
+      if (idx >= 0) {
+        quotas[idx] = { ...quotas[idx], indexReferenceMonth };
+        localStorage.setItem(DB_KEY, JSON.stringify(quotas));
+      }
     }
   },
 

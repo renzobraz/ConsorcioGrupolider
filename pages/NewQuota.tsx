@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useConsortium } from '../store/ConsortiumContext';
 import { Quota, ProductType, CorrectionIndex, PaymentPlanType, BidBaseType, CalculationMethod, IndexTableEntry } from '../types';
@@ -18,6 +18,8 @@ const NewQuota = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [displayCreditValue, setDisplayCreditValue] = useState('');
   const [isManualMonth, setIsManualMonth] = useState(false);
+  const quotaFormInitialized = useRef(false);
+  const initForId = useRef<string | undefined>(undefined);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<QuotaFormErrors>({});
@@ -63,6 +65,17 @@ const NewQuota = () => {
 
   useEffect(() => {
     const targetId = id || replicateId;
+
+    // Reseta o flag quando o usuário navega para uma cota diferente
+    if (initForId.current !== targetId) {
+      quotaFormInitialized.current = false;
+      initForId.current = targetId;
+    }
+
+    // Não reinicializa o formulário após a primeira carga — evita que
+    // operações em background (ex: migrateQuotas) resetem o que o usuário editou.
+    if (quotaFormInitialized.current) return;
+
     if (targetId) {
       const existingQuota = getQuotaById(targetId);
       if (existingQuota) {
@@ -97,6 +110,8 @@ const NewQuota = () => {
         if (existingQuota.indexReferenceMonth !== undefined && existingQuota.indexReferenceMonth !== null) {
           setIsManualMonth(true);
         }
+
+        quotaFormInitialized.current = true;
       } else {
         navigate('/quotas');
       }
@@ -364,6 +379,8 @@ const NewQuota = () => {
       recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
       anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
       prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
+      isDrawContemplation: Boolean(formData.isDrawContemplation),
+      stopCreditCorrection: formData.stopCreditCorrection !== undefined ? Boolean(formData.stopCreditCorrection) : true,
       indexReferenceMonth: Number(formData.indexReferenceMonth || 1),
       contractFileUrl: contractUrl
     };
@@ -439,6 +456,8 @@ const NewQuota = () => {
         recalculateBalanceAfterHalfOrContemplation: Boolean(formData.recalculateBalanceAfterHalfOrContemplation),
         anticipateCorrectionMonth: Boolean(formData.anticipateCorrectionMonth),
         prioritizeFeesInBid: Boolean(formData.prioritizeFeesInBid),
+        isDrawContemplation: Boolean(formData.isDrawContemplation),
+        stopCreditCorrection: formData.stopCreditCorrection !== undefined ? Boolean(formData.stopCreditCorrection) : true,
         indexReferenceMonth: Number(formData.indexReferenceMonth || 1),
         contractFileUrl: contractUrl
       };
