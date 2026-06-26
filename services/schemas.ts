@@ -50,7 +50,7 @@ export const quotaFormSchema = z.object({
 
   // Contemplação
   isContemplated: z.boolean(),
-  contemplationDate: z.string().optional(),
+  contemplationDate: z.string().nullish(),
 
   // Transferência
   acquiredFromThirdParty: z.boolean().default(false),
