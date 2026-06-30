@@ -285,7 +285,13 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateQuota = useCallback(async (quota: Quota) => {
      try {
        await addQuota(quota);
-       setCurrentQuotaState(prev => prev && prev.id === quota.id ? quota : prev);
+       setCurrentQuotaState(prev => {
+         if (prev && prev.id === quota.id) {
+           localStorage.setItem('current_quota', JSON.stringify(quota));
+           return quota;
+         }
+         return prev;
+       });
      } catch (err) {
        throw err;
      }
