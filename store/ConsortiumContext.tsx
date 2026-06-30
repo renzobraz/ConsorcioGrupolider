@@ -370,11 +370,18 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [indices]);
 
   // Restore current quota data on mount if persisted - Only if user is authenticated
+  // Also refreshes schedule when quotas reload from DB, fixing stale localStorage data
   useEffect(() => {
-    if (user && currentQuota && installments.length === 0 && !isLoading) {
-      setCurrentQuota(currentQuota);
+    if (!user || !currentQuota || isLoading) return;
+    const fresh = quotas.find(q => q.id === currentQuota.id);
+    if (installments.length === 0) {
+      // Initial restore: prefer fresh DB data if available, else use localStorage
+      setCurrentQuota(fresh || currentQuota);
+    } else if (fresh && JSON.stringify(fresh) !== JSON.stringify(currentQuota)) {
+      // Quotas refreshed from DB with new data (e.g. stale localStorage) - regenerate schedule
+      setCurrentQuota(fresh);
     }
-  }, [user, currentQuota, installments.length, isLoading, setCurrentQuota]);
+  }, [user, currentQuota?.id, installments.length, isLoading, setCurrentQuota, quotas]);
 
   const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, manualEarnings?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;
