@@ -114,7 +114,9 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [allCreditUpdates, setAllCreditUpdates] = useState<CreditUpdate[]>([]);
   const [smtpConfig, setSmtpConfig] = useState<SMTPConfig | null>(null);
   const [scheduledReports, setScheduledReports] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
+  const [isLoadingQuota, setIsLoadingQuota] = useState(false);
+  const isLoading = isRefreshingData || isLoadingQuota;
   const [isCloudConnected, setIsCloudConnected] = useState(() => db.isCloudEnabled());
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [projectionConfig, setProjectionConfig] = useState<ProjectionConfig>({
@@ -166,7 +168,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const refreshData = useCallback(async () => {
     if (!user) return;
-    setIsLoading(true);
+    setIsRefreshingData(true);
     setConnectionError(null);
     const isCloud = db.isCloudEnabled();
     setIsCloudConnected(isCloud);
@@ -236,7 +238,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.error("Critical Data Load Failure:", err);
       // connectionError already set above if quota load failed
     } finally {
-      setIsLoading(false);
+      setIsRefreshingData(false);
     }
   }, [user, isAdmin, migrateQuotas]);
 
@@ -330,23 +332,25 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentQuotaState(quota);
     if (quota) {
       localStorage.setItem('current_quota', JSON.stringify(quota));
-      setIsLoading(true);
-      
-      try {
-        let savedPayments: Record<number, any> = {};
-        try {
-           savedPayments = await db.getPayments(quota.id);
-        } catch(e) {
-           console.warn("Could not load payments", e);
-        }
+      setIsLoadingQuota(true);
 
-        let manualTransactions: ManualTransaction[] = [];
-        try {
-          manualTransactions = await db.getManualTransactions(quota.id);
-        } catch (e) {
-          console.warn("Could not load manual transactions", e);
-        }
-        
+      try {
+        // Parallel fetch — cuts worst-case wait from 60s to 30s
+        const [paymentsResult, txResult] = await Promise.allSettled([
+          db.getPayments(quota.id),
+          db.getManualTransactions(quota.id),
+        ]);
+
+        const savedPayments: Record<number, any> =
+          paymentsResult.status === 'fulfilled' ? paymentsResult.value : {};
+        const manualTransactions: ManualTransaction[] =
+          txResult.status === 'fulfilled' ? txResult.value : [];
+
+        if (paymentsResult.status === 'rejected')
+          console.warn("Could not load payments", paymentsResult.reason);
+        if (txResult.status === 'rejected')
+          console.warn("Could not load manual transactions", txResult.reason);
+
         setPayments(savedPayments);
         setManualTransactions(manualTransactions);
         const schedule = generateSchedule({ ...quota, manualTransactions }, indices, savedPayments, undefined, projectionConfig);
@@ -360,7 +364,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // Fallback to basic schedule
         setInstallments(generateSchedule(quota, indices, {}, undefined, projectionConfig));
       } finally {
-         setIsLoading(false);
+         setIsLoadingQuota(false);
       }
     } else {
       setInstallments([]);
@@ -370,9 +374,11 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [indices]);
 
   // Restore current quota data on mount if persisted - Only if user is authenticated
-  // Also refreshes schedule when quotas reload from DB, fixing stale localStorage data
+  // Also refreshes schedule when quotas reload from DB, fixing stale localStorage data.
+  // Depends on isRefreshingData (not isLoadingQuota) so that a quota load finishing does
+  // not re-trigger this effect — avoids the isLoading true→false→true→false cascade.
   useEffect(() => {
-    if (!user || !currentQuota || isLoading) return;
+    if (!user || !currentQuota || isRefreshingData || isLoadingQuota) return;
     const fresh = quotas.find(q => q.id === currentQuota.id);
     if (installments.length === 0) {
       // Initial restore: prefer fresh DB data if available, else use localStorage
@@ -381,7 +387,7 @@ export const ConsortiumProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Quotas refreshed from DB with new data (e.g. stale localStorage) - regenerate schedule
       setCurrentQuota(fresh);
     }
-  }, [user, currentQuota?.id, installments.length, isLoading, setCurrentQuota, quotas]);
+  }, [user, currentQuota?.id, installments.length, isRefreshingData, setCurrentQuota, quotas]);
 
   const updateInstallmentPayment = useCallback(async (installmentNumber: number, data: { amount?: number, fc?: number, fr?: number, ta?: number, fine?: number, interest?: number, insurance?: number, amortization?: number, manualEarnings?: number, status?: string, paymentDate?: string }) => {
     if (!currentQuota) return;
